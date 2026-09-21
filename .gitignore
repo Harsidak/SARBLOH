@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Run artefacts (regenerable, large) ---
+runs/
+*.log
+scorecards/
+recordings/
+scores/
+
+# --- Archive bulk: kept on disk, not in history (see GIT_SETUP.md) ---
+_archive/runs/
+_archive/logs/
+
+# --- Third-party clones: referenced, never distributed ---
+resources/repos/*
+!resources/repos/README.md
+!resources/repos/*.meta.yaml
+
+# --- Large binaries ---
+*.pkl
+*.npz
+*.pt
+*.safetensors
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Explicitly TRACKED despite rules above ---
+!eval/splits/*.json
+!history/ledger.jsonl
+!experiments/**/results.json

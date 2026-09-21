@@ -1,0 +1,158 @@
+{
+ "when": "2026-08-08 02:22:17",
+ "wall_s": 469.0,
+ "green": 16,
+ "total": 16,
+ "checks": 1313,
+ "new_warnings": [],
+ "rows": [
+  {
+   "suite": "test_churn.py",
+   "exit": 0,
+   "secs": 207.9,
+   "checks": 29,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_clickplanner.py",
+   "exit": 0,
+   "secs": 223.9,
+   "checks": 109,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_components.py",
+   "exit": 0,
+   "secs": 349.3,
+   "checks": 22,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_execplanner.py",
+   "exit": 0,
+   "secs": 185.7,
+   "checks": 68,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_eyes.py",
+   "exit": 0,
+   "secs": 220.0,
+   "checks": 38,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_goalmodel.py",
+   "exit": 0,
+   "secs": 221.1,
+   "checks": 119,
+   "fails": 0,
+   "fail_names": [],
+   "warns": [
+    "genuine_coordinate_that_moves_every_step_reads_as_a_clock"
+   ]
+  },
+  {
+   "suite": "test_griddsl.py",
+   "exit": 0,
+   "secs": 218.1,
+   "checks": 231,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_livelock.py",
+   "exit": 0,
+   "secs": 227.1,
+   "checks": 127,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_llm_repair.py",
+   "exit": 0,
+   "secs": 209.4,
+   "checks": 76,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_metrics.py",
+   "exit": 0,
+   "secs": 8.1,
+   "checks": 46,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_progress.py",
+   "exit": 0,
+   "secs": 229.2,
+   "checks": 110,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_replay.py",
+   "exit": 0,
+   "secs": 205.0,
+   "checks": 54,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_scorecard.py",
+   "exit": 0,
+   "secs": 9.7,
+   "checks": 27,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_stategraph.py",
+   "exit": 0,
+   "secs": 225.7,
+   "checks": 65,
+   "fails": 0,
+   "fail_names": [],
+   "warns": [
+    "every_step_blinker_reads_as_hud"
+   ]
+  },
+  {
+   "suite": "test_synth.py",
+   "exit": 0,
+   "secs": 245.1,
+   "checks": 127,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  },
+  {
+   "suite": "test_verifier.py",
+   "exit": 0,
+   "secs": 222.9,
+   "checks": 65,
+   "fails": 0,
+   "fail_names": [],
+   "warns": []
+  }
+ ]
+}

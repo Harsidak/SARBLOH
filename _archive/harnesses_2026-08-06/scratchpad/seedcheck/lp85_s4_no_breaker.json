@@ -1,0 +1,79 @@
+[
+ {
+  "official": 0.22098034918547738,
+  "honest": 0.22098034918547738,
+  "honest_rhae": 0.0022098034918547737,
+  "real_levels": 1,
+  "credited_levels": 1,
+  "wipes": 0,
+  "inflation": 1.0,
+  "levels_denominator": 8,
+  "official_level_scores": [
+   7.96,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   117,
+   1383,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "lp85",
+  "win_levels": 8,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 49.1,
+  "stall": null,
+  "resets": 2,
+  "game_overs": 13,
+  "spend": {
+   "click.cover": 1084,
+   "click.search": 416
+  },
+  "banked": {
+   "click.search": 1
+  },
+  "wiped": {},
+  "deaths": {
+   "click.cover": 6,
+   "click.search": 7
+  },
+  "changed": {
+   "click.cover": 456,
+   "click.search": 398
+  },
+  "novel": {
+   "click.cover": 96,
+   "click.search": 153
+  },
+  "route_ms": {
+   "click.cover": 30670.0,
+   "click.search": 13192.6
+  },
+  "level_events": {
+   "events": [
+    [
+     1,
+     117
+    ]
+   ],
+   "wipes": 0,
+   "real_levels": 1,
+   "first_reach": {
+    "1": 117
+   }
+  }
+ }
+]
