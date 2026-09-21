@@ -1,0 +1,40 @@
+# SARBLOH
+
+An interactive-reasoning agent for **ARC-AGI-3** (ARC Prize 2026), built around verified-only memory.
+
+*Sarbloh* — all-steel. Nothing adulterated is admitted. The architectural rule the name states: no fact enters the
+agent's semantic memory until it has survived exact replay against every recorded transition, and no world model
+is permitted to spend an environment action until it is certified.
+
+## Why this, and not a better model
+
+ARC-AGI-3 scores agents on Relative Human Action Efficiency — the ratio of human to agent action count, squared.
+Internal reasoning is free; committed environment actions are not. Under that metric the dominant loss term is
+paying twice for a mechanic the agent has already observed. That is a memory failure, not a reasoning failure.
+
+Kaggle evaluation runs offline on local open weights within a 12-hour ceiling, against private environments that
+are out of distribution by construction. The published 99-100% results on this benchmark were obtained with
+frontier API models and unbounded reasoning time on the 25 contaminated public environments. This repository
+targets the other regime: bounded inference, offline weights, unseen mechanics.
+
+## Architecture
+
+| Module | Role |
+| --- | --- |
+| `sarbloh.surat` | Perception and retrieval — lossless frame store outside the context window |
+| `sarbloh.memory` | Three-clock memory: frame episodic, level mechanics, environment procedures |
+| `sarbloh.worldmodel` | Induces and refactors an executable `step(state, action)` |
+| `sarbloh.parkh` | Verification — exact replay of every recorded transition |
+| `sarbloh.jugat` | Planning and information-gain action selection inside the certified simulator |
+| `sarbloh.agent` | The loop, commitment policy, budget governor |
+| `sarbloh.harness` | Arcade / Kaggle integration |
+
+## Status
+
+Pre-milestone. See `planning/ROADMAP.md` for the schedule and `history/LEDGER.md` for what has actually moved the
+score. `CLAUDE.md` is the operating spec and the authoritative record of competition constraints.
+
+## Licence
+
+MIT. See `LICENSE`. Third-party reference repositories under `resources/repos/` retain their own licences and are
+not distributed with this project.

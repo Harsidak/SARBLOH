@@ -1,0 +1,12583 @@
+{
+ "label": "champion",
+ "when": "2026-08-07 23:30:09",
+ "agent_file": "my_agent original.py",
+ "split": "dev",
+ "games": [
+  "bp35",
+  "cn04",
+  "dc22",
+  "ka59",
+  "lf52",
+  "lp85",
+  "ls20",
+  "r11l",
+  "re86",
+  "sb26",
+  "sc25",
+  "sp80",
+  "su15",
+  "tn36",
+  "tr87",
+  "tu93",
+  "wa30"
+ ],
+ "seeds": [
+  0,
+  1,
+  2,
+  3,
+  4
+ ],
+ "max_actions": 600,
+ "rules": "legacy",
+ "scorer": "scorecard",
+ "honest_basis": "honest_v1 (games_index.json baselines)",
+ "arms": {
+  "main": {}
+ },
+ "summary": {
+  "main": {
+   "official": 0.41229589025061325,
+   "honest": 0.015341656063255075,
+   "honest_v2": 0.015341656063255075,
+   "official_reconstructed": 15.764705882352942,
+   "swallowed_resets": 0,
+   "n_valid": 85,
+   "n_invalid": 0
+  }
+ },
+ "comparison": null,
+ "sweep": null,
+ "wall_s": 5832.2,
+ "rows": [
+  {
+   "game": "bp35",
+   "seed": 4,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 13,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     15,
+     72,
+     36,
+     31,
+     31,
+     48,
+     86,
+     155,
+     163
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    15,
+    72,
+    36,
+    31,
+    31,
+    48,
+    86,
+    155,
+    163
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 804.8,
+   "secs_active": 804.8,
+   "cpu_s": 182.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 13,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 13
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 523
+   },
+   "route_ms": {
+    "?": 768933.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "bp35",
+   "seed": 2,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 12,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     15,
+     72,
+     36,
+     31,
+     31,
+     48,
+     86,
+     155,
+     163
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    15,
+    72,
+    36,
+    31,
+    31,
+    48,
+    86,
+    155,
+    163
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 822.8,
+   "secs_active": 822.8,
+   "cpu_s": 187.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 12,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 12
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 514
+   },
+   "route_ms": {
+    "?": 787525.1
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "bp35",
+   "seed": 0,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 17,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     15,
+     72,
+     36,
+     31,
+     31,
+     48,
+     86,
+     155,
+     163
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    15,
+    72,
+    36,
+    31,
+    31,
+    48,
+    86,
+    155,
+    163
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 881.3,
+   "secs_active": 881.3,
+   "cpu_s": 200.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 6,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 513
+   },
+   "route_ms": {
+    "?": 846517.2
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "bp35",
+   "seed": 1,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 14,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     15,
+     72,
+     36,
+     31,
+     31,
+     48,
+     86,
+     155,
+     163
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    15,
+    72,
+    36,
+    31,
+    31,
+    48,
+    86,
+    155,
+    163
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 864.9,
+   "secs_active": 864.9,
+   "cpu_s": 195.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 3,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 528
+   },
+   "route_ms": {
+    "?": 829372.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "bp35",
+   "seed": 3,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 17,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     15,
+     72,
+     36,
+     31,
+     31,
+     48,
+     86,
+     155,
+     163
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    15,
+    72,
+    36,
+    31,
+    31,
+    48,
+    86,
+    155,
+    163
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 887.9,
+   "secs_active": 887.9,
+   "cpu_s": 199.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 7,
+   "game_overs": 10,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 10
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 502
+   },
+   "route_ms": {
+    "?": 852708.2
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "cn04",
+   "seed": 1,
+   "win_levels": 5,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 3,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     16,
+     54,
+     69,
+     318,
+     208,
+     114
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    16,
+    54,
+    69,
+    318,
+    208,
+    114
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 920.7,
+   "secs_active": 920.7,
+   "cpu_s": 206.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 3,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 3
+   },
+   "changed": {
+    "?": 561
+   },
+   "novel": {
+    "?": 481
+   },
+   "route_ms": {
+    "?": 911106.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": "win_levels=5 but 6 baselines; denominator follows the baselines",
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "cn04",
+   "seed": 2,
+   "win_levels": 5,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 3,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     16,
+     54,
+     69,
+     318,
+     208,
+     114
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    16,
+    54,
+    69,
+    318,
+    208,
+    114
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 958.9,
+   "secs_active": 958.9,
+   "cpu_s": 220.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 3,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 3
+   },
+   "changed": {
+    "?": 592
+   },
+   "novel": {
+    "?": 476
+   },
+   "route_ms": {
+    "?": 949294.9
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": "win_levels=5 but 6 baselines; denominator follows the baselines",
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "cn04",
+   "seed": 0,
+   "win_levels": 5,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 3,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     16,
+     54,
+     69,
+     318,
+     208,
+     114
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    16,
+    54,
+    69,
+    318,
+    208,
+    114
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 1010.6,
+   "secs_active": 1010.6,
+   "cpu_s": 227.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 3,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 3
+   },
+   "changed": {
+    "?": 592
+   },
+   "novel": {
+    "?": 494
+   },
+   "route_ms": {
+    "?": 1000908.8
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": "win_levels=5 but 6 baselines; denominator follows the baselines",
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "dc22",
+   "seed": 0,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     64,
+     117,
+     59,
+     78,
+     324,
+     550
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    64,
+    117,
+    59,
+    78,
+    324,
+    550
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 645.8,
+   "secs_active": 645.8,
+   "cpu_s": 149.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 385
+   },
+   "novel": {
+    "?": 235
+   },
+   "route_ms": {
+    "?": 632724.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "dc22",
+   "seed": 3,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     64,
+     117,
+     59,
+     78,
+     324,
+     550
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    64,
+    117,
+    59,
+    78,
+    324,
+    550
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 629.2,
+   "secs_active": 629.2,
+   "cpu_s": 148.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 387
+   },
+   "novel": {
+    "?": 240
+   },
+   "route_ms": {
+    "?": 615959.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "dc22",
+   "seed": 2,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     64,
+     117,
+     59,
+     78,
+     324,
+     550
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    64,
+    117,
+    59,
+    78,
+    324,
+    550
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 649.3,
+   "secs_active": 649.3,
+   "cpu_s": 153.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 389
+   },
+   "novel": {
+    "?": 256
+   },
+   "route_ms": {
+    "?": 636517.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "dc22",
+   "seed": 1,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     64,
+     117,
+     59,
+     78,
+     324,
+     550
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    64,
+    117,
+    59,
+    78,
+    324,
+    550
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 709.6,
+   "secs_active": 709.6,
+   "cpu_s": 166.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 407
+   },
+   "novel": {
+    "?": 320
+   },
+   "route_ms": {
+    "?": 697069.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "dc22",
+   "seed": 4,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     64,
+     117,
+     59,
+     78,
+     324,
+     550
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    64,
+    117,
+    59,
+    78,
+    324,
+    550
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 654.9,
+   "secs_active": 654.9,
+   "cpu_s": 155.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 387
+   },
+   "novel": {
+    "?": 227
+   },
+   "route_ms": {
+    "?": 641703.7
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "cn04",
+   "seed": 3,
+   "win_levels": 5,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 3,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     16,
+     54,
+     69,
+     318,
+     208,
+     114
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    16,
+    54,
+    69,
+    318,
+    208,
+    114
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 937.0,
+   "secs_active": 937.0,
+   "cpu_s": 226.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 3,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 3
+   },
+   "changed": {
+    "?": 590
+   },
+   "novel": {
+    "?": 488
+   },
+   "route_ms": {
+    "?": 927086.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": "win_levels=5 but 6 baselines; denominator follows the baselines",
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "cn04",
+   "seed": 4,
+   "win_levels": 5,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 3,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     16,
+     54,
+     69,
+     318,
+     208,
+     114
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    16,
+    54,
+    69,
+    318,
+    208,
+    114
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 957.2,
+   "secs_active": 957.2,
+   "cpu_s": 233.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 3,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 3
+   },
+   "changed": {
+    "?": 594
+   },
+   "novel": {
+    "?": 480
+   },
+   "route_ms": {
+    "?": 947814.7
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": "win_levels=5 but 6 baselines; denominator follows the baselines",
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ka59",
+   "seed": 0,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     175,
+     86,
+     47,
+     21,
+     132,
+     326
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    175,
+    86,
+    47,
+    21,
+    132,
+    326
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 871.4,
+   "secs_active": 871.4,
+   "cpu_s": 215.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 400
+   },
+   "route_ms": {
+    "?": 861082.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lf52",
+   "seed": 0,
+   "win_levels": 10,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 9,
+    "plays": 1,
+    "level_count": 10,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     24,
+     81,
+     74,
+     86,
+     118,
+     148,
+     189,
+     116,
+     150,
+     225
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    24,
+    81,
+    74,
+    86,
+    118,
+    148,
+    189,
+    116,
+    150,
+    225
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 523.4,
+   "secs_active": 523.4,
+   "cpu_s": 140.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 9,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 9
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 65
+   },
+   "route_ms": {
+    "?": 510700.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 10,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lf52",
+   "seed": 1,
+   "win_levels": 10,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 9,
+    "plays": 1,
+    "level_count": 10,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     24,
+     81,
+     74,
+     86,
+     118,
+     148,
+     189,
+     116,
+     150,
+     225
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    24,
+    81,
+    74,
+    86,
+    118,
+    148,
+    189,
+    116,
+    150,
+    225
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 520.8,
+   "secs_active": 520.8,
+   "cpu_s": 140.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 9,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 9
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 65
+   },
+   "route_ms": {
+    "?": 509013.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 10,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lp85",
+   "seed": 0,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 2.7777777777777777,
+    "levels_completed": 1,
+    "actions": 593,
+    "resets": 82,
+    "plays": 9,
+    "level_count": 8,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     33,
+     22,
+     31,
+     23,
+     33,
+     34,
+     73,
+     173
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.4187,
+     2.7778,
+     2.7778,
+     2.7778,
+     0.0,
+     0.1763,
+     0.4187,
+     0.4187
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    33,
+    22,
+    31,
+    23,
+    33,
+    34,
+    73,
+    173
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 39.6,
+   "secs_active": 39.6,
+   "cpu_s": 11.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 86,
+   "game_overs": 0,
+   "level_events": {
+    "events": [
+     [
+      1,
+      152
+     ],
+     [
+      0,
+      153
+     ],
+     [
+      1,
+      158
+     ],
+     [
+      0,
+      159
+     ],
+     [
+      1,
+      164
+     ],
+     [
+      0,
+      165
+     ],
+     [
+      1,
+      170
+     ],
+     [
+      0,
+      171
+     ],
+     [
+      1,
+      303
+     ],
+     [
+      0,
+      365
+     ],
+     [
+      1,
+      450
+     ],
+     [
+      0,
+      512
+     ],
+     [
+      1,
+      597
+     ]
+    ],
+    "wipes": 6,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 152
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 6
+   },
+   "deaths": {},
+   "changed": {
+    "?": 413
+   },
+   "novel": {
+    "?": 29
+   },
+   "route_ms": {
+    "?": 27379.5
+   },
+   "arm": "main",
+   "official": 2.7777777777777777,
+   "honest": 0.13092970914127425,
+   "honest_rhae": 0.0013092970914127425,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 6,
+   "inflation": 21.215794306703394,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    4.71,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    152,
+    449,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    4.71,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.13092970914127425,
+   "honest_v2": 0.13092970914127425,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 9,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lf52",
+   "seed": 2,
+   "win_levels": 10,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 9,
+    "plays": 1,
+    "level_count": 10,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     24,
+     81,
+     74,
+     86,
+     118,
+     148,
+     189,
+     116,
+     150,
+     225
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    24,
+    81,
+    74,
+    86,
+    118,
+    148,
+    189,
+    116,
+    150,
+    225
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 523.5,
+   "secs_active": 523.5,
+   "cpu_s": 140.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 9,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 9
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 65
+   },
+   "route_ms": {
+    "?": 511491.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 10,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ka59",
+   "seed": 1,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     175,
+     86,
+     47,
+     21,
+     132,
+     326
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    175,
+    86,
+    47,
+    21,
+    132,
+    326
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 810.0,
+   "secs_active": 810.0,
+   "cpu_s": 217.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 423
+   },
+   "route_ms": {
+    "?": 800513.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ka59",
+   "seed": 2,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     175,
+     86,
+     47,
+     21,
+     132,
+     326
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    175,
+    86,
+    47,
+    21,
+    132,
+    326
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 808.7,
+   "secs_active": 808.7,
+   "cpu_s": 216.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 435
+   },
+   "route_ms": {
+    "?": 799503.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lp85",
+   "seed": 1,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 2.7777777777777777,
+    "levels_completed": 1,
+    "actions": 593,
+    "resets": 82,
+    "plays": 9,
+    "level_count": 8,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     33,
+     22,
+     31,
+     23,
+     33,
+     34,
+     73,
+     173
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.4187,
+     2.7778,
+     2.7778,
+     2.7778,
+     0.0,
+     0.1763,
+     0.1543,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    33,
+    22,
+    31,
+    23,
+    33,
+    34,
+    73,
+    173
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 41.3,
+   "secs_active": 41.3,
+   "cpu_s": 11.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 86,
+   "game_overs": 0,
+   "level_events": {
+    "events": [
+     [
+      1,
+      169
+     ],
+     [
+      0,
+      170
+     ],
+     [
+      1,
+      175
+     ],
+     [
+      0,
+      176
+     ],
+     [
+      1,
+      181
+     ],
+     [
+      0,
+      182
+     ],
+     [
+      1,
+      187
+     ],
+     [
+      0,
+      188
+     ],
+     [
+      1,
+      320
+     ],
+     [
+      0,
+      382
+     ],
+     [
+      1,
+      522
+     ],
+     [
+      0,
+      584
+     ]
+    ],
+    "wipes": 6,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 169
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 6
+   },
+   "deaths": {},
+   "changed": {
+    "?": 376
+   },
+   "novel": {
+    "?": 30
+   },
+   "route_ms": {
+    "?": 28330.4
+   },
+   "arm": "main",
+   "official": 2.7777777777777777,
+   "honest": 0.10591365848534715,
+   "honest_rhae": 0.0010591365848534714,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 6,
+   "inflation": 26.226813590449954,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    3.81,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    169,
+    432,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    3.81,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.10591365848534715,
+   "honest_v2": 0.10591365848534715,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 9,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ka59",
+   "seed": 3,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     175,
+     86,
+     47,
+     21,
+     132,
+     326
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    175,
+    86,
+    47,
+    21,
+    132,
+    326
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 806.7,
+   "secs_active": 806.7,
+   "cpu_s": 214.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 399
+   },
+   "route_ms": {
+    "?": 796946.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lp85",
+   "seed": 2,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 2.7777777777777777,
+    "levels_completed": 1,
+    "actions": 594,
+    "resets": 71,
+    "plays": 8,
+    "level_count": 8,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     33,
+     22,
+     31,
+     23,
+     33,
+     34,
+     73,
+     173
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.1566,
+     2.7778,
+     2.7778,
+     2.7778,
+     0.0,
+     0.1111,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    33,
+    22,
+    31,
+    23,
+    33,
+    34,
+    73,
+    173
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 40.9,
+   "secs_active": 40.9,
+   "cpu_s": 11.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 74,
+   "game_overs": 0,
+   "level_events": {
+    "events": [
+     [
+      1,
+      292
+     ],
+     [
+      0,
+      293
+     ],
+     [
+      1,
+      298
+     ],
+     [
+      0,
+      299
+     ],
+     [
+      1,
+      304
+     ],
+     [
+      0,
+      305
+     ],
+     [
+      1,
+      310
+     ],
+     [
+      0,
+      311
+     ],
+     [
+      1,
+      477
+     ],
+     [
+      0,
+      539
+     ]
+    ],
+    "wipes": 5,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 292
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 5
+   },
+   "deaths": {},
+   "changed": {
+    "?": 381
+   },
+   "novel": {
+    "?": 37
+   },
+   "route_ms": {
+    "?": 28271.3
+   },
+   "arm": "main",
+   "official": 2.7777777777777777,
+   "honest": 0.035478044661287296,
+   "honest_rhae": 0.00035478044661287295,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 5,
+   "inflation": 78.29568411386593,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    1.28,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    292,
+    309,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    1.28,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.035478044661287296,
+   "honest_v2": 0.035478044661287296,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 8,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lp85",
+   "seed": 3,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 2.7777777777777777,
+    "levels_completed": 1,
+    "actions": 594,
+    "resets": 71,
+    "plays": 8,
+    "level_count": 8,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     33,
+     22,
+     31,
+     23,
+     33,
+     34,
+     73,
+     173
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.4187,
+     2.7778,
+     2.7778,
+     2.7778,
+     0.0,
+     0.1763,
+     0.1936
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    33,
+    22,
+    31,
+    23,
+    33,
+    34,
+    73,
+    173
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 41.4,
+   "secs_active": 41.4,
+   "cpu_s": 10.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 74,
+   "game_overs": 0,
+   "level_events": {
+    "events": [
+     [
+      1,
+      218
+     ],
+     [
+      0,
+      219
+     ],
+     [
+      1,
+      224
+     ],
+     [
+      0,
+      225
+     ],
+     [
+      1,
+      230
+     ],
+     [
+      0,
+      231
+     ],
+     [
+      1,
+      236
+     ],
+     [
+      0,
+      237
+     ],
+     [
+      1,
+      369
+     ],
+     [
+      0,
+      431
+     ],
+     [
+      1,
+      556
+     ]
+    ],
+    "wipes": 5,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 218
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 5
+   },
+   "deaths": {},
+   "changed": {
+    "?": 370
+   },
+   "novel": {
+    "?": 30
+   },
+   "route_ms": {
+    "?": 28645.0
+   },
+   "arm": "main",
+   "official": 2.7777777777777777,
+   "honest": 0.06365204949078361,
+   "honest_rhae": 0.0006365204949078361,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 5,
+   "inflation": 43.640036730945816,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    2.29,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    218,
+    383,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    2.29,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.06365204949078361,
+   "honest_v2": 0.06365204949078361,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 8,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ka59",
+   "seed": 4,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     175,
+     86,
+     47,
+     21,
+     132,
+     326
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    175,
+    86,
+    47,
+    21,
+    132,
+    326
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 803.8,
+   "secs_active": 803.8,
+   "cpu_s": 215.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 414
+   },
+   "route_ms": {
+    "?": 794040.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lp85",
+   "seed": 4,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 2.7777777777777777,
+    "levels_completed": 1,
+    "actions": 594,
+    "resets": 79,
+    "plays": 8,
+    "level_count": 8,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     33,
+     22,
+     31,
+     23,
+     33,
+     34,
+     73,
+     173
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.1566,
+     2.7778,
+     2.7778,
+     2.7778,
+     0.0,
+     0.1111,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    33,
+    22,
+    31,
+    23,
+    33,
+    34,
+    73,
+    173
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 42.5,
+   "secs_active": 42.5,
+   "cpu_s": 11.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 82,
+   "game_overs": 0,
+   "level_events": {
+    "events": [
+     [
+      1,
+      229
+     ],
+     [
+      0,
+      230
+     ],
+     [
+      1,
+      235
+     ],
+     [
+      0,
+      236
+     ],
+     [
+      1,
+      241
+     ],
+     [
+      0,
+      242
+     ],
+     [
+      1,
+      247
+     ],
+     [
+      0,
+      248
+     ],
+     [
+      1,
+      414
+     ],
+     [
+      0,
+      476
+     ]
+    ],
+    "wipes": 5,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 229
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 5
+   },
+   "deaths": {},
+   "changed": {
+    "?": 454
+   },
+   "novel": {
+    "?": 35
+   },
+   "route_ms": {
+    "?": 29257.5
+   },
+   "arm": "main",
+   "official": 2.7777777777777777,
+   "honest": 0.057683873305238276,
+   "honest_rhae": 0.0005768387330523828,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 5,
+   "inflation": 48.15518824609733,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    2.08,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    229,
+    372,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    2.08,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.057683873305238276,
+   "honest_v2": 0.057683873305238276,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 8,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lf52",
+   "seed": 3,
+   "win_levels": 10,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 9,
+    "plays": 1,
+    "level_count": 10,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     24,
+     81,
+     74,
+     86,
+     118,
+     148,
+     189,
+     116,
+     150,
+     225
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    24,
+    81,
+    74,
+    86,
+    118,
+    148,
+    189,
+    116,
+    150,
+    225
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 519.7,
+   "secs_active": 519.7,
+   "cpu_s": 139.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 9,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 9
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 65
+   },
+   "route_ms": {
+    "?": 507797.7
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 10,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "r11l",
+   "seed": 0,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 599,
+    "resets": 91,
+    "plays": 3,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     61,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     7,
+     28,
+     30,
+     20,
+     37,
+     45
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    7,
+    28,
+    30,
+    20,
+    37,
+    45
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 39.0,
+   "secs_active": 39.0,
+   "cpu_s": 9.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 92,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 599
+   },
+   "novel": {
+    "?": 114
+   },
+   "route_ms": {
+    "?": 25855.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 3,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "r11l",
+   "seed": 1,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 599,
+    "resets": 117,
+    "plays": 3,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     61,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     7,
+     28,
+     30,
+     20,
+     37,
+     45
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    7,
+    28,
+    30,
+    20,
+    37,
+    45
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 38.2,
+   "secs_active": 38.2,
+   "cpu_s": 10.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 118,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 599
+   },
+   "novel": {
+    "?": 160
+   },
+   "route_ms": {
+    "?": 25031.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 3,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "r11l",
+   "seed": 2,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 130,
+    "plays": 2,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     70,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     7,
+     28,
+     30,
+     20,
+     37,
+     45
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    7,
+    28,
+    30,
+    20,
+    37,
+    45
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 44.0,
+   "secs_active": 44.0,
+   "cpu_s": 11.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 130,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 181
+   },
+   "route_ms": {
+    "?": 26540.9
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "r11l",
+   "seed": 3,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 131,
+    "plays": 2,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     65,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     7,
+     28,
+     30,
+     20,
+     37,
+     45
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    7,
+    28,
+    30,
+    20,
+    37,
+    45
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 39.0,
+   "secs_active": 39.0,
+   "cpu_s": 10.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 131,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 174
+   },
+   "route_ms": {
+    "?": 26386.1
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "r11l",
+   "seed": 4,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 599,
+    "resets": 99,
+    "plays": 3,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     61,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     7,
+     28,
+     30,
+     20,
+     37,
+     45
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    7,
+    28,
+    30,
+    20,
+    37,
+    45
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 35.9,
+   "secs_active": 35.9,
+   "cpu_s": 9.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 100,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 599
+   },
+   "novel": {
+    "?": 107
+   },
+   "route_ms": {
+    "?": 23961.9
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 3,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "lf52",
+   "seed": 4,
+   "win_levels": 10,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 9,
+    "plays": 1,
+    "level_count": 10,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     24,
+     81,
+     74,
+     86,
+     118,
+     148,
+     189,
+     116,
+     150,
+     225
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    24,
+    81,
+    74,
+    86,
+    118,
+    148,
+    189,
+    116,
+    150,
+    225
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 516.3,
+   "secs_active": 516.3,
+   "cpu_s": 135.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 9,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 9
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 65
+   },
+   "route_ms": {
+    "?": 505231.8
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 10,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ls20",
+   "seed": 2,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 2.0089285714285716,
+    "levels_completed": 1,
+    "actions": 598,
+    "resets": 5,
+    "plays": 4,
+    "level_count": 7,
+    "level_scores": [
+     56.25,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     28,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     21,
+     123,
+     39,
+     92,
+     54,
+     108,
+     109
+    ],
+    "message": null,
+    "per_play": [
+     0.0608,
+     2.0089,
+     2.0089,
+     2.0089
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    21,
+    123,
+    39,
+    92,
+    54,
+    108,
+    109
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 646.5,
+   "secs_active": 646.5,
+   "cpu_s": 169.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [
+     [
+      1,
+      161
+     ],
+     [
+      0,
+      162
+     ],
+     [
+      1,
+      190
+     ],
+     [
+      0,
+      191
+     ],
+     [
+      1,
+      219
+     ],
+     [
+      0,
+      220
+     ],
+     [
+      1,
+      248
+     ]
+    ],
+    "wipes": 3,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 161
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 3
+   },
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 414
+   },
+   "route_ms": {
+    "?": 630254.2
+   },
+   "arm": "main",
+   "official": 2.0089285714285716,
+   "honest": 0.060761544693491765,
+   "honest_rhae": 0.0006076154469349176,
+   "real_levels": 1,
+   "credited_levels": 7,
+   "wipes": 3,
+   "inflation": 33.0625,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    1.7,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    161,
+    440,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    1.7,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.060761544693491765,
+   "honest_v2": 0.060761544693491765,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 4,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ls20",
+   "seed": 4,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 2.977315689981096,
+    "levels_completed": 1,
+    "actions": 598,
+    "resets": 5,
+    "plays": 4,
+    "level_count": 7,
+    "level_scores": [
+     83.36483931947069,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     23,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     21,
+     123,
+     39,
+     92,
+     54,
+     108,
+     109
+    ],
+    "message": null,
+    "per_play": [
+     0.06,
+     2.9773,
+     2.9773,
+     2.9773
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    21,
+    123,
+    39,
+    92,
+    54,
+    108,
+    109
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 679.2,
+   "secs_active": 679.2,
+   "cpu_s": 175.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [
+     [
+      1,
+      162
+     ],
+     [
+      0,
+      163
+     ],
+     [
+      1,
+      186
+     ],
+     [
+      0,
+      187
+     ],
+     [
+      1,
+      210
+     ],
+     [
+      0,
+      211
+     ],
+     [
+      1,
+      234
+     ]
+    ],
+    "wipes": 3,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 162
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 3
+   },
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 597
+   },
+   "novel": {
+    "?": 433
+   },
+   "route_ms": {
+    "?": 662571.5
+   },
+   "arm": "main",
+   "official": 2.977315689981096,
+   "honest": 0.060013717421124824,
+   "honest_rhae": 0.0006001371742112482,
+   "real_levels": 1,
+   "credited_levels": 7,
+   "wipes": 3,
+   "inflation": 49.61058601134216,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    1.68,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    162,
+    439,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    1.68,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.060013717421124824,
+   "honest_v2": 0.060013717421124824,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 4,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ls20",
+   "seed": 0,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     21,
+     123,
+     39,
+     92,
+     54,
+     108,
+     109
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    21,
+    123,
+    39,
+    92,
+    54,
+    108,
+    109
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 844.2,
+   "secs_active": 844.2,
+   "cpu_s": 216.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 588
+   },
+   "novel": {
+    "?": 547
+   },
+   "route_ms": {
+    "?": 825839.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ls20",
+   "seed": 1,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     21,
+     123,
+     39,
+     92,
+     54,
+     108,
+     109
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    21,
+    123,
+    39,
+    92,
+    54,
+    108,
+    109
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 872.1,
+   "secs_active": 872.1,
+   "cpu_s": 222.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 592
+   },
+   "novel": {
+    "?": 540
+   },
+   "route_ms": {
+    "?": 854070.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sb26",
+   "seed": 0,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 82,
+    "plays": 2,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     70,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     16,
+     15,
+     15,
+     31,
+     24,
+     17,
+     17
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    16,
+    15,
+    15,
+    31,
+    24,
+    17,
+    17
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 49.9,
+   "secs_active": 49.9,
+   "cpu_s": 12.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 83,
+   "game_overs": 0,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {},
+   "changed": {
+    "?": 544
+   },
+   "novel": {
+    "?": 68
+   },
+   "route_ms": {
+    "?": 31714.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "ls20",
+   "seed": 3,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     21,
+     123,
+     39,
+     92,
+     54,
+     108,
+     109
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    21,
+    123,
+    39,
+    92,
+    54,
+    108,
+    109
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 888.7,
+   "secs_active": 888.7,
+   "cpu_s": 226.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 597
+   },
+   "novel": {
+    "?": 535
+   },
+   "route_ms": {
+    "?": 870948.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sb26",
+   "seed": 1,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 10,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     16,
+     15,
+     15,
+     31,
+     24,
+     17,
+     17
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    16,
+    15,
+    15,
+    31,
+    24,
+    17,
+    17
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 49.7,
+   "secs_active": 49.7,
+   "cpu_s": 12.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 9,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 324
+   },
+   "novel": {
+    "?": 263
+   },
+   "route_ms": {
+    "?": 33743.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sb26",
+   "seed": 2,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 44,
+    "plays": 2,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     70,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     16,
+     15,
+     15,
+     31,
+     24,
+     17,
+     17
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    16,
+    15,
+    15,
+    31,
+    24,
+    17,
+    17
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 47.6,
+   "secs_active": 47.6,
+   "cpu_s": 11.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 45,
+   "game_overs": 0,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {},
+   "changed": {
+    "?": 543
+   },
+   "novel": {
+    "?": 42
+   },
+   "route_ms": {
+    "?": 29975.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sb26",
+   "seed": 3,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 9,
+    "plays": 2,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     80,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     16,
+     15,
+     15,
+     31,
+     24,
+     17,
+     17
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    16,
+    15,
+    15,
+    31,
+    24,
+    17,
+    17
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 47.6,
+   "secs_active": 47.6,
+   "cpu_s": 12.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 9,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 317
+   },
+   "novel": {
+    "?": 253
+   },
+   "route_ms": {
+    "?": 31471.1
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sb26",
+   "seed": 4,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 13,
+    "plays": 2,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     82,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     16,
+     15,
+     15,
+     31,
+     24,
+     17,
+     17
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    16,
+    15,
+    15,
+    31,
+    24,
+    17,
+    17
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 47.7,
+   "secs_active": 47.7,
+   "cpu_s": 12.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 13,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 331
+   },
+   "novel": {
+    "?": 251
+   },
+   "route_ms": {
+    "?": 31724.8
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "re86",
+   "seed": 0,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     28,
+     38,
+     198,
+     57,
+     84,
+     117,
+     328,
+     221
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    28,
+    38,
+    198,
+    57,
+    84,
+    117,
+    328,
+    221
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 994.7,
+   "secs_active": 994.7,
+   "cpu_s": 256.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 584
+   },
+   "novel": {
+    "?": 568
+   },
+   "route_ms": {
+    "?": 984880.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "re86",
+   "seed": 1,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     28,
+     38,
+     198,
+     57,
+     84,
+     117,
+     328,
+     221
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    28,
+    38,
+    198,
+    57,
+    84,
+    117,
+    328,
+    221
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 995.8,
+   "secs_active": 995.8,
+   "cpu_s": 249.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 593
+   },
+   "novel": {
+    "?": 575
+   },
+   "route_ms": {
+    "?": 986102.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "re86",
+   "seed": 2,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     28,
+     38,
+     198,
+     57,
+     84,
+     117,
+     328,
+     221
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    28,
+    38,
+    198,
+    57,
+    84,
+    117,
+    328,
+    221
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 992.8,
+   "secs_active": 992.8,
+   "cpu_s": 252.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 590
+   },
+   "novel": {
+    "?": 554
+   },
+   "route_ms": {
+    "?": 983497.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sc25",
+   "seed": 1,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 10,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     5,
+     32,
+     33,
+     66,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    5,
+    32,
+    33,
+    66,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "GAME_OVER",
+   "won": false,
+   "secs": 639.7,
+   "secs_active": 639.7,
+   "cpu_s": 172.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 572
+   },
+   "novel": {
+    "?": 340
+   },
+   "route_ms": {
+    "?": 624396.8
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sc25",
+   "seed": 0,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 11,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     5,
+     32,
+     33,
+     66,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    5,
+    32,
+    33,
+    66,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 651.8,
+   "secs_active": 651.8,
+   "cpu_s": 176.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 578
+   },
+   "novel": {
+    "?": 365
+   },
+   "route_ms": {
+    "?": 636707.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sc25",
+   "seed": 2,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 11,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     5,
+     32,
+     33,
+     66,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    5,
+    32,
+    33,
+    66,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 654.4,
+   "secs_active": 654.4,
+   "cpu_s": 178.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 570
+   },
+   "novel": {
+    "?": 356
+   },
+   "route_ms": {
+    "?": 639291.7
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "re86",
+   "seed": 3,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     28,
+     38,
+     198,
+     57,
+     84,
+     117,
+     328,
+     221
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    28,
+    38,
+    198,
+    57,
+    84,
+    117,
+    328,
+    221
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 999.1,
+   "secs_active": 999.1,
+   "cpu_s": 263.2,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 590
+   },
+   "novel": {
+    "?": 571
+   },
+   "route_ms": {
+    "?": 989368.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "re86",
+   "seed": 4,
+   "win_levels": 8,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 5,
+    "plays": 1,
+    "level_count": 8,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     28,
+     38,
+     198,
+     57,
+     84,
+     117,
+     328,
+     221
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    28,
+    38,
+    198,
+    57,
+    84,
+    117,
+    328,
+    221
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 979.6,
+   "secs_active": 979.6,
+   "cpu_s": 257.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 5,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 5
+   },
+   "changed": {
+    "?": 590
+   },
+   "novel": {
+    "?": 558
+   },
+   "route_ms": {
+    "?": 969959.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 8,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "su15",
+   "seed": 0,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 73,
+    "plays": 2,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     67,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     28,
+     50,
+     151,
+     18,
+     31,
+     50,
+     179,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    28,
+    50,
+    151,
+    18,
+    31,
+    50,
+    179,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 40.8,
+   "secs_active": 40.8,
+   "cpu_s": 10.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 73,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 595
+   },
+   "novel": {
+    "?": 131
+   },
+   "route_ms": {
+    "?": 24165.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "su15",
+   "seed": 1,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 93,
+    "plays": 2,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     72,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     28,
+     50,
+     151,
+     18,
+     31,
+     50,
+     179,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    28,
+    50,
+    151,
+    18,
+    31,
+    50,
+    179,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 38.3,
+   "secs_active": 38.3,
+   "cpu_s": 10.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 93,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 598
+   },
+   "novel": {
+    "?": 158
+   },
+   "route_ms": {
+    "?": 23130.9
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sc25",
+   "seed": 3,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 10,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     5,
+     32,
+     33,
+     66,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    5,
+    32,
+    33,
+    66,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 648.4,
+   "secs_active": 648.4,
+   "cpu_s": 177.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 10,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 10
+   },
+   "changed": {
+    "?": 576
+   },
+   "novel": {
+    "?": 342
+   },
+   "route_ms": {
+    "?": 633434.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sc25",
+   "seed": 4,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 10,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     39,
+     5,
+     32,
+     33,
+     66,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    39,
+    5,
+    32,
+    33,
+    66,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 635.6,
+   "secs_active": 635.6,
+   "cpu_s": 171.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 10,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 10
+   },
+   "changed": {
+    "?": 571
+   },
+   "novel": {
+    "?": 376
+   },
+   "route_ms": {
+    "?": 619541.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "su15",
+   "seed": 2,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 83,
+    "plays": 2,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     95,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     28,
+     50,
+     151,
+     18,
+     31,
+     50,
+     179,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    28,
+    50,
+    151,
+    18,
+    31,
+    50,
+    179,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 41.3,
+   "secs_active": 41.3,
+   "cpu_s": 11.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 83,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 574
+   },
+   "novel": {
+    "?": 155
+   },
+   "route_ms": {
+    "?": 25651.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "su15",
+   "seed": 3,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 66,
+    "plays": 2,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     84,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     28,
+     50,
+     151,
+     18,
+     31,
+     50,
+     179,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    28,
+    50,
+    151,
+    18,
+    31,
+    50,
+    179,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 40.1,
+   "secs_active": 40.1,
+   "cpu_s": 9.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 66,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 591
+   },
+   "novel": {
+    "?": 132
+   },
+   "route_ms": {
+    "?": 23641.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "su15",
+   "seed": 4,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 67,
+    "plays": 2,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     75,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     18,
+     28,
+     50,
+     151,
+     18,
+     31,
+     50,
+     179,
+     41
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    18,
+    28,
+    50,
+    151,
+    18,
+    31,
+    50,
+    179,
+    41
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 37.9,
+   "secs_active": 37.9,
+   "cpu_s": 8.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 67,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 593
+   },
+   "novel": {
+    "?": 129
+   },
+   "route_ms": {
+    "?": 20498.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tn36",
+   "seed": 0,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 60,
+    "plays": 2,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     61,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     23,
+     22,
+     26,
+     37,
+     25,
+     56,
+     61
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    23,
+    22,
+    26,
+    37,
+    25,
+    56,
+    61
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 25.4,
+   "secs_active": 25.4,
+   "cpu_s": 7.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 61,
+   "game_overs": 0,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {},
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 61
+   },
+   "route_ms": {
+    "?": 16436.4
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tn36",
+   "seed": 1,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 73,
+    "plays": 2,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     66,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     23,
+     22,
+     26,
+     37,
+     25,
+     56,
+     61
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    23,
+    22,
+    26,
+    37,
+    25,
+    56,
+    61
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 23.8,
+   "secs_active": 23.8,
+   "cpu_s": 7.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 73,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 62
+   },
+   "route_ms": {
+    "?": 15822.9
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tn36",
+   "seed": 2,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 71,
+    "plays": 2,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     95,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     23,
+     22,
+     26,
+     37,
+     25,
+     56,
+     61
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    23,
+    22,
+    26,
+    37,
+    25,
+    56,
+    61
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 24.2,
+   "secs_active": 24.2,
+   "cpu_s": 7.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 71,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 88
+   },
+   "route_ms": {
+    "?": 15998.2
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sp80",
+   "seed": 0,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 4.761904761904762,
+    "levels_completed": 1,
+    "actions": 598,
+    "resets": 19,
+    "plays": 4,
+    "level_count": 6,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     7,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     11,
+     18,
+     17,
+     172,
+     102,
+     152
+    ],
+    "message": null,
+    "per_play": [
+     0.0025,
+     4.7619,
+     4.7619,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    11,
+    18,
+    17,
+    172,
+    102,
+    152
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 552.5,
+   "secs_active": 552.5,
+   "cpu_s": 151.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 19,
+   "level_events": {
+    "events": [
+     [
+      1,
+      479
+     ],
+     [
+      0,
+      480
+     ],
+     [
+      1,
+      487
+     ],
+     [
+      0,
+      488
+     ],
+     [
+      1,
+      495
+     ],
+     [
+      0,
+      496
+     ]
+    ],
+    "wipes": 3,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 479
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 3
+   },
+   "deaths": {
+    "?": 19
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 402
+   },
+   "route_ms": {
+    "?": 540645.1
+   },
+   "arm": "main",
+   "official": 4.761904761904762,
+   "honest": 0.0025112794844446987,
+   "honest_rhae": 2.5112794844446988e-05,
+   "real_levels": 1,
+   "credited_levels": 6,
+   "wipes": 3,
+   "inflation": 1896.2066115702482,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.05,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    479,
+    122,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.05,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0025112794844446987,
+   "honest_v2": 0.0025112794844446987,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 4,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tn36",
+   "seed": 3,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 73,
+    "plays": 2,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     65,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     23,
+     22,
+     26,
+     37,
+     25,
+     56,
+     61
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    23,
+    22,
+    26,
+    37,
+    25,
+    56,
+    61
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 23.8,
+   "secs_active": 23.8,
+   "cpu_s": 7.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 73,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 62
+   },
+   "route_ms": {
+    "?": 15887.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tn36",
+   "seed": 4,
+   "win_levels": 7,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 600,
+    "resets": 73,
+    "plays": 2,
+    "level_count": 7,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     64,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     23,
+     22,
+     26,
+     37,
+     25,
+     56,
+     61
+    ],
+    "message": null,
+    "per_play": [
+     0.0,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    23,
+    22,
+    26,
+    37,
+    25,
+    56,
+    61
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 23.0,
+   "secs_active": 23.0,
+   "cpu_s": 6.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 73,
+   "game_overs": 1,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 1
+   },
+   "changed": {
+    "?": 600
+   },
+   "novel": {
+    "?": 66
+   },
+   "route_ms": {
+    "?": 14107.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 7,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 2,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sp80",
+   "seed": 2,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 19,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     11,
+     18,
+     17,
+     172,
+     102,
+     152
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    11,
+    18,
+    17,
+    172,
+    102,
+    152
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 486.7,
+   "secs_active": 486.7,
+   "cpu_s": 133.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 19,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 19
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 376
+   },
+   "route_ms": {
+    "?": 478604.8
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sp80",
+   "seed": 3,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 19,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     11,
+     18,
+     17,
+     172,
+     102,
+     152
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    11,
+    18,
+    17,
+    172,
+    102,
+    152
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 478.4,
+   "secs_active": 478.4,
+   "cpu_s": 131.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 19,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 19
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 390
+   },
+   "route_ms": {
+    "?": 471263.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sp80",
+   "seed": 4,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 4.761904761904762,
+    "levels_completed": 1,
+    "actions": 598,
+    "resets": 20,
+    "plays": 4,
+    "level_count": 6,
+    "level_scores": [
+     100.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     11,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     11,
+     18,
+     17,
+     172,
+     102,
+     152
+    ],
+    "message": null,
+    "per_play": [
+     0.3266,
+     4.7619,
+     4.7619,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    11,
+    18,
+    17,
+    172,
+    102,
+    152
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 458.5,
+   "secs_active": 458.5,
+   "cpu_s": 128.6,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 20,
+   "level_events": {
+    "events": [
+     [
+      1,
+      42
+     ],
+     [
+      0,
+      43
+     ],
+     [
+      1,
+      54
+     ],
+     [
+      0,
+      55
+     ],
+     [
+      1,
+      66
+     ],
+     [
+      0,
+      67
+     ]
+    ],
+    "wipes": 3,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 42
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 3
+   },
+   "deaths": {
+    "?": 20
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 370
+   },
+   "route_ms": {
+    "?": 449737.6
+   },
+   "arm": "main",
+   "official": 4.761904761904762,
+   "honest": 0.3266385919447144,
+   "honest_rhae": 0.003266385919447144,
+   "real_levels": 1,
+   "credited_levels": 6,
+   "wipes": 3,
+   "inflation": 14.578512396694215,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    6.86,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    42,
+    559,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    6.86,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.3266385919447144,
+   "honest_v2": 0.3266385919447144,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 4,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "sp80",
+   "seed": 1,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 4.761904761904762,
+    "levels_completed": 1,
+    "actions": 598,
+    "resets": 19,
+    "plays": 4,
+    "level_count": 6,
+    "level_scores": [
+     115.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     5,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     11,
+     18,
+     17,
+     172,
+     102,
+     152
+    ],
+    "message": null,
+    "per_play": [
+     0.4446,
+     4.7619,
+     4.7619,
+     0.0028
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    11,
+    18,
+    17,
+    172,
+    102,
+    152
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 525.5,
+   "secs_active": 525.5,
+   "cpu_s": 146.0,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 19,
+   "level_events": {
+    "events": [
+     [
+      1,
+      36
+     ],
+     [
+      0,
+      37
+     ],
+     [
+      1,
+      42
+     ],
+     [
+      0,
+      43
+     ],
+     [
+      1,
+      48
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      505
+     ]
+    ],
+    "wipes": 3,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 36
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 3
+   },
+   "deaths": {
+    "?": 19
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 441
+   },
+   "route_ms": {
+    "?": 515275.1
+   },
+   "arm": "main",
+   "official": 4.761904761904762,
+   "honest": 0.4445914168136391,
+   "honest_rhae": 0.0044459141681363916,
+   "real_levels": 1,
+   "credited_levels": 6,
+   "wipes": 3,
+   "inflation": 10.71074380165289,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    9.34,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0
+   ],
+   "honest_level_actions": [
+    36,
+    565,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    9.34,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.4445914168136391,
+   "honest_v2": 0.4445914168136391,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 4,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tr87",
+   "seed": 0,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     37,
+     30,
+     39,
+     29,
+     63,
+     119
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    37,
+    30,
+    39,
+    29,
+    63,
+    119
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 639.8,
+   "secs_active": 639.8,
+   "cpu_s": 167.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 588
+   },
+   "route_ms": {
+    "?": 630164.1
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tr87",
+   "seed": 1,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     37,
+     30,
+     39,
+     29,
+     63,
+     119
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    37,
+    30,
+    39,
+    29,
+    63,
+    119
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 638.4,
+   "secs_active": 638.4,
+   "cpu_s": 168.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 587
+   },
+   "route_ms": {
+    "?": 630056.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tu93",
+   "seed": 1,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.45477450239355005,
+    "levels_completed": 1,
+    "actions": 597,
+    "resets": 8,
+    "plays": 5,
+    "level_count": 9,
+    "level_scores": [
+     20.46485260770975,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     42,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     19,
+     15,
+     34,
+     42,
+     76,
+     91,
+     47,
+     23,
+     31
+    ],
+    "message": null,
+    "per_play": [
+     0.004,
+     0.4548,
+     0.4548,
+     0.4548,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    19,
+    15,
+    34,
+    42,
+    76,
+    91,
+    47,
+    23,
+    31
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 398.9,
+   "secs_active": 398.9,
+   "cpu_s": 101.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 8,
+   "level_events": {
+    "events": [
+     [
+      1,
+      450
+     ],
+     [
+      0,
+      451
+     ],
+     [
+      1,
+      493
+     ],
+     [
+      0,
+      494
+     ],
+     [
+      1,
+      536
+     ],
+     [
+      0,
+      537
+     ],
+     [
+      1,
+      579
+     ],
+     [
+      0,
+      580
+     ]
+    ],
+    "wipes": 4,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 450
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 4
+   },
+   "deaths": {
+    "?": 8
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 351
+   },
+   "route_ms": {
+    "?": 390758.4
+   },
+   "arm": "main",
+   "official": 0.45477450239355005,
+   "honest": 0.003961591220850481,
+   "honest_rhae": 3.9615912208504804e-05,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 4,
+   "inflation": 114.79591836734693,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.18,
+    115.0,
+    65.53,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    450,
+    151,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.18,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.003961591220850481,
+   "honest_v2": 0.003961591220850481,
+   "official_reconstructed": 80.0,
+   "scorecard_ok": true,
+   "plays": 5,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tr87",
+   "seed": 2,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     37,
+     30,
+     39,
+     29,
+     63,
+     119
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    37,
+    30,
+    39,
+    29,
+    63,
+    119
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 641.5,
+   "secs_active": 641.5,
+   "cpu_s": 170.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 588
+   },
+   "route_ms": {
+    "?": 631704.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tr87",
+   "seed": 3,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     37,
+     30,
+     39,
+     29,
+     63,
+     119
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    37,
+    30,
+    39,
+    29,
+    63,
+    119
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 638.7,
+   "secs_active": 638.7,
+   "cpu_s": 168.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 588
+   },
+   "route_ms": {
+    "?": 629050.2
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tu93",
+   "seed": 2,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.6189986282578875,
+    "levels_completed": 1,
+    "actions": 597,
+    "resets": 8,
+    "plays": 5,
+    "level_count": 9,
+    "level_scores": [
+     27.85493827160494,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     36,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     19,
+     15,
+     34,
+     42,
+     76,
+     91,
+     47,
+     23,
+     31
+    ],
+    "message": null,
+    "per_play": [
+     0.0041,
+     0.619,
+     0.619,
+     0.619,
+     0.619
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    19,
+    15,
+    34,
+    42,
+    76,
+    91,
+    47,
+    23,
+    31
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 406.4,
+   "secs_active": 406.4,
+   "cpu_s": 102.5,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 8,
+   "level_events": {
+    "events": [
+     [
+      1,
+      444
+     ],
+     [
+      0,
+      445
+     ],
+     [
+      1,
+      481
+     ],
+     [
+      0,
+      482
+     ],
+     [
+      1,
+      518
+     ],
+     [
+      0,
+      519
+     ],
+     [
+      1,
+      555
+     ],
+     [
+      0,
+      556
+     ],
+     [
+      1,
+      592
+     ]
+    ],
+    "wipes": 4,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 444
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 4
+   },
+   "deaths": {
+    "?": 8
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 365
+   },
+   "route_ms": {
+    "?": 398495.2
+   },
+   "arm": "main",
+   "official": 0.6189986282578875,
+   "honest": 0.004069384700015331,
+   "honest_rhae": 4.069384700015331e-05,
+   "real_levels": 1,
+   "credited_levels": 9,
+   "wipes": 4,
+   "inflation": 152.11111111111111,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.18,
+    115.0,
+    89.2,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    115.0,
+    74.15
+   ],
+   "honest_level_actions": [
+    444,
+    157,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.18,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.004069384700015331,
+   "honest_v2": 0.004069384700015331,
+   "official_reconstructed": 100.0,
+   "scorecard_ok": true,
+   "plays": 5,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tu93",
+   "seed": 0,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 11,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     19,
+     15,
+     34,
+     42,
+     76,
+     91,
+     47,
+     23,
+     31
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    19,
+    15,
+    34,
+    42,
+    76,
+    91,
+    47,
+    23,
+    31
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 493.1,
+   "secs_active": 493.1,
+   "cpu_s": 128.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 11,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 11
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 469
+   },
+   "route_ms": {
+    "?": 484980.5
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tr87",
+   "seed": 4,
+   "win_levels": 6,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 4,
+    "plays": 1,
+    "level_count": 6,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     37,
+     30,
+     39,
+     29,
+     63,
+     119
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    37,
+    30,
+    39,
+    29,
+    63,
+    119
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 633.8,
+   "secs_active": 633.8,
+   "cpu_s": 172.1,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 4,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 4
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 589
+   },
+   "route_ms": {
+    "?": 623741.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 6,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tu93",
+   "seed": 3,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.4143709825528007,
+    "levels_completed": 1,
+    "actions": 597,
+    "resets": 8,
+    "plays": 5,
+    "level_count": 9,
+    "level_scores": [
+     18.64669421487603,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     44,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     19,
+     15,
+     34,
+     42,
+     76,
+     91,
+     47,
+     23,
+     31
+    ],
+    "message": null,
+    "per_play": [
+     0.0039,
+     0.4144,
+     0.4144,
+     0.4144,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    19,
+    15,
+    34,
+    42,
+    76,
+    91,
+    47,
+    23,
+    31
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 347.1,
+   "secs_active": 347.1,
+   "cpu_s": 100.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 8,
+   "level_events": {
+    "events": [
+     [
+      1,
+      452
+     ],
+     [
+      0,
+      453
+     ],
+     [
+      1,
+      497
+     ],
+     [
+      0,
+      498
+     ],
+     [
+      1,
+      542
+     ],
+     [
+      0,
+      543
+     ],
+     [
+      1,
+      587
+     ],
+     [
+      0,
+      588
+     ]
+    ],
+    "wipes": 4,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 452
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 4
+   },
+   "deaths": {
+    "?": 8
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 369
+   },
+   "route_ms": {
+    "?": 336195.9
+   },
+   "arm": "main",
+   "official": 0.4143709825528007,
+   "honest": 0.003926610454138061,
+   "honest_rhae": 3.926610454138061e-05,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 4,
+   "inflation": 105.52892561983468,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.18,
+    115.0,
+    59.71,
+    115.0,
+    115.0,
+    115.0,
+    114.1,
+    115.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    452,
+    149,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.18,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.003926610454138061,
+   "honest_v2": 0.003926610454138061,
+   "official_reconstructed": 80.0,
+   "scorecard_ok": true,
+   "plays": 5,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "tu93",
+   "seed": 4,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.39615912208504805,
+    "levels_completed": 1,
+    "actions": 597,
+    "resets": 8,
+    "plays": 5,
+    "level_count": 9,
+    "level_scores": [
+     17.82716049382716,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     45,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     19,
+     15,
+     34,
+     42,
+     76,
+     91,
+     47,
+     23,
+     31
+    ],
+    "message": null,
+    "per_play": [
+     0.0039,
+     0.3962,
+     0.3962,
+     0.3962,
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    19,
+    15,
+    34,
+    42,
+    76,
+    91,
+    47,
+    23,
+    31
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 345.7,
+   "secs_active": 345.7,
+   "cpu_s": 102.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 8,
+   "level_events": {
+    "events": [
+     [
+      1,
+      453
+     ],
+     [
+      0,
+      454
+     ],
+     [
+      1,
+      499
+     ],
+     [
+      0,
+      500
+     ],
+     [
+      1,
+      545
+     ],
+     [
+      0,
+      546
+     ],
+     [
+      1,
+      591
+     ],
+     [
+      0,
+      592
+     ]
+    ],
+    "wipes": 4,
+    "real_levels": 1,
+    "first_reach": {
+     "1": 453
+    }
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {
+    "?": 1
+   },
+   "wiped": {
+    "?": 4
+   },
+   "deaths": {
+    "?": 8
+   },
+   "changed": {
+    "?": 601
+   },
+   "novel": {
+    "?": 366
+   },
+   "route_ms": {
+    "?": 338079.6
+   },
+   "arm": "main",
+   "official": 0.39615912208504805,
+   "honest": 0.0039092935603322575,
+   "honest_rhae": 3.909293560332258e-05,
+   "real_levels": 1,
+   "credited_levels": 8,
+   "wipes": 4,
+   "inflation": 101.33777777777779,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.18,
+    115.0,
+    57.09,
+    115.0,
+    115.0,
+    115.0,
+    109.09,
+    115.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    453,
+    148,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.18,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0039092935603322575,
+   "honest_v2": 0.0039092935603322575,
+   "official_reconstructed": 80.0,
+   "scorecard_ok": true,
+   "plays": 5,
+   "scorer_message": null,
+   "flags": [
+    "RECON-MISMATCH"
+   ],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "wa30",
+   "seed": 3,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 2,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     125,
+     58,
+     259,
+     113,
+     499,
+     58,
+     186,
+     134,
+     132
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    125,
+    58,
+    259,
+    113,
+    499,
+    58,
+    186,
+    134,
+    132
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 650.5,
+   "secs_active": 650.5,
+   "cpu_s": 195.8,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 2,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 2
+   },
+   "changed": {
+    "?": 514
+   },
+   "novel": {
+    "?": 474
+   },
+   "route_ms": {
+    "?": 644757.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "wa30",
+   "seed": 1,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 2,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     125,
+     58,
+     259,
+     113,
+     499,
+     58,
+     186,
+     134,
+     132
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    125,
+    58,
+    259,
+    113,
+    499,
+    58,
+    186,
+    134,
+    132
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 658.2,
+   "secs_active": 658.2,
+   "cpu_s": 200.9,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 2,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 2
+   },
+   "changed": {
+    "?": 513
+   },
+   "novel": {
+    "?": 489
+   },
+   "route_ms": {
+    "?": 653717.0
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "wa30",
+   "seed": 0,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 2,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     125,
+     58,
+     259,
+     113,
+     499,
+     58,
+     186,
+     134,
+     132
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    125,
+    58,
+    259,
+    113,
+    499,
+    58,
+    186,
+    134,
+    132
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 660.8,
+   "secs_active": 660.8,
+   "cpu_s": 201.3,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 2,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 2
+   },
+   "changed": {
+    "?": 513
+   },
+   "novel": {
+    "?": 485
+   },
+   "route_ms": {
+    "?": 656347.7
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "wa30",
+   "seed": 2,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 2,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     125,
+     58,
+     259,
+     113,
+     499,
+     58,
+     186,
+     134,
+     132
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    125,
+    58,
+    259,
+    113,
+    499,
+    58,
+    186,
+    134,
+    132
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 660.3,
+   "secs_active": 660.3,
+   "cpu_s": 199.7,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 2,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 2
+   },
+   "changed": {
+    "?": 520
+   },
+   "novel": {
+    "?": 479
+   },
+   "route_ms": {
+    "?": 655730.6
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  },
+  {
+   "game": "wa30",
+   "seed": 4,
+   "win_levels": 9,
+   "scorecard": {
+    "score": 0.0,
+    "levels_completed": 0,
+    "actions": 601,
+    "resets": 2,
+    "plays": 1,
+    "level_count": 9,
+    "level_scores": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "level_actions": [
+     601,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "baselines": [
+     125,
+     58,
+     259,
+     113,
+     499,
+     58,
+     186,
+     134,
+     132
+    ],
+    "message": null,
+    "per_play": [
+     0.0
+    ]
+   },
+   "baseline_source": "metadata.json",
+   "baseline_official": [
+    125,
+    58,
+    259,
+    113,
+    499,
+    58,
+    186,
+    134,
+    132
+   ],
+   "competition_mode": false,
+   "swallowed_resets": 0,
+   "actions": 601,
+   "state": "NOT_FINISHED",
+   "won": false,
+   "secs": 618.8,
+   "secs_active": 618.8,
+   "cpu_s": 197.4,
+   "suspend_s": 0.0,
+   "suspend_events": 0,
+   "stall": null,
+   "resets": 0,
+   "game_overs": 2,
+   "level_events": {
+    "events": [],
+    "wipes": 0,
+    "real_levels": 0,
+    "first_reach": {}
+   },
+   "spend": {
+    "?": 601
+   },
+   "banked": {},
+   "wiped": {},
+   "deaths": {
+    "?": 2
+   },
+   "changed": {
+    "?": 524
+   },
+   "novel": {
+    "?": 492
+   },
+   "route_ms": {
+    "?": 613115.3
+   },
+   "arm": "main",
+   "official": 0.0,
+   "honest": 0.0,
+   "honest_rhae": 0.0,
+   "real_levels": 0,
+   "credited_levels": 0,
+   "wipes": 0,
+   "inflation": 0.0,
+   "levels_denominator": 9,
+   "official_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "honest_level_actions": [
+    601,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "honest_level_scores": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "warn": null,
+   "honest_v1": 0.0,
+   "honest_v2": 0.0,
+   "official_reconstructed": 0.0,
+   "scorecard_ok": true,
+   "plays": 1,
+   "scorer_message": null,
+   "flags": [],
+   "score_valid": true,
+   "timing_valid": true
+  }
+ ]
+}

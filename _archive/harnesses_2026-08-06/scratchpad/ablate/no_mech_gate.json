@@ -1,0 +1,418 @@
+[
+ {
+  "official": 0.33518005540166207,
+  "honest": 0.33518005540166207,
+  "honest_rhae": 0.0033518005540166206,
+  "real_levels": 1,
+  "credited_levels": 1,
+  "wipes": 0,
+  "inflation": 1.0,
+  "levels_denominator": 8,
+  "official_level_scores": [
+   12.07,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   95,
+   1405,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "lp85",
+  "win_levels": 8,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 67.4,
+  "stall": null,
+  "resets": 10,
+  "game_overs": 9,
+  "spend": {
+   "click.cover": 151,
+   "click.cover>esc.cell": 536,
+   "click.search": 813
+  },
+  "banked": {
+   "click.search": 1
+  },
+  "wiped": {},
+  "deaths": {
+   "click.search": 8,
+   "click.cover": 1
+  },
+  "changed": {
+   "click.cover>esc.cell": 8,
+   "click.cover": 23,
+   "click.search": 747
+  },
+  "novel": {
+   "click.cover": 21,
+   "click.cover>esc.cell": 8,
+   "click.search": 319
+  },
+  "route_ms": {
+   "click.cover": 6714.2,
+   "click.cover>esc.cell": 24697.0,
+   "click.search": 30246.4
+  },
+  "level_events": {
+   "events": [
+    [
+     1,
+     95
+    ]
+   ],
+   "wipes": 0,
+   "real_levels": 1,
+   "first_reach": {
+    "1": 95
+   }
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 7,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "ls20",
+  "win_levels": 7,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 770.3,
+  "stall": null,
+  "resets": 0,
+  "game_overs": 11,
+  "spend": {
+   "boot": 31,
+   "graph": 249,
+   "react.greedy": 53,
+   "react.bfs1": 445,
+   "react.exper": 616,
+   "react.goal1": 7,
+   "react.exper>esc.graph": 30,
+   "boot>esc.graph": 6,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 3,
+   "react.greedy>esc.key": 8,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 35,
+   "boot>esc.key": 3
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "react.bfs1": 3,
+   "graph": 3,
+   "react.exper": 5
+  },
+  "changed": {
+   "boot": 31,
+   "graph": 249,
+   "react.greedy": 53,
+   "react.bfs1": 440,
+   "react.exper": 616,
+   "react.goal1": 7,
+   "react.exper>esc.graph": 30,
+   "boot>esc.graph": 6,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 3,
+   "react.greedy>esc.key": 8,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 35,
+   "boot>esc.key": 3
+  },
+  "novel": {
+   "boot": 17,
+   "graph": 209,
+   "react.greedy": 36,
+   "react.bfs1": 362,
+   "react.exper": 487,
+   "react.goal1": 6,
+   "react.exper>esc.graph": 23,
+   "boot>esc.graph": 2,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 2,
+   "react.greedy>esc.key": 4,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 27,
+   "boot>esc.key": 2
+  },
+  "route_ms": {
+   "boot": 5197.6,
+   "graph": 115513.4,
+   "react.greedy": 11351.8,
+   "react.bfs1": 255850.0,
+   "react.exper": 325811.9,
+   "react.goal1": 4213.9,
+   "react.exper>esc.graph": 17150.4,
+   "boot>esc.graph": 465.5,
+   "react.frontier1": 4849.3,
+   "react.greedy>esc.graph": 1091.2,
+   "react.greedy>esc.key": 2093.7,
+   "react.bfs1>esc.graph": 438.1,
+   "react.bfs1>esc.key": 776.6,
+   "react.exper>esc.key": 16988.9,
+   "boot>esc.key": 179.2
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 6,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "r11l",
+  "win_levels": 6,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 91.3,
+  "stall": null,
+  "resets": 33,
+  "game_overs": 20,
+  "spend": {
+   "click.cover": 74,
+   "click.search": 1426
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "click.cover": 1,
+   "click.search": 19
+  },
+  "changed": {
+   "click.cover": 74,
+   "click.search": 1426
+  },
+  "novel": {
+   "click.cover": 73,
+   "click.search": 616
+  },
+  "route_ms": {
+   "click.cover": 1829.0,
+   "click.search": 84082.2
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 8,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "sb26",
+  "win_levels": 8,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 221.7,
+  "stall": null,
+  "resets": 1,
+  "game_overs": 7,
+  "spend": {
+   "graph": 44,
+   "novelty+click": 80,
+   "rand": 83,
+   "rand+click>esc.cell": 3,
+   "novelty+click>esc.cell": 63,
+   "rand>esc.cell": 5,
+   "rand+click": 83,
+   "react.goal1+click": 61,
+   "react.exper+click": 103,
+   "react.greedy+click": 388,
+   "react.greedy+click>esc.cell": 82,
+   "react.greedy+click>esc.key": 2,
+   "react.greedy+click>esc.graph": 1,
+   "react.bfs1+click": 277,
+   "react.goal1": 43,
+   "react.greedy": 110,
+   "react.frontier1+click": 6,
+   "react.exper": 44,
+   "react.bfs1": 3,
+   "react.greedy>esc.cell": 14,
+   "react.frontier1": 1,
+   "react.goal": 2,
+   "react.goal+click": 2
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "react.greedy": 2,
+   "react.bfs1": 1,
+   "react.bfs1+click": 1,
+   "react.goal1": 1,
+   "react.greedy+click": 1,
+   "react.goal": 1
+  },
+  "changed": {
+   "graph": 43,
+   "novelty+click": 67,
+   "rand": 83,
+   "novelty+click>esc.cell": 2,
+   "react.goal1+click": 60,
+   "react.exper+click": 99,
+   "react.greedy+click>esc.cell": 3,
+   "react.greedy+click>esc.key": 2,
+   "react.greedy+click": 256,
+   "react.greedy+click>esc.graph": 1,
+   "react.bfs1+click": 273,
+   "react.goal1": 43,
+   "react.greedy": 110,
+   "react.frontier1+click": 6,
+   "rand+click": 75,
+   "react.exper": 44,
+   "react.bfs1": 3,
+   "react.greedy>esc.cell": 8,
+   "react.frontier1": 1,
+   "react.goal": 2,
+   "react.goal+click": 2
+  },
+  "novel": {
+   "graph": 44,
+   "novelty+click": 57,
+   "rand": 43,
+   "novelty+click>esc.cell": 2,
+   "react.greedy+click>esc.key": 2,
+   "react.greedy+click": 212,
+   "react.greedy+click>esc.cell": 2,
+   "react.greedy+click>esc.graph": 1,
+   "react.exper+click": 88,
+   "react.bfs1+click": 228,
+   "react.goal1": 41,
+   "react.goal1+click": 54,
+   "react.greedy": 101,
+   "react.frontier1+click": 6,
+   "rand+click": 51,
+   "react.exper": 36,
+   "react.bfs1": 2,
+   "react.greedy>esc.cell": 4,
+   "react.frontier1": 1,
+   "react.goal": 1,
+   "react.goal+click": 1
+  },
+  "route_ms": {
+   "graph": 2955.5,
+   "novelty+click": 6973.8,
+   "rand": 14084.9,
+   "rand+click>esc.cell": 7.1,
+   "novelty+click>esc.cell": 336.8,
+   "rand>esc.cell": 70.3,
+   "rand+click": 16990.8,
+   "react.goal1+click": 9267.5,
+   "react.exper+click": 22339.0,
+   "react.greedy+click": 40849.6,
+   "react.greedy+click>esc.cell": 899.3,
+   "react.greedy+click>esc.key": 17.8,
+   "react.greedy+click>esc.graph": 15.9,
+   "react.bfs1+click": 45723.4,
+   "react.goal1": 9993.9,
+   "react.greedy": 23438.4,
+   "react.frontier1+click": 1133.2,
+   "react.exper": 10535.1,
+   "react.bfs1": 397.7,
+   "react.greedy>esc.cell": 2069.6,
+   "react.frontier1": 78.7,
+   "react.goal": 337.2,
+   "react.goal+click": 274.4
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ }
+]

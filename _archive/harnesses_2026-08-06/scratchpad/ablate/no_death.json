@@ -1,0 +1,355 @@
+[
+ {
+  "official": 0.33518005540166207,
+  "honest": 0.33518005540166207,
+  "honest_rhae": 0.0033518005540166206,
+  "real_levels": 1,
+  "credited_levels": 1,
+  "wipes": 0,
+  "inflation": 1.0,
+  "levels_denominator": 8,
+  "official_level_scores": [
+   12.07,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   95,
+   1405,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "lp85",
+  "win_levels": 8,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 75.9,
+  "stall": null,
+  "resets": 10,
+  "game_overs": 13,
+  "spend": {
+   "click.cover": 73,
+   "click.cover>esc.cell": 339,
+   "click.search": 1088
+  },
+  "banked": {
+   "click.search": 1
+  },
+  "wiped": {},
+  "deaths": {
+   "click.search": 13
+  },
+  "changed": {
+   "click.cover>esc.cell": 5,
+   "click.cover": 6,
+   "click.search": 1022
+  },
+  "novel": {
+   "click.cover": 5,
+   "click.cover>esc.cell": 5,
+   "click.search": 346
+  },
+  "route_ms": {
+   "click.cover": 1940.1,
+   "click.cover>esc.cell": 13473.7,
+   "click.search": 54062.6
+  },
+  "level_events": {
+   "events": [
+    [
+     1,
+     95
+    ]
+   ],
+   "wipes": 0,
+   "real_levels": 1,
+   "first_reach": {
+    "1": 95
+   }
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 7,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "ls20",
+  "win_levels": 7,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 721.6,
+  "stall": null,
+  "resets": 0,
+  "game_overs": 11,
+  "spend": {
+   "boot": 31,
+   "graph": 249,
+   "react.greedy": 53,
+   "react.bfs1": 445,
+   "react.exper": 616,
+   "react.goal1": 7,
+   "react.exper>esc.graph": 30,
+   "boot>esc.graph": 6,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 3,
+   "react.greedy>esc.key": 8,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 35,
+   "boot>esc.key": 3
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "react.bfs1": 3,
+   "graph": 3,
+   "react.exper": 5
+  },
+  "changed": {
+   "boot": 31,
+   "graph": 249,
+   "react.greedy": 53,
+   "react.bfs1": 440,
+   "react.exper": 616,
+   "react.goal1": 7,
+   "react.exper>esc.graph": 30,
+   "boot>esc.graph": 6,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 3,
+   "react.greedy>esc.key": 8,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 35,
+   "boot>esc.key": 3
+  },
+  "novel": {
+   "boot": 17,
+   "graph": 209,
+   "react.greedy": 36,
+   "react.bfs1": 362,
+   "react.exper": 487,
+   "react.goal1": 6,
+   "react.exper>esc.graph": 23,
+   "boot>esc.graph": 2,
+   "react.frontier1": 12,
+   "react.greedy>esc.graph": 2,
+   "react.greedy>esc.key": 4,
+   "react.bfs1>esc.graph": 1,
+   "react.bfs1>esc.key": 1,
+   "react.exper>esc.key": 27,
+   "boot>esc.key": 2
+  },
+  "route_ms": {
+   "boot": 3923.5,
+   "graph": 107379.9,
+   "react.greedy": 11464.2,
+   "react.bfs1": 235323.6,
+   "react.exper": 309301.8,
+   "react.goal1": 4019.4,
+   "react.exper>esc.graph": 15788.3,
+   "boot>esc.graph": 403.4,
+   "react.frontier1": 5114.6,
+   "react.greedy>esc.graph": 1123.9,
+   "react.greedy>esc.key": 2021.2,
+   "react.bfs1>esc.graph": 513.2,
+   "react.bfs1>esc.key": 499.9,
+   "react.exper>esc.key": 16318.9,
+   "boot>esc.key": 189.6
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 6,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "r11l",
+  "win_levels": 6,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 100.6,
+  "stall": null,
+  "resets": 33,
+  "game_overs": 20,
+  "spend": {
+   "click.cover": 74,
+   "click.search": 1426
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "click.cover": 1,
+   "click.search": 19
+  },
+  "changed": {
+   "click.cover": 74,
+   "click.search": 1426
+  },
+  "novel": {
+   "click.cover": 73,
+   "click.search": 616
+  },
+  "route_ms": {
+   "click.cover": 2464.9,
+   "click.search": 91965.2
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ },
+ {
+  "official": 0.0,
+  "honest": 0.0,
+  "honest_rhae": 0.0,
+  "real_levels": 0,
+  "credited_levels": 0,
+  "wipes": 0,
+  "inflation": 0.0,
+  "levels_denominator": 8,
+  "official_level_scores": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   1500,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "sb26",
+  "win_levels": 8,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 118.0,
+  "stall": null,
+  "resets": 1,
+  "game_overs": 4,
+  "spend": {
+   "graph": 43,
+   "novelty+click": 926,
+   "rand": 143,
+   "rand+click>esc.cell": 22,
+   "novelty+click>esc.cell": 167,
+   "rand>esc.cell": 36,
+   "rand+click": 162,
+   "novelty+click>esc.key": 1
+  },
+  "banked": {},
+  "wiped": {},
+  "deaths": {
+   "rand": 3,
+   "novelty+click": 1
+  },
+  "changed": {
+   "graph": 42,
+   "novelty+click": 808,
+   "rand": 143,
+   "novelty+click>esc.cell": 6,
+   "rand+click": 142,
+   "novelty+click>esc.key": 1,
+   "rand>esc.cell": 7
+  },
+  "novel": {
+   "graph": 43,
+   "novelty+click": 388,
+   "rand": 122,
+   "novelty+click>esc.cell": 5,
+   "rand+click": 111,
+   "novelty+click>esc.key": 1,
+   "rand>esc.cell": 1
+  },
+  "route_ms": {
+   "graph": 1820.9,
+   "novelty+click": 60782.6,
+   "rand": 17049.9,
+   "rand+click>esc.cell": 1591.9,
+   "novelty+click>esc.cell": 2338.0,
+   "rand>esc.cell": 3380.1,
+   "rand+click": 22335.6,
+   "novelty+click>esc.key": 20.3
+  },
+  "level_events": {
+   "events": [],
+   "wipes": 0,
+   "real_levels": 0,
+   "first_reach": {}
+  }
+ }
+]
