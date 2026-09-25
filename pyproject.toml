@@ -16,7 +16,7 @@ dependencies = [
 # Local environment: `uv sync` installs the default groups; `uv sync --group train` adds the GPU training stack.
 # Kaggle does not use this file — notebooks pin their own deps (Python 3.12, arc-agi 0.9.9, vLLM).
 [dependency-groups]
-dev = ["pytest", "pytest-timeout", "ruff"]
+dev = ["pytest", "pytest-timeout", "ruff", "kaggle"]
 notebook = ["ipykernel", "jupyterlab", "matplotlib", "pandas", "tqdm"]
 # Client side of the LLM loop. Local server is llama.cpp (tools/llama.cpp), Kaggle server is vLLM; both speak the
 # OpenAI API, so harness code is identical and only the base URL changes.

@@ -27,8 +27,10 @@ resources/web/*
 resources\_TEMPLATE.meta.yaml
 
 
-# --- Local model weights and inference binaries (see CLAUDE.md §5) ---
-models/*
+# --- Kaggle workspace: submission notebook, dataset staging, model weights (see CLAUDE.md §5) ---
+kaggle/
+
+# --- Local inference binaries ---
 tools/llama.cpp/
 
 # --- Large binaries ---
@@ -44,7 +46,13 @@ Thumbs.db
 .idea/
 .vscode/
 
-# --- Explicitly TRACKED despite rules above ---
-!eval/splits/*.json
-!history/ledger.jsonl
-!experiments/**/results.json
+# --- Kept local, not on GitHub for now (owner decision 2026-09-25). Only sarbloh/ + root files are pushed;
+#     the GitHub repo feeds the sarbloh-agent Kaggle dataset. Remove a line to publish that folder later. ---
+_archive/
+eval/
+experiments/
+history/
+planning/
+resources/
+scripts/
+tests/

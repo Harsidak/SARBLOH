@@ -38,10 +38,24 @@ Consequences for this repo:
   on a cluster.
 
 ### Where code lives right now
-- **All active implementation lives in `notebooks/`**, as Kaggle notebooks (conventions in §5). Build there, push there, iterate there.
-- `sarbloh/` is where code goes **later**, once a notebook mechanism has earned a place with a measured gain.
-  Do not productionise code before it has scored.
-- The logging rules of §4 still apply to notebook runs: ledger row, experiment directory and mistakes entry.
+Owner decisions of 2026-09-25, in two stages. They replace the earlier single-notebook `agent.py` plan.
+
+**Stage 1: lock the baseline.** `kaggle/main.ipynb` is the one submission notebook. It runs **Tufa Labs' Duck
+bundle unchanged** (`jeroencottaar/taaf-kaggle-source-share`). Only the serving layer is ours: a vLLM profile chain
+(`fast` → `fast_nospec` → `duck`, where the last is the exact Duck flags, and each profile must pass a tool-call
+smoke test), a throughput probe, a watchdog and guaranteed teardown. Every knob is in its `CONFIG` cell. The gate
+is to score at least the Duck's ~4.5 offline (E001). Nothing else is built on until this passes.
+
+**Stage 2: our agent.** It lives in the `sarbloh/` package and ships as the Apache-2.0 dataset
+`banwait13/sarbloh-agent` (staged in `kaggle/datasets/sarbloh-agent/` by `scripts/kaggle_push.py`). The code
+already written for it is parked, not in use: a ported harness in `sarbloh/harness/{games,runner,vllm,kaggle,local}.py`,
+the vendored Duck in `sarbloh/agent/duck/` and the launcher `kaggle/experimental/001_sarbloh.ipynb`. Experiments are
+chosen from `experiments/BACKLOG.md`.
+
+- **Docker is deferred, not forbidden.** It comes later, together with production-level integration.
+- **Offline wheels:** `kaggle/wheels.ipynb` runs with internet on and builds a vLLM wheelhouse plus `requirements.lock`
+  in the same layout as driessmit's. `arc-agi` always comes from the competition mount.
+- The logging rules of §4 apply to every run: ledger row, experiment directory and mistakes entry.
 
 ### Model choice (working recommendation; UNCONFIRMED until measured)
 | Role | Model | Why |
@@ -116,9 +130,11 @@ Human baseline is the upper-median best human action count (third-best completer
 - **Solutions must complete within 12 hours on Kaggle.** (Not 9 — corrected 2026-09-21 from the ARC Prize testing policy.)
 - **GPU (partly confirmed 2026-09-24, [docs.arcprize.org/arc-prize-2026](https://docs.arcprize.org/arc-prize-2026)):**
   the notebook options are T4 x2, P100 and CPU, plus **"Nvidia RTX 6000 (g4-standard-48)", which is reserved for
-  ARC-AGI-3**. Do not burn it on early iteration. **UNCONFIRMED:** the VRAM (believed to be 96 GB RTX Pro 6000
-  Blackwell), the weekly quota, and whether the Phase B rerun gets the same card. Print `nvidia-smi` in the first
-  run and record it here.
+  ARC-AGI-3**. Do not burn it on early iteration. **Measured 2026-09-25** (`machine_shape: NvidiaRtxPro6000`,
+  kernel `banwait13/sarbloh-main` v1): NVIDIA RTX PRO 6000 Blackwell, **97,887 MiB** VRAM, driver 580.159.04,
+  CUDA 13.0; 176 GB RAM; 20 GB `/kaggle/working`; Python 3.12.13. Qwen3.6-27B-FP8 on vLLM 0.19 at 65k context
+  leaves 45.3 GiB KV cache (174k tokens). **UNCONFIRMED:** the weekly quota, and whether the Phase B rerun gets
+  the same card.
 - Submission is in two phases: **Phase A** "Save & Run All" validates the notebook, then **Phase B**
   "Submit to Competition" reruns it on the hidden games.
 - **All authored code must be open-sourced under a permissive licence** to be prize-eligible. Third-party code needs a licence permitting public sharing.
@@ -212,6 +228,9 @@ These are not style preferences. Violating them destroys the paper and the YC ev
 7. **Mistakes log.** Anything that cost more than an hour goes in `planning/MISTAKES.md` with the cause, not just the symptom. Append-only.
 8. **Resources carry provenance.** Every item under `resources/` has a sibling `.meta.yaml` with source URL, retrieval date, and one line on why it is here. No orphan PDFs.
 9. **Never vendor third-party code into the package.** Clones live under `resources/repos/` and are gitignored. Licence compatibility is checked before any code is borrowed.
+   **Exception (owner decision, 2026-09-25):** the Duck agent is vendored at `sarbloh/agent/duck/` as the control arm. It is
+   copied from `resources/repos/duck-kaggle-bundle`, with imports rewritten and one Windows patch marked `# sarbloh:`. Its
+   licence is **UNCONFIRMED** and must be resolved before any prize submission.
 10. **Verify SDK facts against the installed SDK**, not against this file. Where they disagree, the SDK wins and this file gets corrected in the same commit.
 
 ---
@@ -222,15 +241,14 @@ These are not style preferences. Violating them destroys the paper and the YC ev
 SARBLOH/
   CLAUDE.md           this file
   main.ipynb          driver: imports sarbloh/, runs eval, plots
-  notebooks/          ACTIVE WORK: Kaggle notebooks, one per iteration (see §0)
-  sarbloh/            the package (productionised later, once notebook code has scored)
+  kaggle/             GITIGNORED Kaggle workspace (see §5 kaggle/)
+  sarbloh/            our agent package, shipped to Kaggle as the sarbloh-agent dataset (stage 2, see §0)
   eval/               scoring spine: official_score, bench, scoreboard, real_games, splits
   tests/              unit / component / regression
   experiments/        one dir per experiment, E### prefixed
   history/            LEDGER.md, ledger.jsonl, baselines.json
   planning/           ROADMAP.md, MISTAKES.md, decisions/ADR-*.md
   resources/          official/ papers/ repos/ web/ + INDEX.md
-  models/             local weights, gitignored
   scripts/            local dev tooling: serve_llm.ps1, llm_smoke.py
   tools/llama.cpp/    local inference server binaries, gitignored
   runs/               traces, gitignored
@@ -240,16 +258,26 @@ SARBLOH/
 `README.md` at the root is the only README in the repository. Per-directory rules live here, not in scattered
 READMEs. Third-party clones and downloaded model cards keep their own READMEs.
 
-### notebooks/: active implementation
-- One notebook per iteration line, named `NNN_<short-name>.ipynb`. A new architecture gets a new number; small
-  fixes edit the same notebook, and the git SHA identifies the version.
+### kaggle/: the Kaggle workspace (gitignored as a whole)
+```
+kaggle/
+  main.ipynb                 THE submission notebook (stage 1: Duck bundle + our vLLM launcher)
+  wheels.ipynb               internet ON: builds the offline vLLM wheelhouse + requirements.lock
+  experimental/              launchers not yet submitted (001_sarbloh.ipynb: sarbloh harness, stage 2)
+  reference/                 TufaLabs.ipynb, DuckQwen.ipynb (public Duck launchers, read-only)
+  archive/                   v-o-i-d*.ipynb, pre-reorg Jul-Aug 2026 (still tracked from before the ignore)
+  datasets/                  what gets uploaded as Kaggle datasets
+    sarbloh-agent/           LICENSE (Apache-2.0) + dataset-metadata.json; sarbloh/ rebuilt by kaggle_push.py
+    models/local/            GGUFs for the RTX 4050 rig (models.json lists them)
+    models/cloud/            models.json: RTX Pro 6000 models and where they live on Kaggle (no weights on this PC)
+```
+- **Being gitignored means `main.ipynb` is not versioned by git.** Every Kaggle push is the record: the run prints
+  `CONFIG` and the ledger row. Copy a notebook into `experiments/E###_*/` when a run is logged.
 - The **first cell prints the environment**: `nvidia-smi`, the Python and `arc_agi` versions, `list(GameAction)`,
   the model path and the config. Any UNCONFIRMED fact it settles is recorded in §2.
 - All knobs go in one `CONFIG` dict at the top, and every mechanism can be switched off from it.
-- The run writes its own ledger row, or prints the JSON line when it runs on Kaggle. Each run links to
-  `experiments/E###_*/`.
+- The run prints a `LEDGER_ROW` JSON line and writes `sarbloh_summary.json`. Each run links to `experiments/E###_*/`.
 - Do not iterate on the RTX 6000 when a T4 or CPU run answers the question.
-- Index: `v-o-i-d.ipynb` and `v-o-i-d-agent-original.ipynb` are pre-reorg (Jul–Aug 2026) and kept for reference only.
 
 ### eval/: the scoring spine
 `official_score.py` is the only scorer whose output goes in the ledger. `bench.py` is the benchmark driver,
@@ -284,15 +312,15 @@ pages named `YYYY-MM-DD_domain_slug.md`, with the substance kept and numbers ver
 arXiv ID and why it is there, and every repo with its licence and commit. Record a clone's licence there before
 borrowing any code from it.
 
-### models/ and tools/llama.cpp/
+### kaggle/datasets/models/local/ and tools/llama.cpp/
 Each model gets its own folder, and nothing in it is tracked. Current: `qwen3.5-4b-gguf/` holds
 `Qwen_Qwen3.5-4B-Q4_K_M.gguf` (3.0 GB, from bartowski's quantisation of Qwen/Qwen3.5-4B, Apache-2.0) and
 `mmproj-…-f16.gguf` (0.7 GB vision projector, used with `-Vision`). Both files are SHA256-verified against HF. It is
 the same `qwen3_5` family and chat template as the 27B targets. Rig: RTX 4050 Laptop, 6 GB, 32 GB RAM, CUDA 13.4.
 At Q4, 4B fits comfortably, 9B only at short context, and 27B needs CPU offload (one-off checks only).
-- Add a GGUF: `uv run hf download <repo>-GGUF <file>.gguf --local-dir models\<name>`. On a slow link use
+- Add a GGUF: `uv run hf download <repo>-GGUF <file>.gguf --local-dir kaggle\datasets\models\local\<name>`. On a slow link use
   `curl -L -C - -o <file> https://huggingface.co/<repo>/resolve/main/<file>`, which resumes.
-- Add full weights for LoRA: `uv run hf download <repo> --local-dir models\<name>-hf` (needs `--group train`).
+- Add full weights for LoRA: `uv run hf download <repo> --local-dir kaggle\datasets\models\local\<name>-hf` (needs `--group train`).
 - llama.cpp: the Windows CUDA 13.4 build, version in `tools/llama.cpp/VERSION`. To update, unzip the
   `llama-bNNNN-bin-win-cuda-13.4-x64.zip` and `cudart-*.zip` release assets into that folder.
 
@@ -320,7 +348,20 @@ Measured 2026-09-25 (llama.cpp b11157, RTX 4050): server up in about 6 s, smoke 
 VRAM at a 16k context. Most of the 476 tokens are thinking. PowerShell scripts must stay **ASCII-only**: Windows
 PowerShell 5.1 reads BOM-less UTF-8 as ANSI, and a single em dash breaks parsing.
 
-Models live in `models/` (gitignored, see §5); the Jupyter kernel is "SARBLOH (py3.12, uv)".
+Agent runs, locally and on Kaggle, use the same `sarbloh.harness` code path:
+
+```bash
+uv run python -m sarbloh.harness.local --games ls20 --max-actions 30      # local llama.cpp, OFFLINE games
+uv run python scripts/kaggle_push.py kernel                  # push kaggle/main.ipynb (starts a run)
+uv run python scripts/kaggle_push.py dataset -m "..."        # stage 2: build + upload sarbloh-agent dataset
+uv run python scripts/kaggle_push.py status | output         # poll / download outputs into runs/
+```
+Kaggle credentials go in the gitignored repo `.env` (`KAGGLE_API_TOKEN`, or `KAGGLE_USERNAME` + `KAGGLE_KEY`), which
+`kaggle_push.py` loads; `~/.kaggle/kaggle.json` also works. The `username` is set in `scripts/kaggle_settings.json`.
+Measured 2026-09-25 locally with Qwen3.5-4B: the plumbing works end to end (tool calls parsed, sandbox runs). The 4B
+model then loops in its reasoning and never calls `step_env`, so local runs test plumbing only.
+
+Models live in `kaggle/datasets/models/` (gitignored, see §5); the Jupyter kernel is "SARBLOH (py3.12, uv)".
 Local runs are for plumbing and debugging only — a 4B model's score is not evidence about the 27B. Scored runs are
 on Kaggle.
 
