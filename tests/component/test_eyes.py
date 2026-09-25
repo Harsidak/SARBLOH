@@ -1,7 +1,7 @@
 # --- path shim: these suites live in tests/ but import the agent from the repo root ---
 import os as _os, sys as _sys
-_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-for _p in (_ROOT, _os.path.join(_ROOT, 'eval')):
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+for _p in (_ROOT, _os.path.join(_ROOT, 'eval'), _os.path.join(_ROOT, 'sarbloh', 'legacy')):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 # --- end shim ---

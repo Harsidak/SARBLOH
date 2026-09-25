@@ -29,7 +29,7 @@ Reason in `GIT_SETUP.md` §1. Do not skip.
 | 5 | `check_statencoder.py` | `sarbloh\legacy\check_statencoder.py` |
 | 6 | `Kaggle_test.py` | `sarbloh\harness\kaggle_test_legacy.py` |
 
-Frozen, not refactored. See `sarbloh/legacy/README.md` for the extraction protocol.
+Frozen, not refactored. See `CLAUDE.md` §3 (legacy) for the extraction protocol and log.
 
 ---
 

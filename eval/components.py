@@ -56,8 +56,8 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-AGENT = os.path.join(ROOT, "my_agent.py")
-TESTS = os.path.join(ROOT, "tests")
+AGENT = os.path.join(ROOT, "sarbloh", "legacy", "my_agent.py")
+TESTS = os.path.join(ROOT, "tests", "component")
 
 # The gate for D2/D3/D4 in Docs/feedback_loop_plan.txt: a suite is written when a
 # planned change implicates the component, not because the row is empty. Coverage

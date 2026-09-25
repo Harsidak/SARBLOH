@@ -1,7 +1,7 @@
 # --- path shim: these suites live in tests/ but import the agent from the repo root ---
 import os as _os, sys as _sys
-_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-for _p in (_ROOT, _os.path.join(_ROOT, 'eval')):
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+for _p in (_ROOT, _os.path.join(_ROOT, 'eval'), _os.path.join(_ROOT, 'sarbloh', 'legacy')):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 # --- end shim ---
@@ -322,7 +322,7 @@ from my_agent import MyAgent                                        # noqa: E402
 _a = MyAgent(game_id="unit-test")
 ok("agent_owns_a_replay_cache", isinstance(getattr(_a, "replay", None), ReplayCache))
 ok("kill_switch_documented", "ARC_NO_REPLAY" in open(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "my_agent.py"),
+    os.path.join(_ROOT, "sarbloh", "legacy", "my_agent.py"),
     encoding="utf-8").read())
 
 print("\n================ SUMMARY ================")

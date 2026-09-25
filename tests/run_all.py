@@ -123,7 +123,7 @@ def main():
                     help="print every suite's full output, not just failures")
     args = ap.parse_args()
 
-    suites = sorted(glob.glob(os.path.join(HERE, "test_*.py")))
+    suites = sorted(glob.glob(os.path.join(HERE, "**", "test_*.py"), recursive=True))
     if args.only:
         suites = [s for s in suites
                   if any(o in os.path.basename(s) for o in args.only)]

@@ -1,7 +1,7 @@
 # --- path shim: these suites live in tests/ but import the agent from the repo root ---
 import os as _os, sys as _sys
-_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-for _p in (_ROOT, _os.path.join(_ROOT, 'eval')):
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+for _p in (_ROOT, _os.path.join(_ROOT, 'eval'), _os.path.join(_ROOT, 'sarbloh', 'legacy'), _os.path.join(_ROOT, 'sarbloh', 'harness')):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 # --- end shim ---
@@ -353,7 +353,7 @@ try:
        f"eval-only {sorted(a - b)}, kaggle-only {sorted(b - a)} "
        f"(wrapper_kwargs is bench-side wiring and is expected to be eval-only)")
     ok("kaggle_copy_does_not_import_eval",
-       "from scoreboard" not in open(os.path.join(_ROOT, "Kaggle_test.py"),
+       "from scoreboard" not in open(os.path.join(_ROOT, "sarbloh", "harness", "Kaggle_test.py"),
                                      encoding="utf-8").read(),
        "there is no eval/ directory on Kaggle; the copy must stay standalone")
 except Exception as e:

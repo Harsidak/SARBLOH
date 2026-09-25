@@ -96,7 +96,7 @@ one-click change; going public with an unreviewed history is not reversible, so 
 - [ ] `LICENSE` present at root (MIT). **Verify MIT satisfies the competition's "permissive public-domain
       licence" wording** — if ARC Prize requires CC0 or Unlicense specifically, swap it now, not in November.
 - [ ] Every third-party component under `resources/repos/` has its licence recorded in
-      `resources/repos/README.md`
+      `resources/INDEX.md`
 - [ ] No environment source from `eval/real_games/` redistributed in violation of ARC Prize terms — check before
       pushing, these were pulled from the toolkit
 - [ ] `CLAUDE.md` UNCONFIRMED items resolved or still clearly marked

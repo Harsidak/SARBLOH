@@ -22,14 +22,17 @@ _archive/logs/
 
 # --- Third-party clones: referenced, never distributed ---
 resources/repos/*
-resources/repos/README.md
-resources/repos/*.meta.yaml
 resources/papers/*
 resources/web/*
 resources\_TEMPLATE.meta.yaml
 
 
+# --- Local model weights and inference binaries (see CLAUDE.md §5) ---
+models/*
+tools/llama.cpp/
+
 # --- Large binaries ---
+*.gguf
 *.pkl
 *.npz
 *.pt

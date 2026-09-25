@@ -7,6 +7,40 @@ silently because the Kaggle environment swallows exceptions in the scoring callb
 
 ---
 
+## 2026-09-21 — Reorg moved files without running the tests
+
+**Cost:** the test suite was silently un-runnable for three days. Found 2026-09-24 when setting up the uv env.
+
+**What happened:** the SARBLOH reorg moved `my_agent.py` to `sarbloh/legacy/`, `Kaggle_test.py` to `sarbloh/harness/`
+and the suites to `tests/component/`. Every suite's path shim, the runner's glob and `eval/components.py` still
+pointed at the old locations: `run_all.py` reported "no suites selected", and each suite failed on import.
+The documented command (`pytest tests/`) cannot run these suites at all, because they are scripts, not pytest tests.
+
+**Cause:** the reorg was checked by eye, not by running `tests/run_all.py` afterwards, and the documented test
+command had never been executed.
+
+**Rule adopted:** any commit that moves files runs `uv run python tests/run_all.py` and must stay 16/16 green. Every
+command documented in `CLAUDE.md` §6 has been executed at least once (verified 2026-09-24).
+
+---
+
+## Prior Kaggle competition — RL forced where hardware made it suboptimal
+
+**Cost:** the competition result; LoRA SFT, not RL, produced the best score.
+
+**What happened:** the owner, whose research background is RL, applied RL to a Kaggle problem because the papers
+argue RL is what drives advanced agentic systems. Under Kaggle's hardware limits RL underperformed, and LoRA SFT
+won.
+
+**Cause:** the method was chosen from the literature, which assumes cluster-scale compute, rather than from the
+competition's actual GPU and wall-clock budget, and it was not tested early against a simpler baseline.
+
+**Rule adopted:** method follows hardware. RL has to beat an SFT or no-training baseline inside the Kaggle budget,
+in a measured run, before it is adopted. The default training route is LoRA SFT on verified trajectories.
+(`CLAUDE.md` §0)
+
+---
+
 ## 2026-08 — Tests moved to the archive
 
 **Cost:** repository verifiability, for roughly six weeks.
