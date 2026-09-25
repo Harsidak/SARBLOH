@@ -46,8 +46,12 @@ Thumbs.db
 .idea/
 .vscode/
 
-# --- Kept local, not on GitHub for now (owner decision 2026-09-25). Only sarbloh/ + root files are pushed;
-#     the GitHub repo feeds the sarbloh-agent Kaggle dataset. Remove a line to publish that folder later. ---
+# other files
+CLAUDE.md
+uv.lock
+pyproject.toml
+
+# other files
 _archive/
 eval/
 experiments/
