@@ -108,6 +108,8 @@ class AgentSession:
         self.deadline = deadline
         self.stop_event = stop_event
         self.global_harness_dir = global_harness_dir
+        self.session_dir = session_dir = session_dir.resolve()  # the kernel runs in work/: relative paths break
+        self.global_harness_dir = global_harness_dir = global_harness_dir.resolve()
         self.local_harness_dir = session_dir / "harness"
         self.depth = depth
         self.parent = parent
@@ -119,7 +121,16 @@ class AgentSession:
         self.end_reason = ""
         self.stats = {"turns": 0, "tool_calls": 0, "output_tokens": 0, "prompt_tokens_last": 0, "compactions": 0,
                       "continuations": 0, "llm_failures": 0, "cell_errors": 0, "native_calls": 0,
-                      "fenced_calls": 0, "children": 0}
+                      "fenced_calls": 0, "children": 0, "reflections": 0, "reflection_skipped": 0,
+                      "refine_reviews": 0, "refines": 0, "refine_edits_applied": 0, "refine_errors": 0}
+        self._reflect_mark = 0             # action_count at the last reflection checkpoint
+        self._reflect_level = 0
+        self._reflect_state = ""
+        self._reflect_sig: tuple = ()
+        self._reflect_asks = 0
+        self._turns_since_refine = 0
+        self._last_refine_at = 0.0
+        self._compact_refine_pending = False
         self._harness_cache: tuple[tuple, str] | None = None
         self.kernel = Kernel(session_dir / "work", self._host, env={
             "RLM_HARNESS_STATE_DIR": str(self.local_harness_dir),
@@ -165,6 +176,9 @@ class AgentSession:
             for child in list(self.children.values()):
                 child.thread.join(timeout=30)
             self.kernel.close()
+            if self.arc is not None:
+                self.stats["cell_cap_hits"] = self.arc.cell_cap_hits
+            self.stats["harness"] = self._harness_counts()
             self._log_event({"event": "end", "reason": self.end_reason, "stats": self.stats})
 
     def _loop(self) -> None:
@@ -193,6 +207,7 @@ class AgentSession:
             self.stats["turns"] += 1
             self.stats["output_tokens"] += reply.completion_tokens
             self.stats["prompt_tokens_last"] = reply.prompt_tokens
+            self._turns_since_refine += 1
             calls = self._calls(reply)
             assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
             if calls and calls[0]["native"]:
@@ -202,6 +217,8 @@ class AgentSession:
             if calls:
                 for call in calls:
                     self._run_call(call)
+                self._reflection_tick()
+                self._maybe_auto_refine()
                 continue
             if reply.finish_reason == "length":
                 self._append({"role": "user", "content": "Your reply was cut off by the output limit. Be shorter: "
@@ -262,6 +279,8 @@ class AgentSession:
         if call["error"]:
             text = call["error"]
         else:
+            if self.arc is not None:
+                self.arc.cell_actions = 0
             timeout = max(10.0, min(self.cfg["cell_timeout_s"], self.deadline - time.time()))
             res = self.kernel.execute(call["code"], timeout_s=timeout)
             if res.status != "ok":
@@ -274,6 +293,100 @@ class AgentSession:
             self._append({"role": "tool", "tool_call_id": call["raw"]["id"], "content": text})
         else:
             self._append({"role": "user", "content": f"[ipython output]\n{text}"})
+
+    # --- host-driven auto /refine (upstream agent-session.ts) ---------------------------------------------
+    def _maybe_auto_refine(self) -> None:
+        ar = self.cfg.get("auto_refine") or {}
+        if self.depth > 0 or not ar.get("enabled"):
+            return
+        if self._compact_refine_pending and ar.get("compact", True):
+            reason = "compact"
+        elif self._turns_since_refine >= ar.get("turn_interval", 25):
+            reason = "turn_interval"
+        else:
+            return
+        if self._last_refine_at and time.time() - self._last_refine_at < ar.get("cooldown_s", 1200):
+            return  # a pending compact trigger is kept for a later boundary, like upstream
+        from rlm.harness import _DEFAULT_FILE_NAME
+        from prime.refine import auto_refine
+
+        self._compact_refine_pending = False
+        turns, self._turns_since_refine, self._last_refine_at = self._turns_since_refine, 0, time.time()
+        self.stats["refine_reviews"] += 1
+        t0 = time.time()
+        try:
+            rec = auto_refine(llm=self.llm, harness_file=self.local_harness_dir / _DEFAULT_FILE_NAME,
+                              messages=self.messages, reason=reason, turns_since=turns,
+                              conversation_chars=ar.get("conversation_chars", 80_000),
+                              max_tokens=ar.get("max_tokens", 4096))
+        except Exception as exc:  # noqa: BLE001 - refinement must never kill the session
+            self.stats["refine_errors"] += 1
+            self._log_event({"event": "auto_refine", "reason": reason, "error": f"{type(exc).__name__}: {exc}"[:500]})
+            return
+        applied = sum(1 for e in rec.get("edits", []) if e.get("applied"))
+        self.stats["refines"] += int("edits" in rec)
+        self.stats["refine_edits_applied"] += applied
+        self._log_event({"event": "auto_refine", "duration_s": round(time.time() - t0, 1), **rec})
+
+    # --- forced reflection checkpoints (E004) -------------------------------------------------------------
+    def _harness_sig(self) -> tuple:
+        from rlm.harness import _DEFAULT_FILE_NAME
+
+        paths = (self.local_harness_dir / _DEFAULT_FILE_NAME, self.global_harness_dir / _DEFAULT_FILE_NAME)
+        return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
+
+    def _reflection_tick(self) -> None:
+        """Host-driven L3: at checkpoints, refuse arc.step until the model writes to the Continual Harness."""
+        every = self.cfg.get("reflect_every_actions")
+        if self.depth > 0 or self.arc is None or not every:
+            return
+        arc = self.arc
+        if arc.reflection_due:
+            if self._harness_sig() != self._reflect_sig:
+                self.stats["reflections"] += 1
+                self._log_event({"event": "reflection_done", "reason": arc.reflection_due,
+                                 "harness": self._harness_counts()})
+                arc.reflection_due = None
+            elif self._reflect_asks >= self.cfg.get("reflect_max_reasks", 2):
+                self.stats["reflection_skipped"] += 1
+                self._log_event({"event": "reflection_skipped", "reason": arc.reflection_due})
+                arc.reflection_due = None
+            else:
+                self._reflect_asks += 1
+                self._append({"role": "user", "content": prompts.REFLECT_AGAIN})
+            return
+        st = arc.game.state
+        state = st.engine_state.name
+        reason = None
+        if st.levels_completed > self._reflect_level:
+            reason = f"level {st.levels_completed} completed"
+        elif state == "GAME_OVER" and self._reflect_state != "GAME_OVER":
+            reason = "game over"
+        elif arc.game.action_count - self._reflect_mark >= every:
+            reason = f"{arc.game.action_count - self._reflect_mark} actions since the last checkpoint"
+        self._reflect_level, self._reflect_state = st.levels_completed, state
+        if reason:
+            self._reflect_mark = arc.game.action_count
+            self._reflect_sig = self._harness_sig()
+            self._reflect_asks = 0
+            arc.reflection_due = reason
+            self._log_event({"event": "reflection_due", "reason": reason})
+            self._append({"role": "user", "content": prompts.REFLECT.format(reason=reason, status=self._status())})
+
+    def _harness_counts(self) -> dict[str, Any]:
+        from rlm.harness import _DEFAULT_FILE_NAME, HarnessState
+
+        out: dict[str, Any] = {}
+        for scope, d in (("local", self.local_harness_dir), ("global", self.global_harness_dir)):
+            path = d / _DEFAULT_FILE_NAME
+            if not path.exists():
+                continue
+            try:
+                st = HarnessState(path, scope=scope)
+                out[scope] = {k: [f"{e.title} v{e.version}" for e in st.list(k)] for k in ("memory", "skill", "prompt", "subagent")}
+            except Exception as exc:  # noqa: BLE001
+                out[scope] = f"unreadable: {exc}"
+        return out
 
     # --- context: system prompt, harness digest, compaction ----------------------------------------------
     def _system_prompt(self) -> str:
@@ -339,6 +452,7 @@ class AgentSession:
         self.messages = [self.messages[0]]
         self._append({"role": "user", "content": handoff})
         self.stats["prompt_tokens_last"] = 0
+        self._compact_refine_pending = True
         self._log_event({"event": "compaction", "forced": force})
 
     # --- subagents and messages (host requests) ----------------------------------------------------------

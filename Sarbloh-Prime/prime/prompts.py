@@ -102,3 +102,16 @@ COMPACTION = """Your context window is nearly full. Write a compact handoff summ
 - the names of the important Python variables, functions and classes in the REPL (they are preserved);
 - the current level, actions spent, and the next concrete steps.
 Do not call tools. Output only the summary."""
+
+REFLECT = """[reflection checkpoint: {reason}] ({status})
+`arc.step` is locked until you update the Continual Harness. In ONE `ipython` call:
+1. Review what the recent actions showed (use `await arc.transitions()` and your REPL variables; do not act).
+2. Write what is now verified with `rlm.harness.create_memory(title=..., content=...)`, or correct an existing entry
+   with `rlm.harness.update_memory(id, title, content)` if the evidence changed it. Record falsified ideas too.
+3. If you repeated a procedure (reading the grid, finding the player, testing an action), save it as a reusable
+   Python helper and register it: `rlm.harness.create_skill(title=..., content=<what it does and how to call it>)`.
+4. If you made a mistake a rule would prevent, add `rlm.harness.create_prompt_note(title=..., content=...)`.
+Then print `rlm.harness.overview()` and state the next plan in one sentence."""
+
+REFLECT_AGAIN = ("The harness file did not change, so `arc.step` is still locked. Call `rlm.harness.create_memory(...)`, "
+                 "`update_memory(...)`, `create_skill(...)` or `create_prompt_note(...)` now, in an `ipython` call.")

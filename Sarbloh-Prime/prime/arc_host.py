@@ -26,7 +26,7 @@ def _frames(state: GameState) -> list[list[list[int]]]:
 
 class ArcHost:
     def __init__(self, game: ArcGame, max_actions: int | None, should_stop: Callable[[], bool],
-                 tokens_spent: Callable[[], int]) -> None:
+                 tokens_spent: Callable[[], int], max_actions_per_cell: int | None = None) -> None:
         self.game = game
         self.max_actions = max_actions
         self.should_stop = should_stop
@@ -35,6 +35,10 @@ class ArcHost:
         self._lock = threading.Lock()
         self._level_start = 0          # action_count when the current level started
         self._token_mark = 0
+        self.max_actions_per_cell = max_actions_per_cell
+        self.cell_actions = 0          # reset by the session before each cell
+        self.cell_cap_hits = 0
+        self.reflection_due: str | None = None   # set by the session; arc.step is refused while set
 
     # --- status ------------------------------------------------------------------------------------------
     @property
@@ -88,6 +92,13 @@ class ArcHost:
             raise RuntimeError("the run is stopping (time budget spent); no more actions")
         if self.budget_left == 0:
             raise RuntimeError(f"action budget exhausted ({self.max_actions})")
+        if self.reflection_due:
+            raise RuntimeError(f"reflection checkpoint pending ({self.reflection_due}): write or update a harness "
+                               "memory/skill/prompt note with rlm.harness before any more actions")
+        if self.max_actions_per_cell and self.cell_actions >= self.max_actions_per_cell:
+            self.cell_cap_hits += 1
+            raise RuntimeError(f"cell action cap reached ({self.max_actions_per_cell} actions in one cell); end this "
+                               "cell, look at the results, and plan the next actions")
         action_id = int(req["action"])
         try:
             ga = arcengine.GameAction.from_id(action_id)  # GameAction(int) raises: the enum values are not plain
@@ -101,6 +112,7 @@ class ArcHost:
         if action_id not in self.game.state.available_actions:
             raise ValueError(f"{ga.name} is not available now; legal: {self.game.state.available_actions}")
         before = self.game.state
+        self.cell_actions += 1
         tokens = self.tokens_spent()
         new = self.game.execute_action(arcengine.ActionInput(id=ga, data=data),
                                        generated_tokens=max(0, tokens - self._token_mark))

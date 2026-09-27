@@ -15,6 +15,7 @@ DEFAULT: dict[str, Any] = {
     "teardown_reserve_s": 300.0,       # games are stopped this long before the budget ends
     "game_wall_s": 1800.0,             # cap per game
     "max_actions_per_game": 400,       # hard action budget per game (host-enforced)
+    "max_actions_per_cell": None,      # E004: host refuses arc.step beyond this many in one cell (None = off)
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
@@ -30,6 +31,11 @@ DEFAULT: dict[str, Any] = {
         "max_running_children": 2,
         "subagent_keepalive_s": 300.0,
         "max_consecutive_llm_failures": 6,
+        "reflect_every_actions": None,  # E004: forced harness write every N actions / level-up / GAME_OVER (None = off)
+        "reflect_max_reasks": 2,
+        # host-driven Continual Harness refinement; upstream defaults: every 25 turns + after compaction, 20 min cooldown
+        "auto_refine": {"enabled": False, "turn_interval": 25, "compact": True, "cooldown_s": 1200.0,
+                        "conversation_chars": 80000, "max_tokens": 4096},
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },
