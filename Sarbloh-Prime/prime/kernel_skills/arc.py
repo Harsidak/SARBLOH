@@ -53,7 +53,7 @@ class Observation:
     state: str                     # NOT_FINISHED | WIN | GAME_OVER
     levels_completed: int
     win_levels: int
-    available_actions: list[int]   # legal action ids; 0 = RESET
+    available_actions: list[int]   # legal ids for arc.step (RESET is not listed: it is arc.reset())
     action_count: int              # environment actions spent so far in this game
     level_action_count: int        # actions spent on the current level
     actions_left: int | None       # remaining action budget (None = unlimited)
@@ -96,7 +96,10 @@ async def step(action: int | str, x: int | None = None, y: int | None = None) ->
         name = action.upper()
         action = next((k for k, v in ACTION_NAMES.items() if v == name), None)
         if action is None:
-            raise ValueError(f"unknown action name; use one of {list(ACTION_NAMES.values())}")
+            raise ValueError(f"unknown action name; use one of {list(ACTION_NAMES.values())[1:]}")
+    if int(action) == 0:
+        raise ArcError("arc.step(0) is RESET, which restarts the level and loses its progress. Call "
+                       "`await arc.reset()` if you mean that; game actions are the ids in obs.available_actions.")
     payload: dict[str, Any] = {"action": int(action)}
     if x is not None or y is not None:
         payload.update({"x": int(x), "y": int(y)})
@@ -104,9 +107,9 @@ async def step(action: int | str, x: int | None = None, y: int | None = None) ->
 
 
 async def reset() -> Observation:
-    """RESET: restarts the current level from its start. Costs one action and loses the level's progress.
-    Needed after GAME_OVER."""
-    return await step(0)
+    """RESET: restarts the current level. Costs one action; the level's state is lost, your variables and memories
+    are kept. Needed after GAME_OVER. Refused when the level is already at its start."""
+    return _obs(await host_request("arc.reset"))
 
 
 class Transition(dict):
@@ -151,7 +154,8 @@ def show(grid: Any, x0: int = 0, y0: int = 0, x1: int | None = None, y1: int | N
 
 
 def diff(a: Any, b: Any) -> list[tuple[int, int, int, int]]:
-    """Pixels that differ between two grids of the same shape, as (x, y, old, new)."""
+    """Pixels that differ between two grids (or two observations) of the same shape, as (x, y, old, new)."""
+    a, b = getattr(a, "grid", a), getattr(b, "grid", b)
     ra = a.tolist() if hasattr(a, "tolist") else a
     rb = b.tolist() if hasattr(b, "tolist") else b
     return [(x, y, int(ra[y][x]), int(rb[y][x])) for y in range(len(ra)) for x in range(len(ra[y]))

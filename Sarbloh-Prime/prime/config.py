@@ -25,8 +25,10 @@ DEFAULT: dict[str, Any] = {
         "cell_timeout_s": 300.0,
         "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
         "context_window": 131072,      # served context; run.py sets it from the vLLM profile / local server
-        # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens
-        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 20000},
+        # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
+        # Ours (E005): also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
+        # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
+        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 40000},
         "max_depth": 1,                # root may spawn children; children may not
         "max_running_children": 2,
         "subagent_keepalive_s": 300.0,

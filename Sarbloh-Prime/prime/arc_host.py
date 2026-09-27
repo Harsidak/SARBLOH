@@ -34,6 +34,9 @@ class ArcHost:
         self.transitions: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._level_start = 0          # action_count when the current level started
+        # Actions since the level began or was last reset. Mirrors the engine's `_action_count`, which `set_level()`
+        # zeroes; a RESET at 0 changes nothing (ONLY_RESET_LEVELS) or restarts the whole game from level 1 (without it).
+        self._since_reset = 0
         self._token_mark = 0
         self.max_actions_per_cell = max_actions_per_cell
         self.cell_actions = 0          # reset by the session before each cell
@@ -62,7 +65,9 @@ class ArcHost:
             "state": s.engine_state.name,
             "levels_completed": s.levels_completed,
             "win_levels": self.game.number_of_levels,
-            "available_actions": s.available_actions,
+            # RESET (id 0) is left out: it is only `arc.reset()`. In the E005 smoke `for a in range(5): step(a)` spent
+            # 100 of 150 actions on silent resets.
+            "available_actions": [a for a in s.available_actions if a != 0],
             "action_count": self.game.action_count,
             "level_action_count": self.game.action_count - self._level_start,
             "actions_left": self.budget_left,
@@ -79,9 +84,18 @@ class ArcHost:
             if kind == "arc.transitions":
                 start = max(0, int(req.get("start", 0)))
                 return {"transitions": self.transitions[start:]}
-            if kind == "arc.step":
+            if kind in ("arc.step", "arc.reset"):
                 if depth > 0:
                     raise PermissionError("subagents cannot spend environment actions; report to your parent")
+                if kind == "arc.reset":
+                    if self._since_reset == 0 and self.game.state.engine_state.name != "GAME_OVER":
+                        raise ValueError("arc.reset() refused: the level is already at its start (no action since it "
+                                         "began or was last reset), so a reset would cost an action and change nothing.")
+                    return self._step({"action": 0})
+                if int(req.get("action", -1)) == 0:
+                    raise ValueError("arc.step(0) is RESET, which restarts the level and loses its progress. Call "
+                                     "`await arc.reset()` if you mean that; game actions are the ids in "
+                                     "obs.available_actions.")
                 return self._step(req)
         raise ValueError(f"unknown arc request {kind!r}")
 
@@ -102,17 +116,18 @@ class ArcHost:
                                "ipython call, and this call has used them. Read the results, then act in a new "
                                "ipython call. This is a harness rule, not a game rule.")
         action_id = int(req["action"])
+        legal = [a for a in self.game.state.available_actions if a != 0]  # as in observation(): RESET is arc.reset()
         try:
             ga = arcengine.GameAction.from_id(action_id)  # GameAction(int) raises: the enum values are not plain
         except (ValueError, KeyError):
-            raise ValueError(f"unknown action id {action_id}; legal: {self.game.state.available_actions}") from None
+            raise ValueError(f"unknown action id {action_id}; legal: {legal}") from None
         data: dict[str, Any] = {}
         if ga == arcengine.GameAction.ACTION6:
             if req.get("x") is None or req.get("y") is None:
                 raise ValueError("ACTION6 needs x (column) and y (row)")
             data = {"x": max(0, min(63, int(req["x"]))), "y": max(0, min(63, int(req["y"])))}
         if action_id not in self.game.state.available_actions:
-            raise ValueError(f"{ga.name} is not available now; legal: {self.game.state.available_actions}")
+            raise ValueError(f"{ga.name} is not available now; legal: {legal}")
         before = self.game.state
         self.cell_actions += 1
         tokens = self.tokens_spent()
@@ -120,6 +135,7 @@ class ArcHost:
                                        generated_tokens=max(0, tokens - self._token_mark))
         self._token_mark = tokens
         level_up = new.just_won_level
+        self._since_reset = 0 if action_id == 0 or level_up else self._since_reset + 1
         self.transitions.append({
             "i": len(self.transitions), "action": action_id, "x": data.get("x"), "y": data.get("y"),
             "level": before.levels_completed, "before": _frames(before)[-1], "frames": _frames(new),

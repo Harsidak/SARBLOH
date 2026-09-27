@@ -214,7 +214,7 @@ class AgentSession:
             self._drain_inbox()
             window, reserve, _ = self._context_limits()
             tokens = self._context_tokens()
-            if compaction.should_compact(tokens, window, reserve) and (
+            if compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens")) and (
                     self._compact_failed_at is None or tokens > self._compact_failed_at + 1024):
                 self._compact("threshold")
             msgs = [{"role": "system", "content": self._system_prompt()}, *_wire(self.messages)]

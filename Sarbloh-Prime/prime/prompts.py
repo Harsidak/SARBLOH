@@ -5,9 +5,13 @@ The base system prompt is upstream ``buildRlmPrompt`` + ``buildSubagentGuidance`
 USER_PROGRESS_PROMPT (no user watches the run), ``uv pip install`` and the dependency-install paragraph (offline),
 ``create_session``/``find_models``/``agent_observe``/MCP/SKILL.md/shell-skill lines (not provided), the 16 MiB
 compaction-variable note (our compaction never touches kernel state), the "external system's native runtime" and
-per-``bash()``-process paragraphs (no external project here), the ``bash()`` completion follow-up sentence (this
-host sends no such follow-up) and the ``refine.run()`` paragraph (no agent-callable refine skill; upstream then
-carries the same guidance in the harness digest).
+per-``bash()``-process paragraphs (no external project here), the ``bash()`` handle-method list (``h.pid`` ...
+``h.kill()``) and "Prefer bash() for long-running commands" (no shell jobs in an ARC game; the methods still exist),
+the ``bash()`` completion follow-up sentence (this host sends no such follow-up) and the ``refine.run()`` paragraph
+(no agent-callable refine skill; upstream then carries the same guidance in the harness digest). Changed, not cut:
+"Agent messaging is restricted to your parent and your direct children" (upstream also allows siblings; this host
+routes only to the parent or a direct child). A line-by-line check against upstream: see
+experiments/E005_prime_fidelity/audit.md.
 
 The ARC section is ours and is appended to the system prompt (upstream ``appendSystemPrompt``), so it survives
 compaction. The paper gives ARC-AGI-3 "only the environment interface and an autonomous prompt" (section 3.1): the
@@ -58,7 +62,7 @@ REPL_CONTROL = "\n".join([
     "Python `await` expressions, so their return values can be bound to variables and composed into program logic "
     "just like any other call.",
     "",
-    "Continual harness state is available as `rlm.harness`. CRUD calls are local to this Prime Agent session by "
+    "Continual harness state is available as `rlm.harness` and `rlm.get_harness_state()`. CRUD calls are local to this Prime Agent session by "
     "default: `rlm.harness.create_memory(...)`, `rlm.harness.update_memory(...)`, `rlm.harness.delete_memory(...)`, "
     "`rlm.harness.create_skill(...)`, `rlm.harness.update_skill(...)`, `rlm.harness.delete_skill(...)`, "
     "`rlm.harness.create_subagent(...)`, `rlm.harness.update_subagent(...)`, `rlm.harness.delete_subagent(...)`, "
@@ -132,18 +136,18 @@ You are playing the ARC-AGI-3 game `{game_id}` through the pre-imported Python m
 - `obs = await arc.observe()` returns the current observation. Free.
   - `obs.grid`: numpy int8 array, shape (64, 64). Read it as `obs.grid[y, x]` (y = row, x = column). Values 0-15 are colours.
   - `obs.state`: "NOT_FINISHED", "WIN" (all levels complete) or "GAME_OVER".
-  - `obs.levels_completed`, `obs.available_actions` (legal action ids; 0 is RESET), `obs.actions_left`, `obs.frames` (every frame of the last step; `obs.grid` is the last one).
+  - `obs.levels_completed`, `obs.available_actions` (the legal ids for `arc.step`), `obs.actions_left`, `obs.frames` (every frame of the last step; `obs.grid` is the last one).
 {act_lines}- `ts = await arc.transitions()` returns every step of this game, oldest first. Free. Each item is a dict with the keys `"action"`, `"x"`, `"y"`, `"before"` (grid), `"after"` (grid), `"level"`, `"state"`, `"level_up"`. Example: `ts[-1]["after"]`.
 - `arc.show(grid)` returns the grid as text, one hex digit per pixel; `arc.show(grid, x0, y0, x1, y1)` shows a window. `arc.diff(a, b)` returns the pixels that differ, as a list of `(x, y, old, new)`.
 
 ## Score
-Each level scores (human actions / your actions)^2. Only `arc.step` and `arc.reset` count. Thinking, code, analysis and subagents are free. Do not spend an action to learn what the frames you already have can tell you, and do not repeat a step whose result is already in `arc.transitions()`.
+Each level scores (human actions / your actions)^2. Only `arc.step` and `arc.reset` count. Thinking, code, analysis and subagents are free. Do not spend an action only to learn what `arc.transitions()` and the frames you have already show.
 
 Save verified facts about this game with `rlm.harness.create_memory(title=..., content=...)`. Memories stay visible after compaction.
 Tool output longer than {output_chars} characters is cut in the middle: print shapes, counts and small windows, not whole grids or lists."""
 
 ROOT_ACT_LINES = """- `obs = await arc.step(a)` does action `a` (an id from `obs.available_actions`). Action 6 needs a pixel: `await arc.step(6, x=column, y=row)`. Costs 1 action. `obs.level_up` is True when the step completed a level.
-- `obs = await arc.reset()` restarts the current level from its start. Costs 1 action and loses all progress in the level. Reset only when `obs.state == "GAME_OVER"`, or when your recorded steps prove the level cannot be completed from the current state.
+- `obs = await arc.reset()` restarts the current level (`arc.step(0)` raises). Costs 1 action, and the actions already spent in the level still count toward its score. The level's state is lost; your variables, `rlm.harness` memories and `arc.transitions()` are kept. Needed after `obs.state == "GAME_OVER"`. Refused when the level is already at its start.
 """
 CAP_LINE = ("- Harness limit: at most {cap} `arc.step`/`arc.reset` calls per `ipython` call. The next one raises "
             "`ArcError(\"harness limit ...\")`; read the results and continue in a new `ipython` call.\n")

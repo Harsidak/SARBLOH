@@ -140,8 +140,13 @@ COMPACTION_KIND = "compaction"
 DIGEST_KIND = "harness_digest"
 
 
-def should_compact(context_tokens: int, context_window: int, reserve_tokens: int) -> bool:
-    return context_window > 0 and context_tokens > context_window - reserve_tokens
+def should_compact(context_tokens: int, context_window: int, reserve_tokens: int,
+                   trigger_tokens: int | None = None) -> bool:
+    """Upstream: context > window - reserve. Ours: also above ``trigger_tokens`` when it is set (smaller models)."""
+    limit = context_window - reserve_tokens
+    if trigger_tokens:
+        limit = min(limit, trigger_tokens)
+    return context_window > 0 and context_tokens > limit
 
 
 def _text(msg: dict[str, Any]) -> str:
