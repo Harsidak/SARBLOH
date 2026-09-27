@@ -23,19 +23,20 @@ DEFAULT: dict[str, Any] = {
         "max_tokens_per_turn": 16384,
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
-        "tool_output_chars": 6000,
-        "harness_digest_chars": 6000,
-        "compact_at_tokens": 96000,    # compaction threshold on the last prompt size
-        "compaction_max_tokens": 4096,
+        "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
+        "context_window": 131072,      # served context; run.py sets it from the vLLM profile / local server
+        # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens
+        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 20000},
         "max_depth": 1,                # root may spawn children; children may not
         "max_running_children": 2,
         "subagent_keepalive_s": 300.0,
         "max_consecutive_llm_failures": 6,
         "reflect_every_actions": None,  # E004: forced harness write every N actions / level-up / GAME_OVER (None = off)
         "reflect_max_reasks": 2,
-        # host-driven Continual Harness refinement; upstream defaults: every 25 turns + after compaction, 20 min cooldown
-        "auto_refine": {"enabled": False, "turn_interval": 25, "compact": True, "cooldown_s": 1200.0,
-                        "conversation_chars": 80000, "max_tokens": 4096},
+        # host-driven Continual Harness refinement; upstream defaults: on, every 25 turns + after compaction, 20 min
+        # cooldown
+        "auto_refine": {"enabled": True, "turn_interval": 25, "compact": True, "cooldown_s": 1200.0,
+                        "max_tokens": 4096},
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },

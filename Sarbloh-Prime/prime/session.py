@@ -1,16 +1,24 @@
 """AgentSession: the Prime Agent loop, ported to Python from upstream ``core/agent-session.ts`` (commit 2d24ad4).
 
 What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
-- L1 active context  -> ``self.messages``; compaction replaces the prefix with a model-written summary.
+- L1 active context  -> ``self.messages``. Compaction (``prime.compaction``) replaces the older prefix with a
+                        summary and keeps the newest messages verbatim.
 - L2 REPL/subagents  -> one persistent ``rlm.repl`` kernel per session (``Kernel``); ``rlm.spawn`` children.
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives compaction) and the Continual Harness files
-                        (local per game, global per run), injected into every turn's system prompt.
-- Autonomous mode    -> when the model stops calling tools before the game ends, a continuation prompt is sent,
-                        bounded by turn, token and wall-clock budgets. The end-condition test is "game won".
+                        (local per game, global per run). Their digest is delivered as a ``[harness-digest]``
+                        message on the first turn and on every compaction head; auto /refine edits are announced
+                        with an ``[auto-refinement]`` message (``prime.refine``).
+- Autonomous mode    -> when the root stops calling tools before the game ends, an ``[autonomous-continuation]``
+                        message is sent, bounded by turn, token and wall-clock budgets; the end-condition test is
+                        "game won". A threshold compaction is followed by a continuation too, like upstream.
 - Accounting         -> tokens, turns, tool calls and child usage are recorded per session.
 
-Not ported (no use offline on one GPU): the daemon/worker/TUI split, heartbeats/cron, create_session, MCP, model
-switching, session recovery after a crash.
+The system prompt is fixed for the whole session (upstream keeps it stable for the prefix cache): the base prompt
+plus the ARC section (``prompts``). Not ported (no use offline on one GPU): the daemon/worker/TUI split, goals,
+heartbeats/cron, create_session, MCP, model switching, session recovery after a crash, ``bash()`` completion
+follow-ups, the agent-callable ``refine.run()``.
+Ours, not upstream: the game status line after each tool result, the "reply was cut off" nudge, and the E004
+host-forced reflection checkpoint (off by default).
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from prime import prompts
+from prime import compaction, prompts, refine
 from prime.arc_host import ArcHost
 from prime.kernel import Kernel
 from prime.llm import LLM, ContextOverflow
@@ -35,11 +43,13 @@ IPYTHON_TOOL = {
     "type": "function",
     "function": {
         "name": "ipython",
-        "description": "Execute Python code in the persistent IPython REPL. State persists across calls. "
-                       "Top-level await works. Returns stdout, the repr of the last expression, and errors.",
+        "description": "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, "
+                       "imports, and loaded data persist across calls. Run shell commands with `bash('cmd')` / "
+                       "`await bash('cmd')`.",
         "parameters": {
             "type": "object",
-            "properties": {"code": {"type": "string", "description": "Python code to execute."}},
+            "properties": {"code": {"type": "string", "description": "Python code to execute in the persistent "
+                                                                     "Python REPL."}},
             "required": ["code"],
         },
     },
@@ -47,10 +57,12 @@ IPYTHON_TOOL = {
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 
 
-def _merge_users(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Join consecutive user messages: some chat templates (Gemma's among them) require alternating roles."""
+def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Messages as sent to the server: private ``_`` keys dropped, consecutive user messages joined (some chat
+    templates, Gemma's among them, require alternating roles)."""
     out: list[dict[str, Any]] = []
     for m in messages:
+        m = {k: v for k, v in m.items() if not k.startswith("_")}
         if out and m["role"] == "user" and out[-1]["role"] == "user":
             out[-1] = {"role": "user", "content": f"{out[-1]['content']}\n\n{m['content']}"}
         else:
@@ -102,12 +114,10 @@ class AgentSession:
         self.cfg = cfg
         self.llm = llm
         self.name = name
-        self.session_dir = session_dir
         self.task = task
         self.arc = arc
         self.deadline = deadline
         self.stop_event = stop_event
-        self.global_harness_dir = global_harness_dir
         self.session_dir = session_dir = session_dir.resolve()  # the kernel runs in work/: relative paths break
         self.global_harness_dir = global_harness_dir = global_harness_dir.resolve()
         self.local_harness_dir = session_dir / "harness"
@@ -120,9 +130,16 @@ class AgentSession:
         self.final_answer: str | None = None
         self.end_reason = ""
         self.stats = {"turns": 0, "tool_calls": 0, "output_tokens": 0, "prompt_tokens_last": 0, "compactions": 0,
-                      "continuations": 0, "llm_failures": 0, "cell_errors": 0, "native_calls": 0,
-                      "fenced_calls": 0, "children": 0, "reflections": 0, "reflection_skipped": 0,
-                      "refine_reviews": 0, "refines": 0, "refine_edits_applied": 0, "refine_errors": 0}
+                      "compaction_failures": 0, "continuations": 0, "llm_failures": 0, "cell_errors": 0,
+                      "native_calls": 0, "fenced_calls": 0, "children": 0, "reflections": 0,
+                      "reflection_skipped": 0, "refine_reviews": 0, "refines": 0, "refine_edits_applied": 0,
+                      "refine_errors": 0}
+        self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
+        self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
+        self._usage_at = 0                   # messages after this index are estimated at chars/4
+        self._compact_failed_at: int | None = None
+        self._overflow_retry = False
+        self._system: str | None = None
         self._reflect_mark = 0             # action_count at the last reflection checkpoint
         self._reflect_level = 0
         self._reflect_state = ""
@@ -131,7 +148,6 @@ class AgentSession:
         self._turns_since_refine = 0
         self._last_refine_at = 0.0
         self._compact_refine_pending = False
-        self._harness_cache: tuple[tuple, str] | None = None
         self.kernel = Kernel(session_dir / "work", self._host, env={
             "RLM_HARNESS_STATE_DIR": str(self.local_harness_dir),
             "RLM_GLOBAL_HARNESS_STATE_DIR": str(global_harness_dir),
@@ -165,6 +181,9 @@ class AgentSession:
         self.local_harness_dir.mkdir(parents=True, exist_ok=True)
         try:
             self.kernel.start()
+            self._log_event({"event": "system_prompt", "content": self._system_prompt()})
+            self._append({"role": "user", "_kind": compaction.DIGEST_KIND,
+                          "content": refine.digest_block(self._digest())})  # upstream: first-turn digest
             self._append({"role": "user", "content": self.task})
             self._loop()
         except Exception as exc:  # noqa: BLE001 - a session crash must not take the run down
@@ -189,20 +208,28 @@ class AgentSession:
                 self.end_reason = reason
                 return
             self._drain_inbox()
-            if self.stats["prompt_tokens_last"] >= self.cfg["compact_at_tokens"]:
-                self._compact()
-            msgs = [{"role": "system", "content": self._system_prompt()}, *_merge_users(self.messages)]
+            window, reserve, _ = self._context_limits()
+            tokens = self._context_tokens()
+            if compaction.should_compact(tokens, window, reserve) and (
+                    self._compact_failed_at is None or tokens > self._compact_failed_at + 1024):
+                self._compact("threshold")
+            msgs = [{"role": "system", "content": self._system_prompt()}, *_wire(self.messages)]
             try:
                 reply = self.llm.chat(msgs, tools=tools, max_tokens=self.cfg["max_tokens_per_turn"],
                                       timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())))
             except ContextOverflow:
-                self._compact(force=True)
+                if self._overflow_retry:  # upstream: one compact-and-retry per overflow
+                    self.end_reason = "context_overflow"
+                    return
+                self._overflow_retry = True
+                self._compact("overflow")
                 continue
             except Exception as exc:  # noqa: BLE001
                 self.stats["llm_failures"] += 1
                 self._log_event({"event": "llm_error", "error": repr(exc)})
                 time.sleep(10)
                 continue
+            self._overflow_retry = False
             self.stats["llm_failures"] = 0
             self.stats["turns"] += 1
             self.stats["output_tokens"] += reply.completion_tokens
@@ -214,6 +241,8 @@ class AgentSession:
                 assistant["tool_calls"] = [c["raw"] for c in calls]
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason)
+            self._usage_tokens = reply.prompt_tokens + reply.completion_tokens
+            self._usage_at = len(self.messages)
             if calls:
                 for call in calls:
                     self._run_call(call)
@@ -232,6 +261,7 @@ class AgentSession:
             if self.arc is None or self.arc.finished:
                 self.end_reason = "answered"
                 return
+            self._maybe_auto_refine()
             if self._running_children():
                 # Hold the timer-driven continuation while children work; their messages are the wake-up.
                 try:
@@ -239,7 +269,14 @@ class AgentSession:
                     self._append({"role": "user", "content": msg})
                     continue
                 except queue.Empty:
-                    pass
+                    self.stats["continuations"] += 1
+                    minutes = max(1, int(self.cfg["subagent_keepalive_s"] // 60))
+                    self._append({"role": "user", "content": (
+                        "[autonomous-continuation: subagent-keep-alive]\n\nSubagents have been running for at least "
+                        f"{minutes} minute{'s' if minutes != 1 else ''} without a reply or exit being delivered. Check "
+                        "their status (for example rlm.list_subagents) and cancel or unblock any that are hung; then "
+                        "continue working.")})
+                    continue
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": prompts.CONTINUATION.format(status=self._status())})
 
@@ -279,6 +316,7 @@ class AgentSession:
 
     def _run_call(self, call: dict[str, Any]) -> None:
         self.stats["tool_calls"] += 1
+        failed = bool(call["error"])
         if call["error"]:
             text = call["error"]
         else:
@@ -288,16 +326,20 @@ class AgentSession:
             res = self.kernel.execute(call["code"], timeout_s=timeout)
             if res.status != "ok":
                 self.stats["cell_errors"] += 1
+                failed = True
             text = res.render(self.cfg["tool_output_chars"])
             self._log_event({"event": "cell", "status": res.status, "duration_s": round(res.duration_s, 2)})
         if self.depth == 0 and self.arc is not None:
             text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:
-            self._append({"role": "tool", "tool_call_id": call["raw"]["id"], "content": text})
+            msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
         else:
-            self._append({"role": "user", "content": f"[ipython output]\n{text}"})
+            msg = {"role": "user", "content": f"[ipython output]\n{text}"}
+        if failed:
+            msg["_error"] = True
+        self._append(msg)
 
-    # --- host-driven auto /refine (upstream agent-session.ts) ---------------------------------------------
+    # --- host-driven auto /refine (upstream serialized-refine checkpoint between turns) ----------------------
     def _maybe_auto_refine(self) -> None:
         ar = self.cfg.get("auto_refine") or {}
         if self.depth > 0 or not ar.get("enabled"):
@@ -311,17 +353,16 @@ class AgentSession:
         if self._last_refine_at and time.time() - self._last_refine_at < ar.get("cooldown_s", 1200):
             return  # a pending compact trigger is kept for a later boundary, like upstream
         from rlm.harness import _DEFAULT_FILE_NAME
-        from prime.refine import auto_refine
 
         self._compact_refine_pending = False
         turns, self._turns_since_refine, self._last_refine_at = self._turns_since_refine, 0, time.time()
         self.stats["refine_reviews"] += 1
         t0 = time.time()
         try:
-            rec = auto_refine(llm=self.llm, harness_file=self.local_harness_dir / _DEFAULT_FILE_NAME,
-                              messages=self.messages, reason=reason, turns_since=turns,
-                              conversation_chars=ar.get("conversation_chars", 80_000),
-                              max_tokens=ar.get("max_tokens", 4096))
+            rec = refine.auto_refine(llm=self.llm, global_file=self.global_harness_dir / _DEFAULT_FILE_NAME,
+                                     local_file=self.local_harness_dir / _DEFAULT_FILE_NAME, messages=self.messages,
+                                     reason=reason, turns_since=turns, max_tokens=ar.get("max_tokens", 4096),
+                                     overflow=ContextOverflow)
         except Exception as exc:  # noqa: BLE001 - refinement must never kill the session
             self.stats["refine_errors"] += 1
             self._log_event({"event": "auto_refine", "reason": reason, "error": f"{type(exc).__name__}: {exc}"[:500]})
@@ -330,8 +371,10 @@ class AgentSession:
         self.stats["refines"] += int("edits" in rec)
         self.stats["refine_edits_applied"] += applied
         self._log_event({"event": "auto_refine", "duration_s": round(time.time() - t0, 1), **rec})
+        if rec.get("notice"):
+            self._append({"role": "user", "content": rec["notice"]})
 
-    # --- forced reflection checkpoints (E004) -------------------------------------------------------------
+    # --- forced reflection checkpoints (E004, off by default, not upstream) --------------------------------
     def _harness_sig(self) -> tuple:
         from rlm.harness import _DEFAULT_FILE_NAME
 
@@ -393,70 +436,73 @@ class AgentSession:
 
     # --- context: system prompt, harness digest, compaction ----------------------------------------------
     def _system_prompt(self) -> str:
-        base = prompts.base_prompt(
-            cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,
-            parent=self.parent.name if self.parent else None,
-            allow_recursion=self.depth < self.cfg["max_depth"])
-        digest = self._harness_digest()
-        return f"{base}\n\n# Continual harness\n\n{digest}" if digest else base
+        if self._system is None:
+            base = prompts.base_prompt(
+                cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,
+                parent=self.parent.name if self.parent else None,
+                allow_recursion=self.depth < self.cfg["max_depth"])
+            if self.arc is not None:  # upstream appendSystemPrompt
+                base += "\n\n" + prompts.arc_section(
+                    game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels, depth=self.depth,
+                    cell_cap=self.arc.max_actions_per_cell, output_chars=self.cfg["tool_output_chars"])
+            self._system = base
+        return self._system
 
-    def _harness_digest(self) -> str:
-        from rlm.harness import _DEFAULT_FILE_NAME, HarnessState
+    def _digest(self) -> str:
+        from rlm.harness import _DEFAULT_FILE_NAME
 
-        files = [(scope, d / _DEFAULT_FILE_NAME) for scope, d in
-                 (("global", self.global_harness_dir), ("local", self.local_harness_dir))]
-        key = tuple((str(p), p.stat().st_mtime_ns if p.exists() else 0) for _, p in files)
-        if self._harness_cache and self._harness_cache[0] == key:
-            return self._harness_cache[1]
-        parts = []
-        for scope, path in files:
-            if not path.exists():
-                continue
-            try:
-                st = HarnessState(path, scope=scope)
-                notes = st.list("prompt")
-                if notes:
-                    parts.append(f"## Prompt notes ({scope})")
-                    parts += [f"- {n.title}: {n.content.strip()}" for n in notes[:30]]
-                parts.append(st.overview(max_entries_per_kind=30).split("\n", 2)[-1])
-            except Exception as exc:  # noqa: BLE001
-                parts.append(f"({scope} harness state unreadable: {exc})")
-        text = "\n".join(parts)
-        cap = self.cfg["harness_digest_chars"]
-        if len(text) > cap:
-            text = text[:cap] + "\n... (truncated; call rlm.harness.overview() or .search(...) for the rest)"
-        self._harness_cache = (key, text)
-        return text
+        try:
+            merged, refinements = refine.load_merged(self.global_harness_dir / _DEFAULT_FILE_NAME,
+                                                     self.local_harness_dir / _DEFAULT_FILE_NAME)
+            return refine.format_digest(merged, refinements, refine.build_query_terms(self.messages))
+        except Exception as exc:  # noqa: BLE001
+            return f"(harness state unreadable: {type(exc).__name__}: {exc})"
 
-    def _compact(self, force: bool = False) -> None:
+    def _context_limits(self) -> tuple[int, int, int]:
+        c = self.cfg["compaction"]
+        return int(self.cfg["context_window"]), int(c["reserve_tokens"]), int(c["keep_recent_tokens"])
+
+    def _context_tokens(self) -> int:
+        """Upstream estimateContextTokens: last usage + chars/4 of the messages after it."""
+        if self._usage_tokens is None:
+            return sum(compaction.estimate_tokens(m) for m in self.messages)
+        return self._usage_tokens + sum(compaction.estimate_tokens(m) for m in self.messages[self._usage_at:])
+
+    def _compact(self, reason: str) -> None:
+        _, reserve, keep = self._context_limits()
+        tokens_before = self._context_tokens()
+        prep = compaction.prepare(self.messages, keep, self._summary, tokens_before)
+        if prep is None:
+            self._log_event({"event": "compaction_skipped", "reason": reason, "tokens": tokens_before})
+            return
+        t0 = time.time()
+        try:
+            summary = compaction.summarize(self.llm, prep, reserve, ContextOverflow)
+        except Exception as exc:  # noqa: BLE001
+            self.stats["compaction_failures"] += 1
+            self._log_event({"event": "compaction_error", "reason": reason, "error": f"{type(exc).__name__}: {exc}"})
+            if reason != "overflow":
+                self._compact_failed_at = tokens_before
+                return
+            summary = "(summary unavailable) Rebuild your understanding from the REPL variables, " \
+                      f"`await arc.transitions()` and the conversation log {self.transcript}."
+        self._compact_failed_at = None
+        self._summary = summary
+        kept = [m for m in self.messages[prep.first_kept:] if m.get("_kind") != compaction.DIGEST_KIND]
+        head = compaction.head_message(summary, refine.digest_block(self._digest()) + "\n\n")
+        self.messages = [head, *kept]
+        self._usage_tokens = None
         self.stats["compactions"] += 1
-        msgs = [{"role": "system", "content": self._system_prompt()},
-                *_merge_users([*self.messages, {"role": "user", "content": prompts.COMPACTION}])]
-        summary = None
-        for _ in range(3):
-            try:
-                reply = self.llm.chat(msgs, tools=None, max_tokens=self.cfg["compaction_max_tokens"])
-                summary = reply.content.strip()
-                if summary:
-                    break
-            except ContextOverflow:
-                # Drop the oldest half of the middle and try again.
-                middle = msgs[2:-1]
-                msgs = [msgs[0], msgs[1], *middle[len(middle) // 2:], msgs[-1]]
-            except Exception as exc:  # noqa: BLE001
-                self._log_event({"event": "compaction_error", "error": repr(exc)})
-                break
-        if not summary:
-            summary = "(summary unavailable) Rebuild your understanding from the REPL variables and the transcript."
-        handoff = (f"[compaction #{self.stats['compactions']}] Earlier messages were replaced by this summary. The "
-                   f"Python REPL state is intact. The full history is in {self.transcript}.\n\n{summary}")
-        if self.depth == 0 and self.arc is not None:
-            handoff += f"\n\n[game: {self.arc.status_line()} | {self._time_left()}]"
-        self.messages = [self.messages[0]]
-        self._append({"role": "user", "content": handoff})
-        self.stats["prompt_tokens_last"] = 0
         self._compact_refine_pending = True
-        self._log_event({"event": "compaction", "forced": force})
+        self._log_event({"event": "compaction", "reason": reason, "tokens_before": tokens_before,
+                         "summarized_messages": len(prep.to_summarize), "turn_prefix_messages": len(prep.turn_prefix),
+                         "kept_messages": len(kept), "split_turn": prep.is_split,
+                         "duration_s": round(time.time() - t0, 1)})
+        self._log_event({"event": "message", **head})
+        if self.depth == 0 and self.arc is not None and kept[-1]["role"] != "user":
+            # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode.
+            self.stats["continuations"] += 1
+            self._append({"role": "user", "content": prompts.CONTINUATION.format(status=self._status())})
 
     # --- subagents and messages (host requests) ----------------------------------------------------------
     def _host(self, req: dict[str, Any]) -> dict[str, Any]:
@@ -502,7 +548,7 @@ class AgentSession:
         lim = self.cfg["child_limits"]
         session = AgentSession(
             cfg=self.cfg, llm=self.llm, name=child_id, session_dir=self.session_dir / "children" / name,
-            task=f"[task from parent]\n{prompt}", arc=self.arc,
+            task=f"[task from parent]\n\n{prompt}", arc=self.arc,
             deadline=min(self.deadline, time.time() + lim["wall_s"]), stop_event=threading.Event(),
             global_harness_dir=self.global_harness_dir, depth=self.depth + 1, parent=self)
         thread = threading.Thread(target=self._run_child, args=(name,), daemon=True, name=f"child-{child_id}")
@@ -522,13 +568,18 @@ class AgentSession:
         child.answer = child.session.final_answer
         if child.session.stop_event.is_set():
             child.status = "cancelled"
+            notice = f"[child-exited: cancelled child:{name}]"
         elif child.session.end_reason.startswith("crash"):
             child.status, child.error = "error", child.session.end_reason
+            notice = f"[child-failed child:{name}]\n\n{child.error}"
         else:
             child.status = "completed"
-        if name in self.children:
-            self.inbox.put(f"[message from child {name}] finished ({child.session.end_reason}). Final answer:\n"
-                           f"{child.answer or '(none)'}")
+            # Upstream sends an exit notice only when the child never replied; a reply was already delivered.
+            notice = None if child.replied else (f"[child-exited: no-reply child:{name}]"
+                                                 + (f"\n\nLast assistant text: {child.answer[:2000]}"
+                                                    if child.answer else ""))
+        if notice and name in self.children:
+            self.inbox.put(notice)
 
     def _collect(self, req: dict[str, Any]) -> dict[str, Any]:
         targets = [self._find_child(t) for t in (req.get("targets") or [])] or list(self.children.values())
@@ -545,10 +596,10 @@ class AgentSession:
             for c in self.parent.children.values():
                 if c.session is self:
                     c.replied = True
-            self.parent.inbox.put(f"[message from child {self.name.rsplit('.', 1)[-1]}]\n{message}")
+            self.parent.inbox.put(f"[agent-message from child:{self.name.rsplit('.', 1)[-1]}]\n\n{message}")
             return {"delivered": True}
         child = self._find_child(str(req.get("receiver_name", "")))
-        child.session.inbox.put(f"[message from parent]\n{message}")
+        child.session.inbox.put(f"[agent-message from parent:{self.name}]\n\n{message}")
         return {"delivered": True}
 
     def _find_child(self, selector: str) -> Child:

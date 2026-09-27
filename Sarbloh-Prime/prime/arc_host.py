@@ -93,12 +93,14 @@ class ArcHost:
         if self.budget_left == 0:
             raise RuntimeError(f"action budget exhausted ({self.max_actions})")
         if self.reflection_due:
-            raise RuntimeError(f"reflection checkpoint pending ({self.reflection_due}): write or update a harness "
-                               "memory/skill/prompt note with rlm.harness before any more actions")
+            raise RuntimeError(f"harness limit: reflection checkpoint pending ({self.reflection_due}). Write or update "
+                               "a memory with rlm.harness before the next arc.step. This is a harness rule, not a "
+                               "game rule.")
         if self.max_actions_per_cell and self.cell_actions >= self.max_actions_per_cell:
             self.cell_cap_hits += 1
-            raise RuntimeError(f"cell action cap reached ({self.max_actions_per_cell} actions in one cell); end this "
-                               "cell, look at the results, and plan the next actions")
+            raise RuntimeError(f"harness limit: at most {self.max_actions_per_cell} arc.step/arc.reset calls per "
+                               "ipython call, and this call has used them. Read the results, then act in a new "
+                               "ipython call. This is a harness rule, not a game rule.")
         action_id = int(req["action"])
         try:
             ga = arcengine.GameAction.from_id(action_id)  # GameAction(int) raises: the enum values are not plain

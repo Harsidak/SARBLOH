@@ -39,6 +39,16 @@ def is_competition_rerun() -> bool:
     return os.environ.get("KAGGLE_IS_COMPETITION_RERUN", "").strip().lower() in {"1", "true"}
 
 
+def fit_context(agent: dict[str, Any], window: int) -> None:
+    """Scale the upstream compaction settings to the served window. At 128k they stay upstream (16384 reserve,
+    20000 kept); smaller windows get at most a quarter each, and a turn's output never exceeds the reserve."""
+    agent["context_window"] = window
+    comp = agent["compaction"]
+    comp["reserve_tokens"] = min(comp["reserve_tokens"], window // 4)
+    comp["keep_recent_tokens"] = min(comp["keep_recent_tokens"], window // 4)
+    agent["max_tokens_per_turn"] = min(agent["max_tokens_per_turn"], comp["reserve_tokens"])
+
+
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
               soft_end: float) -> dict[str, Any]:
     from prime.arc_host import ArcHost
@@ -50,9 +60,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
                    max_actions_per_cell=cfg.get("max_actions_per_cell"))
-    task = prompts.ARC_TASK.format(game_id=game.game_id, win_levels=game.number_of_levels,
-                                   max_actions=cfg["max_actions_per_game"],
-                                   minutes=int(max(0, deadline - time.time()) // 60))
+    task = prompts.TASK.format(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
+                               minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
                            global_harness_dir=run_dir / "global_harness")
@@ -192,9 +201,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         from prime.vllm import PROFILES
 
         max_len = int(PROFILES[server.profile]["--max-model-len"])  # fit context handling to the profile that started
-        cfg["agent"]["max_tokens_per_turn"] = min(cfg["agent"]["max_tokens_per_turn"], max_len // 4)
-        cfg["agent"]["compact_at_tokens"] = min(cfg["agent"]["compact_at_tokens"],
-                                                max_len - cfg["agent"]["max_tokens_per_turn"] - 4096)
+        fit_context(cfg["agent"], max_len)
         if cfg["vllm"]["bench"] and not rerun:
             try:
                 server.throughput_probe()
@@ -260,9 +267,10 @@ def local() -> None:
     ap.add_argument("--no-thinking", action="store_true")
     ap.add_argument("--cell-cap", type=int, default=None, help="E004: max arc.step per cell")
     ap.add_argument("--reflect-every", type=int, default=None, help="E004: forced harness write every N actions")
-    ap.add_argument("--experiment", default="E003_prime_harness_smoke")
-    ap.add_argument("--auto-refine", type=int, default=None, metavar="TURNS",
-                    help="host-driven harness refine every TURNS turns (+ after compaction)")
+    ap.add_argument("--experiment", default="E005_prime_fidelity_local")
+    ap.add_argument("--ctx", type=int, default=16384, help="context window of the local server (llama.cpp -c)")
+    ap.add_argument("--auto-refine", type=int, default=25, metavar="TURNS",
+                    help="host-driven harness refine every TURNS turns (+ after compaction); 0 = off")
     ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
     ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
     a = ap.parse_args()
@@ -275,12 +283,13 @@ def local() -> None:
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
-        "agent": {"tool_mode": a.tool_mode, "compact_at_tokens": 12000, "max_tokens_per_turn": 4096,
+        "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": 4096,
+                  "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
-                  "auto_refine": {"enabled": a.auto_refine is not None, "turn_interval": a.auto_refine or 25,
-                                  "cooldown_s": a.refine_cooldown_min * 60, "conversation_chars": 24000,
-                                  "max_tokens": 4096}},
+                  "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,
+                                  "cooldown_s": a.refine_cooldown_min * 60, "max_tokens": 4096}},
     })
+    cfg["agent"]["context_window"] = a.ctx
     os.environ["ONLY_RESET_LEVELS"] = "true"
     arcade = make_arcade("offline", environments_dir=a.env_dir)
     games = build_games(arcade, "offline", only=a.games)

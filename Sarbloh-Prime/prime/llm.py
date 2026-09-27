@@ -49,7 +49,8 @@ class LLM:
         self.usage = Usage()
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-             max_tokens: int | None = None, timeout_s: float | None = None) -> Reply:
+             max_tokens: int | None = None, timeout_s: float | None = None, thinking: bool | None = None) -> Reply:
+        """``thinking=False`` turns the chat template's thinking off for this call (compaction summaries)."""
         cfg = self.cfg
         body: dict[str, Any] = {
             "model": self.model,
@@ -64,7 +65,9 @@ class LLM:
             body["tools"] = tools
             body["tool_choice"] = "auto"
         if cfg.get("chat_template_kwargs"):
-            body["chat_template_kwargs"] = cfg["chat_template_kwargs"]
+            body["chat_template_kwargs"] = dict(cfg["chat_template_kwargs"])
+        if thinking is not None:
+            body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), "enable_thinking": thinking}
         timeout = timeout_s or cfg.get("request_timeout_s", 900)
         last: Exception | None = None
         for attempt in range(int(cfg.get("retries", 4))):
@@ -74,7 +77,9 @@ class LLM:
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")[:2000]
                 last = RuntimeError(f"HTTP {exc.code}: {detail}")
-                if exc.code == 400 and "maximum context length" in detail.lower():
+                low = detail.lower()  # vLLM: "maximum context length"; llama.cpp: "exceeds the available context size"
+                if exc.code == 400 and ("maximum context length" in low or "exceed_context_size" in low
+                                        or "exceeds the available context" in low):
                     raise ContextOverflow(detail) from exc
                 if exc.code < 500 and exc.code != 429:
                     break

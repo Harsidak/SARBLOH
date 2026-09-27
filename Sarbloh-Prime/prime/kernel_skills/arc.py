@@ -7,10 +7,10 @@ Only ``step`` and ``reset`` spend environment actions; everything else is free.
     obs = await arc.observe()          # current observation (free)
     obs = await arc.step(1)            # ACTION1 (costs one action)
     obs = await arc.step(6, x=10, y=3) # ACTION6 at column x=10, row y=3
-    obs = await arc.reset()            # RESET (costs one action)
-    ts  = await arc.transitions()      # every recorded (before, action, after) of this game (free)
-    print(arc.show(obs.grid))          # compact text rendering, one hex digit per cell
-    arc.diff(a, b)                     # [(x, y, old, new), ...] cells that changed
+    obs = await arc.reset()            # RESET: restart the current level (costs one action, loses its progress)
+    ts  = await arc.transitions()      # every step of this game, oldest first (free); ts[-1]["after"]
+    print(arc.show(obs.grid))          # compact text rendering, one hex digit per pixel
+    arc.diff(a, b)                     # [(x, y, old, new), ...] pixels that changed
 """
 
 from __future__ import annotations
@@ -31,7 +31,8 @@ _HEX = "0123456789abcdef"
 
 
 class ArcError(RuntimeError):
-    """The host refused a request (illegal action, budget spent, game over, subagent calling step)."""
+    """The host refused a request: illegal action, budget spent, game over, a subagent calling step, or a
+    "harness limit" (a rule of this harness, not of the game)."""
 
 
 async def host_request(kind: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -103,17 +104,33 @@ async def step(action: int | str, x: int | None = None, y: int | None = None) ->
 
 
 async def reset() -> Observation:
-    """RESET: restarts the current level (costs one action)."""
+    """RESET: restarts the current level from its start. Costs one action and loses the level's progress.
+    Needed after GAME_OVER."""
     return await step(0)
 
 
-async def transitions(start: int = 0) -> list[dict]:
-    """Recorded transitions of this game from index ``start``: dicts with action, x, y, level,
-    before (grid), after (last frame), frames (all frames), state, level_up. Free."""
+class Transition(dict):
+    """One recorded step: a dict with keys i, action, x, y, level, before, after, frames, state, level_up, t.
+    ``t["after"]`` and ``t.after`` both work."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"transition has no field {name!r}; fields: {sorted(self)}") from None
+
+    def __missing__(self, key: Any) -> Any:
+        raise KeyError(f"{key!r}: a transition is a dict, not a tuple; use t['before'], t['action'], t['x'], t['y'], "
+                       f"t['after'], t['level'], t['state'], t['level_up']")
+
+
+async def transitions(start: int = 0) -> list[Transition]:
+    """Recorded steps of this game from index ``start``, oldest first. Free. Each is a dict with keys
+    action, x, y, level, before (grid), after (grid), frames (all frames of the step), state, level_up."""
     res = await host_request("arc.transitions", {"start": int(start)})
     out = []
     for t in res["transitions"]:
-        t = dict(t)
+        t = Transition(t)
         t["before"] = _grid(t["before"])
         t["frames"] = [_grid(f) for f in t["frames"]]
         t["after"] = t["frames"][-1]
@@ -122,7 +139,7 @@ async def transitions(start: int = 0) -> list[dict]:
 
 
 def show(grid: Any, x0: int = 0, y0: int = 0, x1: int | None = None, y1: int | None = None) -> str:
-    """Render a grid (or the window [y0:y1, x0:x1]) as text: one hex digit per cell, row index on the left."""
+    """Render a grid (or the window [y0:y1, x0:x1]) as text: one hex digit per pixel, row index on the left."""
     rows = grid.tolist() if hasattr(grid, "tolist") else grid
     rows = rows[y0:y1]
     width = len(rows[0][x0:x1]) if rows else 0
@@ -134,7 +151,7 @@ def show(grid: Any, x0: int = 0, y0: int = 0, x1: int | None = None, y1: int | N
 
 
 def diff(a: Any, b: Any) -> list[tuple[int, int, int, int]]:
-    """Cells that differ between two grids of the same shape, as (x, y, old, new)."""
+    """Pixels that differ between two grids of the same shape, as (x, y, old, new)."""
     ra = a.tolist() if hasattr(a, "tolist") else a
     rb = b.tolist() if hasattr(b, "tolist") else b
     return [(x, y, int(ra[y][x]), int(rb[y][x])) for y in range(len(ra)) for x in range(len(ra[y]))
