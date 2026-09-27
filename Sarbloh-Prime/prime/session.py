@@ -17,8 +17,9 @@ The system prompt is fixed for the whole session (upstream keeps it stable for t
 plus the ARC section (``prompts``). Not ported (no use offline on one GPU): the daemon/worker/TUI split, goals,
 heartbeats/cron, create_session, MCP, model switching, session recovery after a crash, ``bash()`` completion
 follow-ups, the agent-callable ``refine.run()``.
-Ours, not upstream: the game status line after each tool result, the "reply was cut off" nudge, and the E004
-host-forced reflection checkpoint (off by default).
+Ours, not upstream: the game status line after each tool result, the "reply was cut off" nudge, the E004
+host-forced reflection checkpoint (off by default), and scaling upstream's chars/4 token estimate by the measured
+prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars, so chars/4 alone never triggered compaction).
 """
 
 from __future__ import annotations
@@ -137,6 +138,9 @@ class AgentSession:
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
         self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
         self._usage_at = 0                   # messages after this index are estimated at chars/4
+        # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
+        # tokenizers give every digit its own token, so a printed grid is ~4x the estimate. Found in E005 smoke.
+        self._token_scale = 1.0
         self._compact_failed_at: int | None = None
         self._overflow_retry = False
         self._system: str | None = None
@@ -239,6 +243,9 @@ class AgentSession:
             assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
             if calls and calls[0]["native"]:
                 assistant["tool_calls"] = [c["raw"] for c in calls]
+            estimate = (len(msgs[0]["content"]) + 3) // 4 + sum(compaction.estimate_tokens(m) for m in self.messages)
+            if reply.prompt_tokens > 0 and estimate > 0:
+                self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason)
             self._usage_tokens = reply.prompt_tokens + reply.completion_tokens
@@ -463,15 +470,17 @@ class AgentSession:
         return int(self.cfg["context_window"]), int(c["reserve_tokens"]), int(c["keep_recent_tokens"])
 
     def _context_tokens(self) -> int:
-        """Upstream estimateContextTokens: last usage + chars/4 of the messages after it."""
+        """Upstream estimateContextTokens: last usage + estimate of the messages after it (chars/4, scaled)."""
+        est = lambda ms: int(self._token_scale * sum(compaction.estimate_tokens(m) for m in ms))
         if self._usage_tokens is None:
-            return sum(compaction.estimate_tokens(m) for m in self.messages)
-        return self._usage_tokens + sum(compaction.estimate_tokens(m) for m in self.messages[self._usage_at:])
+            return est(self.messages)
+        return self._usage_tokens + est(self.messages[self._usage_at:])
 
     def _compact(self, reason: str) -> None:
         _, reserve, keep = self._context_limits()
         tokens_before = self._context_tokens()
-        prep = compaction.prepare(self.messages, keep, self._summary, tokens_before)
+        # keep_recent_tokens is in real tokens; the cut-point walk counts chars/4 estimates.
+        prep = compaction.prepare(self.messages, int(keep / self._token_scale), self._summary, tokens_before)
         if prep is None:
             self._log_event({"event": "compaction_skipped", "reason": reason, "tokens": tokens_before})
             return
@@ -495,11 +504,12 @@ class AgentSession:
         self.stats["compactions"] += 1
         self._compact_refine_pending = True
         self._log_event({"event": "compaction", "reason": reason, "tokens_before": tokens_before,
+                         "token_scale": round(self._token_scale, 2),
                          "summarized_messages": len(prep.to_summarize), "turn_prefix_messages": len(prep.turn_prefix),
                          "kept_messages": len(kept), "split_turn": prep.is_split,
                          "duration_s": round(time.time() - t0, 1)})
         self._log_event({"event": "message", **head})
-        if self.depth == 0 and self.arc is not None and kept[-1]["role"] != "user":
+        if self.depth == 0 and self.arc is not None and (not kept or kept[-1]["role"] != "user"):
             # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode.
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": prompts.CONTINUATION.format(status=self._status())})
