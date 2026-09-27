@@ -260,6 +260,9 @@ class AgentSession:
                         err = "ipython needs a string argument `code`."
                 except ValueError as exc:
                     err = f"Could not parse tool arguments as JSON: {exc}"
+            if err and isinstance(args, str):
+                # Keep history valid JSON: servers (llama.cpp) re-parse old tool calls and 500 on a broken one.
+                args = {"code": "", "unparsed_arguments": args[:2000]}
             raw = {"id": tc.get("id") or f"call_{uuid.uuid4().hex[:12]}", "type": "function",
                    "function": {"name": fn.get("name") or "ipython",
                                 "arguments": args if isinstance(args, str) else json.dumps(args or {})}}
