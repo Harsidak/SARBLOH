@@ -48,8 +48,6 @@ Thumbs.db
 
 # other files
 CLAUDE.md
-uv.lock
-pyproject.toml
 
 # other files
 _archive/
