@@ -90,9 +90,38 @@ class VllmServer:
         self._stop = threading.Event()
 
     # --- install -----------------------------------------------------------------------------------------
+    def libcuda_link_dir(self) -> Path | None:
+        """FlashInfer JIT-links its sm120 NVFP4 GEMM with ``-lcuda``. The Kaggle image ships only the driver's
+        ``libcuda.so.1`` (no unversioned ``libcuda.so``, no CUDA stub), so ld fails (E003 v1: "cannot find -lcuda").
+        Give ld a ``libcuda.so`` symlink via LIBRARY_PATH."""
+        if Path("/usr/local/cuda/lib64/stubs/libcuda.so").exists():
+            return None
+        candidates: list[Path] = []
+        try:
+            out = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True).stdout
+            candidates += [Path(line.rsplit("=>", 1)[1].strip()) for line in out.splitlines()
+                           if "libcuda.so" in line and "=>" in line and "x86-64" in line]
+        except Exception:  # noqa: BLE001
+            pass
+        for d in ("/usr/lib/x86_64-linux-gnu", "/usr/local/nvidia/lib64", "/usr/lib64", "/usr/local/cuda/compat"):
+            candidates += sorted(Path(d).glob("libcuda.so*"))
+        target = next((p for p in candidates if p.exists()), None)
+        if target is None:
+            log("WARNING: no libcuda.so* found; FlashInfer JIT link may fail")
+            return None
+        link_dir = self.site.parent / "libcuda-link"
+        link_dir.mkdir(parents=True, exist_ok=True)
+        link = link_dir / "libcuda.so"
+        if not link.exists():
+            link.symlink_to(target.resolve())
+        return link_dir
+
     def env(self) -> dict[str, str]:
         env = os.environ.copy()
         env["PYTHONPATH"] = os.pathsep.join(p for p in (str(self.site), env.get("PYTHONPATH", "")) if p)
+        link_dir = self.libcuda_link_dir()
+        if link_dir is not None:
+            env["LIBRARY_PATH"] = os.pathsep.join(p for p in (str(link_dir), env.get("LIBRARY_PATH", "")) if p)
         env.update({"USE_TF": "0", "TRANSFORMERS_NO_TF": "1", "TRANSFORMERS_NO_TORCHVISION": "1",
                     "VLLM_NO_USAGE_STATS": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
         return env
@@ -141,6 +170,17 @@ class VllmServer:
             return ""
         return "\n".join(self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
 
+    def failure_excerpt(self, lines: int = 40) -> str:
+        """The engine's own error lines from the last profile section. The plain tail is only the APIServer
+        traceback ("See root cause above"), which hid the real cause in E003 v1."""
+        if not self.log_path.exists():
+            return ""
+        text = self.log_path.read_text(encoding="utf-8", errors="replace")
+        section = text.rsplit("\n===== profile=", 1)[-1].splitlines()
+        keys = ("ERROR", "Error", "error:", "FAILED", "No such file", "out of memory")
+        hits = [l[:600] for l in section if "(APIServer" not in l and any(k in l for k in keys)]
+        return "\n".join(hits[-lines:]) or self.log_tail(lines)
+
     def launch(self, profile: str) -> None:
         model_dir = find_model_dir(find_kaggle_input(self.cfg["model_dataset"]))
         cmd = [sys.executable, "-m", "vllm.entrypoints.openai.api_server", "--model", str(model_dir),
@@ -150,8 +190,9 @@ class VllmServer:
             cmd += [flag] if value is None else [flag, value]
         with self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(f"\n===== profile={profile} {time.ctime()} =====\n{' '.join(cmd)}\n")
-        log(f"starting profile={profile}")
-        self.process = subprocess.Popen(cmd, env=self.env(), stdout=self.log_path.open("a", encoding="utf-8"),
+        env = self.env()
+        log(f"starting profile={profile} LIBRARY_PATH={env.get('LIBRARY_PATH', '')!r}")
+        self.process = subprocess.Popen(cmd, env=env, stdout=self.log_path.open("a", encoding="utf-8"),
                                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
         self.profile = profile
 
@@ -235,7 +276,7 @@ class VllmServer:
             if ok:
                 log(f"READY profile={profile} tool_mode={self.tool_mode} after {time.time() - t:.0f}s")
                 return
-            log(f"profile={profile} FAILED ({err}); log tail:\n{self.log_tail()}")
+            log(f"profile={profile} FAILED ({err}); engine errors:\n{self.failure_excerpt()}")
             self.stop()
             self._stop.clear()
         raise RuntimeError(f"vLLM failed on every profile: {self.attempts}")
