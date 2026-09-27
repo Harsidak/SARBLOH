@@ -2,11 +2,13 @@
 
 The host is the only thing that touches the environment. It validates every action, enforces the action budget,
 keeps the lossless transition record (the frame store the model retrieves from with ``arc.transitions()``), and
-refuses ``arc.step`` from subagents.
+refuses ``arc.step`` from subagents. It also stamps every action with the agent step that spent it (``step_ref``),
+in ``run.history`` and, when the game records, in the ARC SDK recording's ``reasoning`` field.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -15,6 +17,25 @@ from typing import Any
 import arcengine
 
 from sarbloh.harness.games import ArcGame, GameState
+
+
+_REF_KEYS = ("session", "turn", "call", "after_cell")
+_REASONING_MAX = 15_000  # the SDK refuses a step whose reasoning is over 16 KB (arcengine MAX_REASONING_BYTES)
+
+
+def _reasoning(ref: dict[str, Any], ctx: dict[str, Any] | None) -> dict[str, Any]:
+    """The SDK ``reasoning`` blob: the ref, plus the step's thought/text/code on a cell's first action."""
+    blob = dict(ref)
+    for key, cap in (("code", 6000), ("say", 2000), ("thought", 6000)):
+        if ctx and ctx.get(key):
+            text = str(ctx[key])
+            blob[key] = text[-cap:] if key == "thought" else text[:cap]  # a thought's conclusion is at its end
+    while len(json.dumps(blob, separators=(",", ":"))) > _REASONING_MAX:
+        key = max((k for k in ("thought", "code", "say") if k in blob), key=lambda k: len(blob[k]), default=None)
+        if key is None:
+            break
+        blob[key] = blob[key][len(blob[key]) // 2:] if key == "thought" else blob[key][:len(blob[key]) // 2]
+    return blob
 
 
 def _frames(state: GameState) -> list[list[list[int]]]:
@@ -42,6 +63,9 @@ class ArcHost:
         self.cell_actions = 0          # reset by the session before each cell
         self.cell_cap_hits = 0
         self.reflection_due: str | None = None   # set by the session; arc.step is refused while set
+        # Set by the root session before each cell: session, turn and tool-call id, plus the model's thought, text
+        # and code. Every action gets the ref; the cell's first action also carries the context in the recording.
+        self.step_ref: dict[str, Any] | None = None
 
     # --- status ------------------------------------------------------------------------------------------
     @property
@@ -57,6 +81,19 @@ class ArcHost:
         s = self.game.state
         return (f"level {s.levels_completed}/{self.game.number_of_levels}, state {s.engine_state.name}, "
                 f"{self.game.action_count} actions spent, {self.budget_left if self.max_actions else 'unlimited'} left")
+
+    def actions_line(self, start: int, limit: int = 12) -> str:
+        """The actions from ``run.history[start]`` on, run-length compressed: ``A1x3 A6(12,40) RESET``."""
+        names = [r.action.replace("ACTION", "A") + (f"({r.data.get('x')},{r.data.get('y')})" if r.data else "")
+                 for r in (self.game.run.history[start:] if self.game.run else [])]
+        runs: list[list[Any]] = []
+        for n in names:
+            if runs and runs[-1][0] == n:
+                runs[-1][1] += 1
+            else:
+                runs.append([n, 1])
+        parts = [n + (f"x{c}" if c > 1 else "") for n, c in runs]
+        return " ".join(parts[:limit]) + (f" ...+{len(parts) - limit}" if len(parts) > limit else "")
 
     def observation(self, level_up: bool = False) -> dict[str, Any]:
         s = self.game.state
@@ -131,8 +168,12 @@ class ArcHost:
         before = self.game.state
         self.cell_actions += 1
         tokens = self.tokens_spent()
+        ref = {k: v for k, v in (self.step_ref or {}).items() if k in _REF_KEYS}
+        ref["k"] = self.cell_actions  # 1-based index of this action within its cell
+        reasoning = _reasoning(ref, self.step_ref if self.cell_actions == 1 else None) if self.game.record else None
         new = self.game.execute_action(arcengine.ActionInput(id=ga, data=data),
-                                       generated_tokens=max(0, tokens - self._token_mark))
+                                       generated_tokens=max(0, tokens - self._token_mark), reasoning=reasoning,
+                                       ref=ref)
         self._token_mark = tokens
         level_up = new.just_won_level
         self._since_reset = 0 if action_id == 0 or level_up else self._since_reset + 1

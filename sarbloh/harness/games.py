@@ -7,6 +7,7 @@ through this one code path.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -70,6 +71,7 @@ class ActionRecord:
     level: int
     generated_tokens: int
     wallclock_s: float
+    ref: dict[str, Any] | None = None  # who spent it (the agent's step ref); also in the SDK recording's reasoning
 
 
 @dataclass
@@ -124,7 +126,8 @@ class GameRun:
             "started_at": self.started_at,
             "note": self.note,
             "history": [
-                {"a": r.action, "d": r.data, "lvl": r.level, "tok": r.generated_tokens, "t": round(r.wallclock_s, 2)}
+                {"a": r.action, "d": r.data, "lvl": r.level, "tok": r.generated_tokens, "t": round(r.wallclock_s, 2),
+                 **({"ref": r.ref} if r.ref else {})}
                 for r in self.history
             ],
         }
@@ -160,12 +163,20 @@ class _SharedScorecard:
 
 
 class ArcGame:
-    """One environment played once. The agent sees ``state``, ``run``, ``execute_action`` and ``finish``."""
+    """One environment played once. The agent sees ``state``, ``run``, ``execute_action`` and ``finish``.
 
-    def __init__(self, arcade: arc_agi.Arcade, env_name: str, shared: _SharedScorecard | None) -> None:
+    ``record=True`` turns on the SDK's own recording (``Arcade.make(save_recording=True)``): one JSONL line per
+    environment step, with frames and the ``reasoning`` blob passed to ``execute_action``, at ``recording_path``.
+    """
+
+    def __init__(self, arcade: arc_agi.Arcade, env_name: str, shared: _SharedScorecard | None,
+                 record: bool = False) -> None:
         self.arcade = arcade
         self.env_name = env_name
         self._shared = shared
+        self.record = record
+        self.recording_path: str | None = None
+        self.scorecard: dict[str, Any] | None = None  # the SDK's scorecard at close (per-game scorecards only)
         self._scorecard_id: str | None = None
         self.env: Any = None
         self.run: GameRun | None = None
@@ -189,7 +200,7 @@ class ArcGame:
     def start(self) -> GameState:
         self._scorecard_id = self._shared.open_run() if self._shared else self.arcade.create_scorecard()
         try:
-            env = self.arcade.make(self.env_name, scorecard_id=self._scorecard_id)
+            env = self.arcade.make(self.env_name, scorecard_id=self._scorecard_id, save_recording=self.record)
             if env is None or env.observation_space is None:
                 raise RuntimeError(f"Arcade.make({self.env_name!r}) returned no environment")
         except Exception:
@@ -197,6 +208,8 @@ class ArcGame:
                 self._shared.finish_run()
             raise
         self.env = env
+        rec = getattr(env, "_recording_filename", None)  # set by the SDK wrapper when save_recording is on
+        self.recording_path = str(rec) if rec else None
         # A mid-game RESET must keep the current level (see taaf.game_api for the engine detail).
         os.environ["ONLY_RESET_LEVELS"] = "true"
         info = env.environment_info
@@ -213,12 +226,14 @@ class ArcGame:
         self._state = GameState(raw=initial)
         return self._state
 
-    def execute_action(self, action: arcengine.ActionInput, generated_tokens: int = 0) -> GameState:
+    def execute_action(self, action: arcengine.ActionInput, generated_tokens: int = 0,
+                       reasoning: dict[str, Any] | None = None, ref: dict[str, Any] | None = None) -> GameState:
+        """``reasoning`` goes to the SDK step (recorded, max 16 KB); ``ref`` is kept in ``run.history``."""
         assert self.run is not None and self.run.state == "playing", "game is not playing"
         if action.id.value not in self.state.available_actions:
             raise ValueError(f"{action.id.name} not in available actions {self.state.available_actions}")
         level_before = self.state.levels_completed
-        resp = self.env.step(action.id, data=dict(action.data))
+        resp = self.env.step(action.id, data=dict(action.data), reasoning=reasoning)
         if resp is None or not resp.frame:
             raise RuntimeError(f"engine returned no frame for {action.id.name} (non-RESET after GAME_OVER?)")
         new_state = GameState(raw=resp, just_won_level=int(resp.levels_completed) > level_before)
@@ -230,6 +245,7 @@ class ArcGame:
                 level=level_before,
                 generated_tokens=int(generated_tokens),
                 wallclock_s=time.monotonic() - self._t0,
+                ref=ref,
             )
         )
         run.actions_per_level[min(level_before, self.number_of_levels - 1)] += 1
@@ -252,7 +268,8 @@ class ArcGame:
             if self._shared:
                 self._shared.finish_run()
             elif self._scorecard_id is not None:
-                self.arcade.close_scorecard(self._scorecard_id)
+                card = self.arcade.close_scorecard(self._scorecard_id)
+                self.scorecard = json.loads(card.model_dump_json()) if card is not None else None
         except Exception as exc:  # noqa: BLE001 - finishing must never raise
             run.note = (run.note or "") + f" scorecard_close_error={exc!r}"
         run.final_score = run.compute_score()
@@ -268,24 +285,28 @@ class ArcGame:
         )
 
 
-def make_arcade(mode: str, *, environments_dir: str = "", base_url: str = "") -> arc_agi.Arcade:
+def make_arcade(mode: str, *, environments_dir: str = "", base_url: str = "",
+                recordings_dir: str = "recordings") -> arc_agi.Arcade:
     if mode == "competition":
         return arc_agi.Arcade(
             operation_mode=arc_agi.OperationMode.COMPETITION,
             arc_base_url=base_url,
             environments_dir="",
+            recordings_dir=recordings_dir,
             logger=_ARCADE_LOGGER,
         )
     if mode == "offline":
         return arc_agi.Arcade(
             operation_mode=arc_agi.OperationMode.OFFLINE,
             environments_dir=environments_dir,
+            recordings_dir=recordings_dir,
             logger=_ARCADE_LOGGER,
         )
     raise ValueError(f"unknown mode {mode!r}")
 
 
-def build_games(arcade: arc_agi.Arcade, mode: str, only: list[str] | None = None) -> list[ArcGame]:
+def build_games(arcade: arc_agi.Arcade, mode: str, only: list[str] | None = None,
+                record: bool = False) -> list[ArcGame]:
     """One ``ArcGame`` per available environment. ``only`` filters by exact id or id prefix (e.g. "ls20")."""
     ids = [e.game_id for e in arcade.available_environments]
     if only:
@@ -293,4 +314,4 @@ def build_games(arcade: arc_agi.Arcade, mode: str, only: list[str] | None = None
     if not ids:
         raise RuntimeError(f"no environments to play (mode={mode}, filter={only})")
     shared = _SharedScorecard(arcade) if mode == "competition" else None
-    return [ArcGame(arcade, gid, shared) for gid in ids]
+    return [ArcGame(arcade, gid, shared, record=record) for gid in ids]

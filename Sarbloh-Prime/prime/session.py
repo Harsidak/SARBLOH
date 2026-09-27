@@ -247,12 +247,12 @@ class AgentSession:
             if reply.prompt_tokens > 0 and estimate > 0:
                 self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
-                         finish=reply.finish_reason)
+                         finish=reply.finish_reason, turn=self.stats["turns"])
             self._usage_tokens = reply.prompt_tokens + reply.completion_tokens
             self._usage_at = len(self.messages)
             if calls:
                 for call in calls:
-                    self._run_call(call)
+                    self._run_call(call, reply)
                 self._reflection_tick()
                 self._maybe_auto_refine()
                 continue
@@ -321,21 +321,36 @@ class AgentSession:
             return [{"native": False, "raw": None, "code": "\n\n".join(blocks), "error": None}]
         return []
 
-    def _run_call(self, call: dict[str, Any]) -> None:
+    def _run_call(self, call: dict[str, Any], reply: Any = None) -> None:
         self.stats["tool_calls"] += 1
         failed = bool(call["error"])
+        turn = self.stats["turns"]
+        call_id = call["raw"]["id"] if call["native"] else f"fenced-t{turn}"
         if call["error"]:
             text = call["error"]
         else:
-            if self.arc is not None:
-                self.arc.cell_actions = 0
+            # Only the root spends actions: it owns the cell counter and the step ref stamped on each action.
+            arc = self.arc if self.depth == 0 else None
+            start = arc.game.action_count if arc is not None else 0
+            ref = {"session": self.name, "turn": turn, "call": call_id}
+            if arc is not None:
+                arc.cell_actions = 0
+                arc.step_ref = {**ref, "code": call["code"], "say": getattr(reply, "content", None),
+                                "thought": getattr(reply, "reasoning", None)}
             timeout = max(10.0, min(self.cfg["cell_timeout_s"], self.deadline - time.time()))
             res = self.kernel.execute(call["code"], timeout_s=timeout)
             if res.status != "ok":
                 self.stats["cell_errors"] += 1
                 failed = True
             text = res.render(self.cfg["tool_output_chars"])
-            self._log_event({"event": "cell", "status": res.status, "duration_s": round(res.duration_s, 2)})
+            spent = arc.game.action_count - start if arc is not None else 0
+            if arc is not None:
+                arc.step_ref = {**ref, "after_cell": True}  # actions a background task spends after the cell
+            self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
+                             "duration_s": round(res.duration_s, 2),
+                             **({"actions": [start, start + spent]} if spent else {})})
+            if spent:
+                print(f"[{self.name} t{turn}] +{spent} {arc.actions_line(start)} | {arc.status_line()}", flush=True)
         if self.depth == 0 and self.arc is not None:
             text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:

@@ -16,6 +16,9 @@ DEFAULT: dict[str, Any] = {
     "game_wall_s": 1800.0,             # cap per game
     "max_actions_per_game": 400,       # hard action budget per game (host-enforced)
     "max_actions_per_cell": None,      # E004: host refuses arc.step beyond this many in one cell (None = off)
+    # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
+    # step ref (turn, tool call, and on a cell's first action its thought and code). Off on the competition rerun.
+    "record": True,
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides

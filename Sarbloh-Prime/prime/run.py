@@ -3,7 +3,8 @@
     main(overrides)                       # Kaggle: vLLM up, games (COMPETITION on a rerun, OFFLINE otherwise)
     python -m prime.run --local ...       # local: an already running OpenAI-compatible server (llama.cpp)
 
-Writes <working>/prime_run/{results.json, summary.json, games/<game_id>/...} and prints a LEDGER_ROW line.
+Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
+LEDGER_ROW line. ``prime.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + prime/ live in Sarbloh-Prime; sarbl
         sys.path.insert(0, str(_p))
 
 # pyrefly: ignore [missing-import]
-from prime import prompts
+from prime import prompts, trace
 # pyrefly: ignore [missing-import]
 from prime.config import DEFAULT, config_hash, merge
 
@@ -75,8 +76,11 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
         session.run()
     finally:
         game.finish("cancelled" if stop_event.is_set() and not host.finished else None)
+    if game.scorecard:  # the SDK's own scorecard for this game (offline: one per game)
+        (game_dir / "scorecard.json").write_text(json.dumps(game.scorecard, indent=1), encoding="utf-8")
     stats = {**session.stats, "end_reason": session.end_reason, "wall_s": round(time.time() - t0, 1),
-             "tokens_total": session.tokens_spent(), "kernel_restarts": session.kernel.restarts}
+             "tokens_total": session.tokens_spent(), "kernel_restarts": session.kernel.restarts,
+             "recording": game.recording_path}
     (game_dir / "session.json").write_text(json.dumps(stats, indent=1), encoding="utf-8")
     return stats
 
@@ -128,6 +132,10 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")
+    try:
+        print(f"[trace] step maps: {trace.build_run(run_dir)}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - the trace is a report; it must not fail the run
+        print(f"[trace] failed: {type(exc).__name__}: {exc}", flush=True)
     return summary
 
 
@@ -187,7 +195,9 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     cfg = merge(DEFAULT, overrides)
     rerun = is_competition_rerun()
     os.environ["ONLY_RESET_LEVELS"] = "true"
-    os.environ.setdefault("RECORDINGS_DIR", str(working_dir / "recordings"))
+    run_dir = working_dir / "prime_run"
+    os.environ.setdefault("RECORDINGS_DIR", str(run_dir / "recordings"))
+    record = bool(cfg.get("record")) and not rerun  # rerun outputs are never seen; skip the disk writes
     working_dir.mkdir(parents=True, exist_ok=True)
     _print_env(cfg)
 
@@ -218,17 +228,19 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             os.environ.setdefault("ARC_API_KEY", "test-key-123")
             os.environ.setdefault("ARC_BASE_URL", "http://gateway:8001/")
             _wait_for_gateway(os.environ["ARC_BASE_URL"])
-            arcade = make_arcade("competition", base_url=os.environ["ARC_BASE_URL"])
-            games = build_games(arcade, "competition")
+            arcade = make_arcade("competition", base_url=os.environ["ARC_BASE_URL"],
+                                 recordings_dir=os.environ["RECORDINGS_DIR"])
+            games = build_games(arcade, "competition", record=record)
         else:
-            arcade = make_arcade("offline", environments_dir=str(COMPETITION_DIR / "environment_files"))
-            games = build_games(arcade, "offline", only=cfg["games"])
+            arcade = make_arcade("offline", environments_dir=str(COMPETITION_DIR / "environment_files"),
+                                 recordings_dir=os.environ["RECORDINGS_DIR"])
+            games = build_games(arcade, "offline", only=cfg["games"], record=record)
         soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
-        summary = run_games(games, cfg, llm, working_dir / "prime_run", soft_end)
+        summary = run_games(games, cfg, llm, run_dir, soft_end)
         summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode,
                         "vllm_attempts": server.attempts, "vllm_restarts": server.restarts,
                         "throughput": server.bench})
-        (working_dir / "prime_run" / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+        (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
         server.stop()
         if not rerun:
@@ -295,8 +307,8 @@ def local() -> None:
     })
     cfg["agent"]["context_window"] = a.ctx
     os.environ["ONLY_RESET_LEVELS"] = "true"
-    arcade = make_arcade("offline", environments_dir=a.env_dir)
-    games = build_games(arcade, "offline", only=a.games)
+    arcade = make_arcade("offline", environments_dir=a.env_dir, recordings_dir=str(Path(a.out) / "recordings"))
+    games = build_games(arcade, "offline", only=a.games, record=bool(cfg["record"]))
     summary = run_games(games, cfg, LLM(cfg["llm"]), Path(a.out), time.time() + a.minutes * 60)
     print(json.dumps(summary, indent=1))
 
