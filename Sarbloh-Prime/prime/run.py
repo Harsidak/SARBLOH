@@ -30,7 +30,6 @@ for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + prime/ live in Sarbloh-Prime; sarbl
 
 # pyrefly: ignore [missing-import]
 from prime import prompts, trace
-# pyrefly: ignore [missing-import]
 from prime.config import DEFAULT, config_hash, merge
 
 COMPETITION_DIR = Path("/kaggle/input/competitions/arc-prize-2026-arc-agi-3")
