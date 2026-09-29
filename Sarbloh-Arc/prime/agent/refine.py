@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from prime.compaction import serialize_conversation
+from prime.agent.compaction import serialize_conversation
 
 REFINEMENT_SYSTEM_PROMPT = """You are Prime Agent's /refine continual harness subsystem.
 

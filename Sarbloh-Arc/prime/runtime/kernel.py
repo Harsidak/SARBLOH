@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-PRIME_ROOT = Path(__file__).resolve().parents[1]  # holds rlm/ (upstream runtime) and prime/
-KERNEL_SKILLS = Path(__file__).resolve().parent / "kernel_skills"
+PRIME_ROOT = Path(__file__).resolve().parents[2]  # holds rlm/ (upstream runtime) and prime/
+KERNEL_SKILLS = Path(__file__).resolve().parent / "skills"
 PROTOCOL_VERSION = 3
 
 HostHandler = Callable[[dict[str, Any]], dict[str, Any]]

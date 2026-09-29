@@ -1,13 +1,13 @@
 """AgentSession: the Prime Agent loop, ported to Python from upstream ``core/agent-session.ts`` (commit 2d24ad4).
 
 What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
-- L1 active context  -> ``self.messages``. Compaction (``prime.compaction``) replaces the older prefix with a
+- L1 active context  -> ``self.messages``. Compaction (``prime.agent.compaction``) replaces the older prefix with a
                         summary and keeps the newest messages verbatim.
 - L2 REPL/subagents  -> one persistent ``rlm.repl`` kernel per session (``Kernel``); ``rlm.spawn`` children.
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives compaction) and the Continual Harness files
                         (local per game, global per run). Their digest is delivered as a ``[harness-digest]``
                         message on the first turn and on every compaction head; auto /refine edits are announced
-                        with an ``[auto-refinement]`` message (``prime.refine``).
+                        with an ``[auto-refinement]`` message (``prime.agent.refine``).
 - Autonomous mode    -> when the root stops calling tools before the game ends, an ``[autonomous-continuation]``
                         message is sent, bounded by turn, token and wall-clock budgets; the end-condition test is
                         "game won". A threshold compaction is followed by a continuation too, like upstream.
@@ -35,26 +35,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from prime import compaction, prompts, refine
-from prime.arc_host import ArcHost
-from prime.kernel import Kernel
-from prime.llm import LLM, ContextOverflow
+from prime.agent import compaction, prompts, refine
+from prime.game.arc_host import ArcHost
+from prime.runtime.kernel import Kernel
+from prime.llm.client import LLM, ContextOverflow
+from prime.agent.tools import Py
 
-IPYTHON_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "ipython",
-        "description": "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, "
-                       "imports, and loaded data persist across calls. Run shell commands with `bash('cmd')` / "
-                       "`await bash('cmd')`.",
-        "parameters": {
-            "type": "object",
-            "properties": {"code": {"type": "string", "description": "Python code to execute in the persistent "
-                                                                     "Python REPL."}},
-            "required": ["code"],
-        },
-    },
-}
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 
 
@@ -211,7 +197,7 @@ class AgentSession:
             if reason:
                 self.end_reason = reason
                 return
-            self._drain_inbox()
+            self._drain_inbox() # adding messages from subagents
             window, reserve, _ = self._context_limits()
             tokens = self._context_tokens()
             if compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens")) and (

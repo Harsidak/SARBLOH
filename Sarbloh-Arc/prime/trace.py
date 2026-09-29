@@ -1,6 +1,6 @@
 """Step map of a Prime run: for every game, what the agent thought, ran and spent, turn by turn.
 
-    uv run python Sarbloh-Prime/prime/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
+    uv run python Sarbloh-Arc/prime/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
 
 Sources in <run_dir>: ``results.json`` and, per game, ``games/<game_id>/transcript.jsonl`` (every message of the
 root session with the model's reasoning, and every cell and host event), plus the ARC SDK recording

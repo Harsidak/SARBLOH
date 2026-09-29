@@ -24,12 +24,13 @@ from typing import Any
 
 PRIME_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PRIME_ROOT.parent
-for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + prime/ live in Sarbloh-Prime; sarbloh/ (games) at the repo root
+for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + prime/ live in Sarbloh-Arc; sarbloh/ (games) at the repo root
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 # pyrefly: ignore [missing-import]
-from prime import prompts, trace
+from prime import trace
+from prime.agent import prompts
 from prime.config import DEFAULT, config_hash, merge
 
 COMPETITION_DIR = Path("/kaggle/input/competitions/arc-prize-2026-arc-agi-3")
@@ -55,8 +56,8 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
               soft_end: float) -> dict[str, Any]:
-    from prime.arc_host import ArcHost
-    from prime.session import AgentSession
+    from prime.game.arc_host import ArcHost
+    from prime.agent.agent import AgentSession
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
@@ -200,8 +201,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     working_dir.mkdir(parents=True, exist_ok=True)
     _print_env(cfg)
 
-    from prime.llm import LLM
-    from prime.vllm import VllmServer
+    from prime.llm.client import LLM
+    from prime.llm.vllm import VllmServer
     from sarbloh.harness.games import build_games, make_arcade
 
     server = VllmServer(cfg["vllm"], working_dir)
@@ -211,7 +212,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         cfg["llm"]["base_url"] = server.base_url
         cfg["llm"]["model"] = cfg["vllm"]["served_model_name"]
         cfg["agent"]["tool_mode"] = server.tool_mode
-        from prime.vllm import PROFILES
+        from prime.llm.vllm import PROFILES
 
         max_len = int(PROFILES[server.profile]["--max-model-len"])  # fit context handling to the profile that started
         fit_context(cfg["agent"], max_len)
@@ -289,7 +290,7 @@ def local() -> None:
     ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
     ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
     a = ap.parse_args()
-    from prime.llm import LLM
+    from prime.llm.client import LLM
     from sarbloh.harness.games import build_games, make_arcade
 
     cfg = merge(DEFAULT, {
