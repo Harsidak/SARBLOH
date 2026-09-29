@@ -39,7 +39,7 @@ from prime.agent import compaction, prompts, refine
 from prime.game.arc_host import ArcHost
 from prime.runtime.kernel import Kernel
 from prime.llm.client import LLM, ContextOverflow
-from prime.agent.tools import Py
+from prime.agent.tools import IPYTHON_TOOL
 
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 
