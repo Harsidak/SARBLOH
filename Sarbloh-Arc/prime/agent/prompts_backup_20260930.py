@@ -1,25 +1,25 @@
 """Prompts.
 
-Two tool sets, two prompt families (``agent.toolset`` in the config):
+The base system prompt is upstream ``buildRlmPrompt`` + ``buildSubagentGuidance`` (``core/prompts/rlm.ts``, commit
+2d24ad4), in the same order and wording, for the features this host has. Lines left out, and why:
+USER_PROGRESS_PROMPT (no user watches the run), ``uv pip install`` and the dependency-install paragraph (offline),
+``create_session``/``find_models``/``agent_observe``/MCP/SKILL.md/shell-skill lines (not provided), the 16 MiB
+compaction-variable note (our compaction never touches kernel state), the "external system's native runtime" and
+per-``bash()``-process paragraphs (no external project here), the ``bash()`` handle-method list (``h.pid`` ...
+``h.kill()``) and "Prefer bash() for long-running commands" (no shell jobs in an ARC game; the methods still exist),
+the ``bash()`` completion follow-up sentence (this host sends no such follow-up) and the ``refine.run()`` paragraph
+(no agent-callable refine skill; upstream then carries the same guidance in the harness digest). Changed, not cut:
+"Agent messaging is restricted to your parent and your direct children" (upstream also allows siblings; this host
+routes only to the parent or a direct child). A line-by-line check against upstream: see
+experiments/E005_prime_fidelity/audit.md.
 
-- ``"ipython"`` (E003-E005, the upstream-fidelity baseline). The base system prompt is upstream ``buildRlmPrompt`` +
-  ``buildSubagentGuidance`` (``core/prompts/rlm.ts``, commit 2d24ad4), in the same order and wording, for the
-  features this host has; the line-by-line check is experiments/E005_prime_fidelity/audit.md. ``ARC_SECTION`` states
-  the interface and the score rule and nothing about strategy, as in the paper (section 3.1). Do not edit this family:
-  it is the control arm of every ablation.
-- ``"dedicated"`` (E006 onward). Ours. Native tools for actions, resets, plan, memory and delegation; the REPL is for
-  looking, thinking and the world model. Written for a mid-size open model (Gemma-4-31B / Qwen-27B class): short
-  sentences, one procedure, costs stated next to every tool, the E005 failure modes named as rules, and one worked
-  example. Every rule below traces to a measured failure; see the comments.
-
-Placeholders are filled with ``str.format``: a literal brace in any text here must be doubled.
+The ARC section is ours and is appended to the system prompt (upstream ``appendSystemPrompt``), so it survives
+compaction. The paper gives ARC-AGI-3 "only the environment interface and an autonomous prompt" (section 3.1): the
+section states the interface, the score rule and nothing about strategy. The first user message is the task; the
+continuation keeps upstream's ``[autonomous-continuation]`` header and default wording, adapted to the game.
 """
 
 from __future__ import annotations
-
-# =====================================================================================================================
-# Family 1: "ipython" toolset. Upstream Prime Agent text. Control arm: keep verbatim.
-# =====================================================================================================================
 
 LONG_RUNNING_WORK = "\n".join([
     "For slow or independently completing work, use a nonblocking control loop: start the work, record its handle or "
@@ -62,8 +62,7 @@ REPL_CONTROL = "\n".join([
     "Python `await` expressions, so their return values can be bound to variables and composed into program logic "
     "just like any other call.",
     "",
-    "Continual harness state is available as `rlm.harness` and `rlm.get_harness_state()`. CRUD calls are local to "
-    "this Prime Agent session by "
+    "Continual harness state is available as `rlm.harness` and `rlm.get_harness_state()`. CRUD calls are local to this Prime Agent session by "
     "default: `rlm.harness.create_memory(...)`, `rlm.harness.update_memory(...)`, `rlm.harness.delete_memory(...)`, "
     "`rlm.harness.create_skill(...)`, `rlm.harness.update_skill(...)`, `rlm.harness.delete_skill(...)`, "
     "`rlm.harness.create_subagent(...)`, `rlm.harness.update_subagent(...)`, `rlm.harness.delete_subagent(...)`, "
@@ -129,25 +128,39 @@ def child_doctrine(parent: str) -> str:
     ])
 
 
-# Restored to the E005 wording (interface + score rule, no strategy). The strategy text that was added here on
-# 2026-09-29 moved to the dedicated family: the control arm must not change between runs.
-ARC_SECTION = """# ARC-AGI-3 game
+ARC_SECTION = """
 
-You are playing the ARC-AGI-3 game `{game_id}` through the pre-imported Python module `arc`. The game is turn-based and deterministic. Nobody gives you the rules, the controls or the goal: find them by acting and observing. The game has {win_levels} levels; early levels teach mechanics, later levels combine them. The game is won when all levels are complete.
+ROLE: 
+You are an intellectual and reasoning agent who is playing this game `{game_id}`.
+ The game is turn-based and deterministic. In this simulated enviornment you have to plan, predict, perform and learn from your mistakes and try to win the game.
+  The game has {win_levels} levels; early levels teach mechanics realted to the games, later the levels get harder. The game is won when all levels are complete.
 
-## `arc` interface (use `await` on every call except `show` and `diff`)
-- `obs = await arc.observe()` returns the current observation. Free.
+## Important Rule
+When you finally perform a game action after planning, reasoning and predicting it costs one step which would change the state of the game and 
+after taking n number of steps the enviornment would determine whether you win or lose. So in order to win all the games
+In earlier levels you must 
+1) try to recognise the goal of the games (after observation, planning and reasoning or performing actions with tools e.g. in this game I have to escape the door)
+2) try to understand the mecahnics of the enivornment your charcter.
+3) take optimal steps to win the game by complete all the levels in carefull amount of steps
+so you before taking steps you must be carefull as it can decide whether you win
+
+## How to use the games actions: `arc` interface (use `await` on every call except `show` and `diff`)
+- `obs = await arc.observe()` returns the current observation.
   - `obs.grid`: numpy int8 array, shape (64, 64). Read it as `obs.grid[y, x]` (y = row, x = column). Values 0-15 are colours.
   - `obs.state`: "NOT_FINISHED", "WIN" (all levels complete) or "GAME_OVER".
   - `obs.levels_completed`, `obs.available_actions` (the legal ids for `arc.step`), `obs.actions_left`, `obs.frames` (every frame of the last step; `obs.grid` is the last one).
 {act_lines}- `ts = await arc.transitions()` returns every step of this game, oldest first. Free. Each item is a dict with the keys `"action"`, `"x"`, `"y"`, `"before"` (grid), `"after"` (grid), `"level"`, `"state"`, `"level_up"`. Example: `ts[-1]["after"]`.
 - `arc.show(grid)` returns the grid as text, one hex digit per pixel; `arc.show(grid, x0, y0, x1, y1)` shows a window. `arc.diff(a, b)` returns the pixels that differ, as a list of `(x, y, old, new)`.
 
-## Score
-Each level scores (human actions / your actions)^2. Only `arc.step` and `arc.reset` count. Thinking, code, analysis and subagents are free. Do not spend an action only to learn what `arc.transitions()` and the frames you have already show.
+Thinking, code, analysis and subagents are free to perform. Do not spend an action only to learn what `arc.transitions()` and the frames you have already show.
 
 Save verified facts about this game with `rlm.harness.create_memory(title=..., content=...)`. Memories stay visible after compaction.
-Tool output longer than {output_chars} characters is cut in the middle: print shapes, counts and small windows, not whole grids or lists."""
+Tool output longer than {output_chars} characters is cut in the middle: print shapes, counts and small windows, not whole grids or lists.
+
+## YOUR GOAL: 
+your goal is to win all the game and consider optimal actions by using provided tools effectively. 
+before performing actions consider your decision as hypothesis then question that decision(if the time is available) otherwise when you can confirm from your memory that performing that action is benficial perform it try to understand by diff between two states of the game changes and store that in your memory and if you find something useful that leads you to the goal, remember those things very well. 
+"""
 
 ROOT_ACT_LINES = """- `obs = await arc.step(a)` does action `a` (an id from `obs.available_actions`). Action 6 needs a pixel: `await arc.step(6, x=column, y=row)`. Costs 1 action. `obs.level_up` is True when the step completed a level.
 - `obs = await arc.reset()` restarts the current level (`arc.step(0)` raises). Costs 1 action, and the actions already spent in the level still count toward its score. The level's state is lost; your variables, `rlm.harness` memories and `arc.transitions()` are kept. Needed after `obs.state == "GAME_OVER"`. Refused when the level is already at its start.
@@ -158,123 +171,29 @@ CHILD_ACT_LINES = ("- You cannot call `arc.step` or `arc.reset`: only the root a
                    "your parent.\n")
 
 
-# =====================================================================================================================
-# Family 2: "dedicated" toolset (E006+). Ours.
-# =====================================================================================================================
-
-# The REPL paragraph. E006 first ls20 run: teaching both the Python API and the native tools for memory and delegation
-# confused the model, so the REPL text names only what the REPL is for.
+# E006 (toolset "dedicated"): the upstream REPL text minus what the native tools replace (rlm.spawn, agent_message,
+# rlm.harness CRUD) and bash() (no shell work in a game). Teaching both ways confused the model in the first ls20 run.
 REPL_DEDICATED = "\n".join([
-    "The `ipython` tool is a persistent Python REPL. It is your workspace for looking at the game, for analysis and "
-    "for your world model. Top-level `await` works. Python state persists across calls: variables, functions, "
-    "imports.",
-    "Build your understanding as code that lasts. Write a small helper once (find the player, list the walls, read "
-    "the counter), keep its result in a named variable, and call it again later. Do not recompute or reprint what a "
-    "variable already holds.",
-    "Plan, act, reset, memory, delegation and messages are native tools, not Python functions. There is no "
-    "`arc.step`, `arc.act` or `rlm.harness` in the REPL.",
+    "The `ipython` tool is a persistent Python REPL: your workspace for looking at the game, analysis and your world"
+    "model. Top-level `await` works directly. Python state persists across cells: keep grids, helper functions and "
+    "findings in named variables and reuse them instead of recomputing.",
+    "Memory, delegation and messages are tools (`remember`, `recall`, `delegate`, `message`), not Python calls.",
 ])
-
-
-# The ARC section. Every rule comes from a measured failure (E005 autopsy, 10 games, 4,449 actions, 1/76 levels):
-#   R1 "cost"        : once the agent could loop, it stopped treating actions as costly (320 actions in one cell).
-#   R2 "free first"  : it spent actions to learn what the transition record already showed.
-#   R3 "no reset"    : 350 resets (8% of actions) used as experiments.
-#   R4 "counters"    : in ls20 it saw the step counter change on move 1 and dismissed it.
-#   R5 "x/y"         : it mixed (row, col) and (x, y) for clicks.
-#   R6 "no raw grid" : 44 of 53 ls20 cells printed the full grid; understanding never moved into code.
-#   R7 "one goal"    : it guessed goals one at a time ("what if maroon must overlap blue?").
-#   R8 "memory"      : the only memory ever written was "1=Up, 2=Down"; no goal or mechanic was saved.
-ARC_DEDICATED = """# ARC-AGI-3 game `{game_id}`
-
-You play a turn-based, deterministic game with {win_levels} levels. Nobody tells you the controls, the rules or the goal. You find them out. Early levels teach one mechanic each; later levels combine them. The game is won when every level is complete.
-
-## Score: why you must act little
-Each level scores (human actions / your actions)^2. If a human needs 20 actions and you need 40, you get 0.25 for that level, not 0.5. Waste is punished twice.
-Only `act` and `reset_level` spend actions. Everything else is free: ipython, plan, remember, recall, delegate, message. Think as long as you need. Act only when you know what you expect to see.
-
-## Tools and their cost
-| tool | cost | use it to |
-|---|---|---|
-| `ipython` | free | look at the grid, study the transitions, write helpers and your world model |
-| `plan` | free | write your working theory: phase, goal guess, hypotheses with tests, next steps |
-| `act` | 1 per action | do 1 to {act_max} actions, with the prediction `expect` |
-| `reset_level` | 1 | restart the level; required after GAME_OVER |
-| `remember` / `recall` | free | save and search facts that survive compaction |
-| `delegate` / `message` | free | let a child analyse the transitions while you continue |
-
-One `act` or `reset_level` per reply. Read its result before the next one.
-
-## What you can use in ipython
-- `obs = await arc.observe()`: `obs.grid` (numpy int8, 64x64, colours 0-15), `obs.available_actions`, `obs.levels_completed`, `obs.state`.
-- Coordinates: `obs.grid[y, x]`. y is the row (top = 0), x is the column (left = 0). A click is written x first: "6 x y". Check the order every time you click.
-- `print(arc.show(obs.grid, x0, y0, x1, y1))` prints a window, one hex digit per pixel. Print windows, not the whole grid.
-- `ts = await arc.transitions()`: every step so far. `ts[i].before`, `ts[i].after` (grids), `ts[i].action`, `ts[i].x`, `ts[i].y`, `ts[i].level`, `ts[i].level_up`. The `#i` numbers in act results are these indices.
-- `arc.diff(a, b)`: changed pixels as (x, y, old, new).
-- `wm.objects(grid)`: connected objects (colour, position, size). `wm.summarize_change(a, b)`: what moved or changed between two grids. `wm.background(grid)`: the background colour.
-Output over {output_chars} characters is cut in the middle. Print counts, shapes, windows and summaries.
-
-## World model: the rules as code (free)
-Write what you know as a function:
-    def step(grid, action, x=None, y=None):
-        g = grid.copy()
-        ...           # apply the rule you believe
-        return g
-- `wm.register(step, name="v1", ignore=[(x0, y0, x1, y1)])`: make it your model. `ignore` lists boxes that the model need not predict, such as a counter bar.
-- `r = await wm.check()`; `print(r)`: replays every recorded step and lists where your model is wrong. A model counts only when it passes.
-- `wm.predict(grid, [1, 1, 4])`: the grids your model expects.
-- `wm.plan(obs.grid, goal=lambda g: ..., actions=[1, 2, 3, 4])`: the shortest action list to the goal inside your model. Free.
-- While a model is registered, `act` checks each real step against it and stops at the first wrong prediction. A wrong prediction is new information: fix the model before you act on it.
-You can also model an abstract state: `wm.register(step, perceive=parse)`, where `parse(grid)` returns for example the player position and the counter, and `step(state, action)` returns the next state. Small states are easier to get right.
-
-## How to play a level
-1. Look (free). Before your first action, study the grid in ipython. Find the objects, the walls, the background, and any bar, counter or HUD at the edges. Write a helper that finds each one; keep it.
-2. Plan (free). Call `plan`: phase "explore", your goal guess (or "unknown"), and 2 to 5 hypotheses, each with the action that tests it ("A1 moves the red block up -> act [1]").
-3. Probe (cheap). Test one hypothesis per `act`, with 1 or 2 actions and a clear `expect`. Read the change lines. Say in `was_right` whether your last prediction held.
-4. Save (free). When a result settles something, call `remember` with the transition numbers as evidence. Save what you refuted too (kind "refuted"), so you never test it again.
-5. Model (free). Put the rules into `step()`, register it, run `wm.check()` and fix it until it passes. Set the plan phase to "model".
-6. Execute. State the goal as `goal(grid)`, get the path from `wm.plan`, set the phase to "execute", and act in batches. If `act` stops on a wrong prediction, go back to step 5.
-After a level up: the layout changed. Look at the new grid first. Recall what you know. Reuse your helpers and your model, and find what is new before you act.
-
-## Rules
-- Do not spend an action to learn what the transitions already show. Look first.
-- Every action needs a reason. Do not try actions one by one "to see what happens" when you can say what each one should do.
-- Watch the edges. A bar or a number that changes on every step is a counter: steps left, moves, lives or time. It tells you the budget of the level.
-- Hold several goal guesses at once. Choose the next action to tell them apart, not to confirm your favourite one.
-- A reset loses the level's progress and still costs an action. Use it after GAME_OVER, or when the level is provably stuck. It is not an experiment.
-- If a GAME_OVER happens, find in the transitions which step caused it before you reset. Save that as a fact.
-- Do not repeat an action in a state where you already tried it, unless you expect something different. The act result marks such repeats.
-- Keep the plan true. Update it after every surprise, every level up and every GAME_OVER.
-
-## Example (another game, short)
-ipython: helpers find a 3x3 red block at (10, 20) and a green 3x3 square at (40, 20); the bottom row has 30 grey pixels.
-plan: explore; goal guess "move red onto green"; hypotheses "A1-A4 move the red block -> act [1]", "the grey bar is a step counter -> watch it".
-act ["1"], expect "red moves up by 3, grey bar shrinks by 1" -> result: red moved up 3, bar lost 1 pixel. was_right next time: yes.
-remember fact "A1 moves the red block up 3 px" evidence [0]; remember fact "grey bar = steps left, -1 per action" evidence [0].
-act ["4"], expect "red moves right 3" -> it did. ipython: register step() for A1-A4; `wm.check()` passes 2/2.
-plan: execute; goal "red block on the green square"; `wm.plan` returns [4]*10; act in batches of {act_max} -> level up after 10 actions."""
-
-ARC_DEDICATED_CHILD = """## You are a child agent
-Your parent plays the game. You analyse it. You cannot act, reset, plan, remember or delegate. Your tools are `ipython` (read-only game access: `arc.observe`, `arc.transitions`, `arc.show`, `arc.diff`, `wm`), `recall` (the game's memories) and `message`.
-Do the task you were given, in ipython. Check your answer against the transitions before you send it: say which transition numbers support it and which, if any, contradict it.
-Send one short, exact answer with `message` (to="parent"): rules as code or as precise sentences, with coordinates and transition numbers. Then stop."""
 
 
 def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, allow_recursion: bool,
                 toolset: str = "ipython") -> str:
     if toolset == "dedicated":
         return "\n".join([
-            "You are an agent that learns an unknown game by observation, experiment and code, and then wins it with "
-            "as few actions as possible.",
-            "You think in the Python REPL, you keep an explicit plan, and you spend game actions only to test a "
-            "prediction or to execute a checked plan.",
+            "You are a general purpose agent that uses code to solve tasks.",
+            "You solve tasks by breaking down problems into sub-tasks, writing and executing code, observing results, "
+            "and iterating one step at a time.",
             "",
             SIMPLIFIED_TECHNICAL_ENGLISH,
             "",
             f"Working directory: {cwd}",
             f"Recursive agent depth: {depth}" + (f" (child of {parent})" if depth > 0 and parent else ""),
-            "Pre-installed Python packages: numpy. Pre-imported modules: `arc` (read the game), `wm` (world model "
-            "and perception helpers).",
+            "Pre-installed Python packages: numpy. Pre-imported modules: `arc` (look at the game), `wm` (world model).",
             "",
             REPL_DEDICATED,
         ])
@@ -319,30 +238,53 @@ def arc_section(*, game_id: str, win_levels: int, depth: int, cell_cap: int | No
     return ARC_SECTION.format(game_id=game_id, win_levels=win_levels, act_lines=act, output_chars=output_chars)
 
 
-# =====================================================================================================================
-# User-turn messages
-# =====================================================================================================================
+# E006 (toolset "dedicated"). Ours, not upstream. Kept short on purpose: the owner edits it between runs.
+ARC_DEDICATED = """# ARC-AGI-3 game `{game_id}`
+
+You play a turn-based, deterministic game with {win_levels} levels. Nobody gives you the rules, the controls or the goal. Early levels teach mechanics; later levels combine them.
+Score per level = (human actions / your actions)^2. Only `act` and `reset_level` cost actions. Thinking, code, planning, memory and subagents are free. So think a lot and act little.
+
+## Tools
+- `ipython`: free. Look and think here. `obs = await arc.observe()`; `obs.grid` is a numpy array, `obs.grid[y, x]` (y = row, x = column, colours 0-15); `obs.available_actions` are the legal ids; `print(arc.show(obs.grid, x0, y0, x1, y1))` prints a window; `ts = await arc.transitions()` holds every step (`t.before`, `t.after` grids, `t.action`); `arc.diff(a, b)` lists changed pixels; `wm.objects(grid)` lists objects. Keep helpers and findings in variables; load grids from `ts`, never type them out. It cannot act: the tools below are tool calls, not Python functions (there is no `arc.act`).
+- `plan`: your plan: phase, goal guess, hypotheses with their tests, next steps. Update it after every surprise and every level up.
+- `act(actions, expect)`: 1 to {act_max} actions, with your prediction. One act per reply. The result already lists per step what changed and moved: read it before digging in `ts`.
+- `reset_level(reason)`: restart the level (1 action). Needed after GAME_OVER; not a way to experiment.
+- `remember(kind, title, content, evidence)` / `recall(query)`: memory that survives compaction. A fact needs evidence: the transition numbers (#i) that show it.
+- `delegate(name, task)` / `message(to, text)`: a child analyses transitions in parallel and messages you back.
+
+## World model (in ipython)
+Write the rules as code: `def step(grid, action, x=None, y=None): ...` returns the next grid. `wm.register(step, ignore=[(x0, y0, x1, y1)])` (ignore boxes such as counters), then `await wm.check()` replays every recorded step and shows where you are wrong. Fix it until it passes. Then `wm.plan(obs.grid, goal=lambda g: ...)` finds the shortest action list inside your model, for free. While a model is registered, `act` checks each step against it and stops at the first wrong prediction.
+
+## How to play
+1. Plan: look at the grid in ipython. Name the objects, the walls, the bars and counters. Guess what you control and what the goal is. Write a plan.
+2. Predict and test: act with 1-2 actions and say what you expect. Compare with what changed. Learn what moves, what blocks it, what the counters count, what kills you. Save facts with evidence.
+3. Model: put the rules into `step()`, check it, fix it.
+4. Goal and execute: state the goal in the plan, search the shortest path in your model, act in short batches, re-plan when surprised.
+After a level up, look at the new layout first: reuse your model and memories, and check what is new.
+Do not repeat an action in a state where you already tried it unless you expect something new. Tool output over {output_chars} characters is cut: print windows, counts and summaries, not whole grids repeatedly."""
+
+ARC_DEDICATED_CHILD = ("You are a child agent. Your tools are only `ipython`, `recall` (the game's memories) and "
+                       "`message`: you cannot act, reset, plan, remember or delegate. Analyse in ipython and send your "
+                       "answer to the parent with the `message` tool (to=\"parent\").")
+
 
 TASK = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about {minutes} "
         "minutes of wall clock. There is no human: do not ask questions. Start with "
         "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`.")
 
-# The full-grid print is allowed once, here: it is the first look. After that the prompt asks for windows.
 TASK_DEDICATED = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about "
-                  "{minutes} minutes of wall clock. There is no human: do not ask questions.\n"
-                  "Start in ipython: `obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`. Find the "
-                  "objects and any counter before your first action. Then call `plan`.")
+                  "{minutes} minutes of wall clock. There is no human: do not ask questions. Start in ipython with "
+                  "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`, then write your first plan.")
 
-# Shared by both families. Names both ways to reach the record, so it is correct in either toolset.
 CONTINUATION = (
     "[autonomous-continuation]\n\n"
     "No human input is available in autonomous mode. Continue working until the game is won or the budget is spent "
     "({status}). If you were asking a question, make a reasonable assumption and verify it. If you believe you are "
-    "blocked, prove it with evidence from the recorded transitions (`await arc.transitions()`), and keep looking for "
-    "safe progress while budget remains. Do not end the session yourself."
+    "blocked, prove it with evidence from `await arc.transitions()`, and keep looking for safe progress while budget "
+    "remains. Do not end the session yourself."
 )
 
-# E004 host-forced reflection ("ipython" family only; off by default; not upstream).
+# E004 host-forced reflection (off by default; not upstream).
 REFLECT = """[reflection checkpoint: {reason}] ({status})
 `arc.step` and `arc.reset` are blocked until you write to the continual harness. In one `ipython` call:
 1. Check what the recent steps showed with `await arc.transitions()`. Do not act.
