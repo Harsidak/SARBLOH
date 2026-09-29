@@ -205,6 +205,7 @@ def serialize_conversation(messages: list[dict[str, Any]]) -> str:
     """Messages as text for a summarizer (upstream serializeConversation): numbered tool calls, cut tool results."""
     parts: list[str] = []
     index_of: dict[str, int] = {}
+    name_of: dict[str, str] = {}
     n = 0
     for msg in messages:
         role = msg["role"]
@@ -227,6 +228,7 @@ def serialize_conversation(messages: list[dict[str, Any]]) -> str:
                     args = {"arguments": args}
                 n += 1
                 index_of[tc.get("id", "")] = n
+                name_of[tc.get("id", "")] = fn.get("name", "ipython")
                 arg_text = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in args.items())
                 calls.append(f"#{n} {fn.get('name', 'ipython')}({arg_text})")
             if calls:
@@ -236,7 +238,8 @@ def serialize_conversation(messages: list[dict[str, Any]]) -> str:
             if text:
                 idx = index_of.get(msg.get("tool_call_id", ""))
                 suffix = "" if idx is None else f" #{idx}"
-                label = f"[Tool result (ipython, error){suffix}]" if msg.get("_error") else f"[Tool result (ipython){suffix}]"
+                tname = name_of.get(msg.get("tool_call_id", ""), "ipython")
+                label = f"[Tool result ({tname}, error){suffix}]" if msg.get("_error") else f"[Tool result ({tname}){suffix}]"
                 parts.append(f"{label}: {truncate_for_summary(text, TOOL_RESULT_MAX_CHARS)}")
     return "\n\n".join(parts)
 

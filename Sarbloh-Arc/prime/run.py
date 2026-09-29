@@ -64,8 +64,10 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     session_ref: dict[str, Any] = {}
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
-                   max_actions_per_cell=cfg.get("max_actions_per_cell"))
-    task = prompts.TASK.format(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
+                   max_actions_per_cell=cfg.get("max_actions_per_cell"),
+                   stop_after_levels=cfg.get("stop_after_levels"))
+    dedicated = cfg["agent"].get("toolset") == "dedicated" and cfg["agent"]["tool_mode"] == "native"
+    task = (prompts.TASK_DEDICATED if dedicated else prompts.TASK).format(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
                                minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
@@ -83,6 +85,20 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
              "recording": game.recording_path}
     (game_dir / "session.json").write_text(json.dumps(stats, indent=1), encoding="utf-8")
     return stats
+
+
+def git_sha() -> str:
+    """The code version: $PRIME_GIT_SHA, else `git rev-parse HEAD` (+ "-dirty"), else "unknown" (a dataset copy)."""
+    if os.environ.get("PRIME_GIT_SHA"):
+        return os.environ["PRIME_GIT_SHA"]
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "Sarbloh-Arc"], cwd=REPO_ROOT,
+                               capture_output=True, text=True, timeout=10).stdout.strip()
+        return (sha + ("-dirty" if dirty else "")) if sha else "unknown"
+    except Exception:  # noqa: BLE001
+        return "unknown"
 
 
 def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, soft_end: float) -> dict[str, Any]:
@@ -155,6 +171,10 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
     return {
         "experiment": cfg["experiment"],
         "config_hash": config_hash(cfg),
+        "git_sha": git_sha(),
+        "model": cfg["llm"].get("model"),
+        # what the sessions ran: a fenced (no native tools) fallback forces the one-tool REPL interface
+        "toolset": cfg["agent"].get("toolset") if cfg["agent"].get("tool_mode") == "native" else "ipython",
         "games": len(runs),
         "mean_score": round(statistics.mean(scores), 4) if scores else 0.0,
         "levels_completed": sum(r.levels_completed for r in runs),
@@ -249,9 +269,9 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             pd.DataFrame([["1_0", "1", True, 1]], columns=["row_id", "game_id", "end_of_game", "score"]).to_parquet(
                 working_dir / "submission.parquet", index=False)
     print("LEDGER_ROW " + json.dumps({k: summary.get(k) for k in (
-        "experiment", "config_hash", "vllm_profile", "tool_mode", "throughput", "games", "mean_score",
-        "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls", "fenced_calls",
-        "wall_s")}), flush=True)
+        "experiment", "config_hash", "git_sha", "model", "toolset", "vllm_profile", "tool_mode", "throughput", "games",
+        "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
+        "fenced_calls", "wall_s")}), flush=True)
     return summary
 
 
@@ -283,23 +303,28 @@ def local() -> None:
     ap.add_argument("--no-thinking", action="store_true")
     ap.add_argument("--cell-cap", type=int, default=None, help="E004: max arc.step per cell")
     ap.add_argument("--reflect-every", type=int, default=None, help="E004: forced harness write every N actions")
-    ap.add_argument("--experiment", default="E005_prime_fidelity_local")
+    ap.add_argument("--experiment", default=None, help="default: E006_dedicated_tools_local, or E005_prime_fidelity_local "
+                    "with --toolset ipython")
     ap.add_argument("--ctx", type=int, default=16384, help="context window of the local server (llama.cpp -c)")
     ap.add_argument("--auto-refine", type=int, default=25, metavar="TURNS",
                     help="host-driven harness refine every TURNS turns (+ after compaction); 0 = off")
     ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
     ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
+    ap.add_argument("--toolset", default="dedicated", choices=["dedicated", "ipython"])
+    ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
+    ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
     a = ap.parse_args()
     from prime.llm.client import LLM
     from sarbloh.harness.games import build_games, make_arcade
 
     cfg = merge(DEFAULT, {
-        "experiment": a.experiment, "max_actions_per_cell": a.cell_cap,
+        "experiment": a.experiment or ("E006_dedicated_tools_local" if a.toolset == "dedicated"
+                                       else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
-        "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": 4096,
+        "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
                   "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
                   "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,

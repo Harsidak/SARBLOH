@@ -155,7 +155,32 @@ CHILD_ACT_LINES = ("- You cannot call `arc.step` or `arc.reset`: only the root a
                    "your parent.\n")
 
 
-def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, allow_recursion: bool) -> str:
+# E006 (toolset "dedicated"): the upstream REPL text minus what the native tools replace (rlm.spawn, agent_message,
+# rlm.harness CRUD) and bash() (no shell work in a game). Teaching both ways confused the model in the first ls20 run.
+REPL_DEDICATED = "\n".join([
+    "The `ipython` tool is a persistent Python REPL: your workspace for looking at the game, analysis and your world "
+    "model. Top-level `await` works directly. Python state persists across cells: keep grids, helper functions and "
+    "findings in named variables and reuse them instead of recomputing.",
+    "Memory, delegation and messages are tools (`remember`, `recall`, `delegate`, `message`), not Python calls.",
+])
+
+
+def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, allow_recursion: bool,
+                toolset: str = "ipython") -> str:
+    if toolset == "dedicated":
+        return "\n".join([
+            "You are a general purpose agent that uses code to solve tasks.",
+            "You solve tasks by breaking down problems into sub-tasks, writing and executing code, observing results, "
+            "and iterating one step at a time.",
+            "",
+            SIMPLIFIED_TECHNICAL_ENGLISH,
+            "",
+            f"Working directory: {cwd}",
+            f"Recursive agent depth: {depth}" + (f" (child of {parent})" if depth > 0 and parent else ""),
+            "Pre-installed Python packages: numpy. Pre-imported modules: `arc` (look at the game), `wm` (world model).",
+            "",
+            REPL_DEDICATED,
+        ])
     parts = [
         "You are a general purpose agent that uses code to solve tasks.",
         "You solve tasks by breaking down problems into sub-tasks, writing and executing code, observing results, and "
@@ -175,7 +200,7 @@ def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, al
         parts += ["", child_doctrine(parent or "your parent agent")]
     parts += [
         "",
-        "Installed Python skill modules (pre-imported): `arc`, `agent_message`.",
+        "Installed Python skill modules (pre-imported): `arc`, `agent_message`, `wm` (world model).",
         "Inspect a module with `help(<skill>)` or `dir(<skill>)`, then inspect a documented callable with "
         "`inspect.signature(<skill>.<function>)`.",
         "Agent messaging is restricted to your parent and your direct children.",
@@ -188,14 +213,52 @@ def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, al
     return "\n".join(parts)
 
 
-def arc_section(*, game_id: str, win_levels: int, depth: int, cell_cap: int | None, output_chars: int) -> str:
+def arc_section(*, game_id: str, win_levels: int, depth: int, cell_cap: int | None, output_chars: int,
+                toolset: str = "ipython", act_max: int = 5) -> str:
+    if toolset == "dedicated":
+        text = ARC_DEDICATED.format(game_id=game_id, win_levels=win_levels, act_max=act_max, output_chars=output_chars)
+        return text + ("\n\n" + ARC_DEDICATED_CHILD if depth > 0 else "")
     act = CHILD_ACT_LINES if depth > 0 else ROOT_ACT_LINES + (CAP_LINE.format(cap=cell_cap) if cell_cap else "")
     return ARC_SECTION.format(game_id=game_id, win_levels=win_levels, act_lines=act, output_chars=output_chars)
+
+
+# E006 (toolset "dedicated"). Ours, not upstream. Kept short on purpose: the owner edits it between runs.
+ARC_DEDICATED = """# ARC-AGI-3 game `{game_id}`
+
+You play a turn-based, deterministic game with {win_levels} levels. Nobody gives you the rules, the controls or the goal. Early levels teach mechanics; later levels combine them.
+Score per level = (human actions / your actions)^2. Only `act` and `reset_level` cost actions. Thinking, code, planning, memory and subagents are free. So think a lot and act little.
+
+## Tools
+- `ipython`: free. Look and think here. `obs = await arc.observe()`; `obs.grid` is a numpy array, `obs.grid[y, x]` (y = row, x = column, colours 0-15); `obs.available_actions` are the legal ids; `print(arc.show(obs.grid, x0, y0, x1, y1))` prints a window; `ts = await arc.transitions()` holds every step (`t.before`, `t.after` grids, `t.action`); `arc.diff(a, b)` lists changed pixels; `wm.objects(grid)` lists objects. Keep helpers and findings in variables; load grids from `ts`, never type them out. It cannot act: the tools below are tool calls, not Python functions (there is no `arc.act`).
+- `plan`: your plan: phase, goal guess, hypotheses with their tests, next steps. Update it after every surprise and every level up.
+- `act(actions, expect)`: 1 to {act_max} actions, with your prediction. One act per reply. The result already lists per step what changed and moved: read it before digging in `ts`.
+- `reset_level(reason)`: restart the level (1 action). Needed after GAME_OVER; not a way to experiment.
+- `remember(kind, title, content, evidence)` / `recall(query)`: memory that survives compaction. A fact needs evidence: the transition numbers (#i) that show it.
+- `delegate(name, task)` / `message(to, text)`: a child analyses transitions in parallel and messages you back.
+
+## World model (in ipython)
+Write the rules as code: `def step(grid, action, x=None, y=None): ...` returns the next grid. `wm.register(step, ignore=[(x0, y0, x1, y1)])` (ignore boxes such as counters), then `await wm.check()` replays every recorded step and shows where you are wrong. Fix it until it passes. Then `wm.plan(obs.grid, goal=lambda g: ...)` finds the shortest action list inside your model, for free. While a model is registered, `act` checks each step against it and stops at the first wrong prediction.
+
+## How to play
+1. Plan: look at the grid in ipython. Name the objects, the walls, the bars and counters. Guess what you control and what the goal is. Write a plan.
+2. Predict and test: act with 1-2 actions and say what you expect. Compare with what changed. Learn what moves, what blocks it, what the counters count, what kills you. Save facts with evidence.
+3. Model: put the rules into `step()`, check it, fix it.
+4. Goal and execute: state the goal in the plan, search the shortest path in your model, act in short batches, re-plan when surprised.
+After a level up, look at the new layout first: reuse your model and memories, and check what is new.
+Do not repeat an action in a state where you already tried it unless you expect something new. Tool output over {output_chars} characters is cut: print windows, counts and summaries, not whole grids repeatedly."""
+
+ARC_DEDICATED_CHILD = ("You are a child agent. Your tools are only `ipython`, `recall` (the game's memories) and "
+                       "`message`: you cannot act, reset, plan, remember or delegate. Analyse in ipython and send your "
+                       "answer to the parent with the `message` tool (to=\"parent\").")
 
 
 TASK = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about {minutes} "
         "minutes of wall clock. There is no human: do not ask questions. Start with "
         "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`.")
+
+TASK_DEDICATED = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about "
+                  "{minutes} minutes of wall clock. There is no human: do not ask questions. Start in ipython with "
+                  "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`, then write your first plan.")
 
 CONTINUATION = (
     "[autonomous-continuation]\n\n"

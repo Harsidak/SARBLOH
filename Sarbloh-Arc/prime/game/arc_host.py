@@ -4,6 +4,11 @@ The host is the only thing that touches the environment. It validates every acti
 keeps the lossless transition record (the frame store the model retrieves from with ``arc.transitions()``), and
 refuses ``arc.step`` from subagents. It also stamps every action with the agent step that spent it (``step_ref``),
 in ``run.history`` and, when the game records, in the ARC SDK recording's ``reasoning`` field.
+
+E006 (``toolset: "dedicated"``): the root spends actions only through the ``act``/``reset_level`` tools
+(``repl_actions = False`` refuses ``arc.step``/``arc.reset`` from the REPL). Every step gets a state key of the grid
+before it, so a repeated (state, action) pair is flagged, and an object-level change summary; both go to ``on_step``
+(the session's transcript) whatever path spent the action.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from typing import Any
 
 import arcengine
 
+from prime.runtime.skills.perception import state_key, summarize_change
 from sarbloh.harness.games import ArcGame, GameState
 
 
@@ -47,8 +53,14 @@ def _frames(state: GameState) -> list[list[list[int]]]:
 
 class ArcHost:
     def __init__(self, game: ArcGame, max_actions: int | None, should_stop: Callable[[], bool],
-                 tokens_spent: Callable[[], int], max_actions_per_cell: int | None = None) -> None:
+                 tokens_spent: Callable[[], int], max_actions_per_cell: int | None = None,
+                 stop_after_levels: int | None = None) -> None:
         self.game = game
+        self.stop_after_levels = stop_after_levels   # end the game early after this many levels (local tests)
+        self.repl_actions = True                     # False: the root acts only through the act/reset_level tools
+        self.on_step: Callable[[dict[str, Any]], None] | None = None
+        self._seen: dict[tuple, int] = {}            # (state key, action, x, y) -> first transition index
+        self.last_step: dict[str, Any] | None = None  # the step event of the latest action
         self.max_actions = max_actions
         self.should_stop = should_stop
         self.tokens_spent = tokens_spent
@@ -71,6 +83,8 @@ class ArcHost:
     @property
     def finished(self) -> bool:
         run = self.game.run
+        if self.stop_after_levels is not None and self.game.state.levels_completed >= self.stop_after_levels:
+            return True
         return run is None or run.state != "playing" or self.game.state.won
 
     @property
@@ -113,7 +127,8 @@ class ArcHost:
         }
 
     # --- host requests -----------------------------------------------------------------------------------
-    def handle(self, req: dict[str, Any], depth: int) -> dict[str, Any]:
+    def handle(self, req: dict[str, Any], depth: int, source: str = "repl") -> dict[str, Any]:
+        """``source`` is "repl" for kernel requests and "tool" for the act/reset_level tools."""
         kind = req.get("type")
         with self._lock:
             if kind == "arc.observe":
@@ -124,19 +139,22 @@ class ArcHost:
             if kind in ("arc.step", "arc.reset"):
                 if depth > 0:
                     raise PermissionError("subagents cannot spend environment actions; report to your parent")
+                if source == "repl" and not self.repl_actions:
+                    raise PermissionError("in this harness the REPL cannot spend actions: use the `act` tool (with "
+                                          "`expect`) for game actions and `reset_level` to restart the level")
                 if kind == "arc.reset":
                     if self._since_reset == 0 and self.game.state.engine_state.name != "GAME_OVER":
                         raise ValueError("arc.reset() refused: the level is already at its start (no action since it "
                                          "began or was last reset), so a reset would cost an action and change nothing.")
-                    return self._step({"action": 0})
+                    return self._step({"action": 0}, source)
                 if int(req.get("action", -1)) == 0:
                     raise ValueError("arc.step(0) is RESET, which restarts the level and loses its progress. Call "
                                      "`await arc.reset()` if you mean that; game actions are the ids in "
                                      "obs.available_actions.")
-                return self._step(req)
+                return self._step(req, source)
         raise ValueError(f"unknown arc request {kind!r}")
 
-    def _step(self, req: dict[str, Any]) -> dict[str, Any]:
+    def _step(self, req: dict[str, Any], source: str = "repl") -> dict[str, Any]:
         if self.finished:
             raise RuntimeError(f"the game is over ({self.status_line()})")
         if self.should_stop():
@@ -177,11 +195,32 @@ class ArcHost:
         self._token_mark = tokens
         level_up = new.just_won_level
         self._since_reset = 0 if action_id == 0 or level_up else self._since_reset + 1
+        before_grid, frames = _frames(before)[-1], _frames(new)
+        i = len(self.transitions)
+        pair = (state_key(before_grid), action_id, data.get("x"), data.get("y"))
+        repeat_of = self._seen.get(pair)
+        self._seen.setdefault(pair, i)
         self.transitions.append({
-            "i": len(self.transitions), "action": action_id, "x": data.get("x"), "y": data.get("y"),
-            "level": before.levels_completed, "before": _frames(before)[-1], "frames": _frames(new),
+            "i": i, "action": action_id, "x": data.get("x"), "y": data.get("y"),
+            "level": before.levels_completed, "before": before_grid, "frames": frames,
             "state": new.engine_state.name, "level_up": level_up, "t": round(time.time(), 2),
+            "repeat_of": repeat_of,
         })
         if level_up:
             self._level_start = self.game.action_count
+        try:
+            change = summarize_change(before_grid, frames[-1])
+        except Exception as exc:  # noqa: BLE001 - a summary must never fail a step
+            change = {"changed": -1, "text": f"(summary failed: {exc})", "moves": []}
+        self.last_step = {"event": "step", "i": i, "action": action_id, "x": data.get("x"), "y": data.get("y"),
+                          "level": before.levels_completed, "level_after": new.levels_completed,
+                          "state": new.engine_state.name, "level_up": level_up, "frames": len(frames),
+                          "changed": change["changed"], "change": change["text"], "repeat_of": repeat_of,
+                          "state_key": pair[0], "source": source,
+                          **{k: v for k, v in ref.items() if k in ("turn", "call", "k")}}
+        if self.on_step is not None:
+            try:
+                self.on_step(self.last_step)
+            except Exception:  # noqa: BLE001
+                pass
         return self.observation(level_up=level_up)

@@ -44,6 +44,10 @@ try:
     import arc
 except Exception as _arc_exc:
     arc = None
+try:
+    import worldmodel as wm
+except Exception as _wm_exc:
+    wm = None
 """
 
 

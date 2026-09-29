@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 DEFAULT: dict[str, Any] = {
-    "experiment": "E003_prime_harness_smoke",
+    "experiment": "E006_dedicated_tools",
     "games": None,                     # None = every environment; else ids or id prefixes (offline only)
     "concurrency": 8,                  # games played at once (each is a root session with its own kernel)
     "notebook_budget_s": 3600.0,       # whole notebook wall clock, measured from its first cell
@@ -16,12 +16,19 @@ DEFAULT: dict[str, Any] = {
     "game_wall_s": 1800.0,             # cap per game
     "max_actions_per_game": 400,       # hard action budget per game (host-enforced)
     "max_actions_per_cell": None,      # E004: host refuses arc.step beyond this many in one cell (None = off)
+    "stop_after_levels": None,         # end each game after this many levels (local tests); None = play them all
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on a cell's first action its thought and code). Off on the competition rerun.
     "record": True,
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
+        # E006: "dedicated" = ipython + plan/act/reset_level/remember/recall/delegate/message (prime.agent.tools);
+        # "ipython" = upstream's single REPL tool (E003-E005). Fenced mode always uses "ipython".
+        "toolset": "dedicated",
+        "act_max_actions": 5,          # actions per act call
+        "act_halt_on_mispredict": True,  # stop an act batch at the first step the registered world model gets wrong
+        "replan_every_actions": 15,    # planner nudge after this many actions without a plan update
         "allow_fenced_code": True,     # also execute fenced code when no native call came back
         "max_tokens_per_turn": 16384,
         "request_timeout_s": 900.0,
