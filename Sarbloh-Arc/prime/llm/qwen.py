@@ -98,7 +98,8 @@ SPEC = ModelSpec(
     name="qwen",
     served_model_name="qwen3.8",
     profiles=PROFILES,
-    profile_chain=["qwen_flash_pc_64k", "qwen_flash_pc", "qwen_flash"],
+    # E007 v4 killed qwen_flash_pc_64k (KV cache does not fit) and qwen_flash_pc (8.7% prefix hits, slower turns).
+    profile_chain=["qwen_flash"],
     llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens
     runtimes={"flash_next": flash_next_runtime},
