@@ -18,7 +18,8 @@ class ModelSpec:
     name: str
     served_model_name: str
     # Profiles are tried in order until one starts and passes the tool-call smoke test. Each is
-    # {"model_dataset": "<owner/slug>", "flags": {"--flag": "value" | None}, "env": {...}}.
+    # {"model_dataset": "<owner/slug>", "flags": {"--flag": "value" | None}, "env": {...}, "runtime": "<name>"?}.
+    # "{model_dir}" in a flag value becomes the resolved weights directory.
     profiles: dict[str, dict[str, Any]]
     profile_chain: list[str]
     # Client defaults: sampling and chat_template_kwargs (the thinking policy). Config "llm" overrides win.
@@ -29,6 +30,10 @@ class ModelSpec:
     fix_tool_arguments: Callable[[dict[str, Any]], dict[str, Any]] = field(default=_no_fix)
     # Sent with the tool-call smoke test (thinking can exhaust max_tokens before the call).
     smoke_template_kwargs: dict[str, Any] = field(default_factory=dict)
+    # Prebuilt vLLM runtimes, for models the shared wheelhouse cannot serve. A profile with "runtime": "<name>" skips the
+    # wheelhouse install; runtimes[name](working_dir, find_input) prepares the runtime once per process and returns
+    # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}}.
+    runtimes: dict[str, Callable[..., dict[str, Any]]] = field(default_factory=dict)
 
     def max_model_len(self, profile: str) -> int:
         return int(self.profiles[profile]["flags"]["--max-model-len"])

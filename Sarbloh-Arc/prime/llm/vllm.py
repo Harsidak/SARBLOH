@@ -35,6 +35,10 @@ from prime.llm.spec import ModelSpec
 
 WATCHDOG = {"interval_s": 15.0, "failures_to_restart": 4, "freeze_after_s": 120.0, "fallback_after": 2,
             "max_restarts": 8, "min_useful_s": 600.0}
+# Prepared prebuilt runtimes (ModelSpec.runtimes), by name: unpacking one takes minutes, so every server in the
+# process (bench profiles, restarts) shares it.
+_RUNTIMES: dict[str, dict[str, Any]] = {}
+DEFAULT_SERVE = ["-m", "vllm.entrypoints.openai.api_server", "--model"]
 
 
 def find_kaggle_input(ref: str) -> Path:
@@ -170,7 +174,30 @@ class VllmServer:
             link.symlink_to(target.resolve())
         return link_dir
 
+    def runtime(self, profile: str) -> dict[str, Any] | None:
+        """The prepared prebuilt runtime this profile runs on, or None for the shared wheelhouse."""
+        name = self.spec.profiles[profile].get("runtime")
+        if not name:
+            return None
+        if name not in _RUNTIMES:
+            t = time.time()
+            _RUNTIMES[name] = self.spec.runtimes[name](self.working_dir, find_kaggle_input)
+            self.event("runtime_ready", runtime=name, seconds=round(time.time() - t),
+                       info=_RUNTIMES[name].get("info"))
+        return _RUNTIMES[name]
+
+    def prepare(self, profile: str) -> None:
+        if self.runtime(profile) is None:
+            self.install()
+
     def env(self, profile: str | None = None) -> dict[str, str]:
+        rt = self.runtime(profile) if profile else None
+        if rt is not None:  # a prebuilt runtime owns its whole environment: none of the wheelhouse paths
+            env = dict(rt["env"])
+            env.update({"VLLM_NO_USAGE_STATS": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                        "PYTHONFAULTHANDLER": "1"})
+            env.update(self.spec.profiles[profile].get("env") or {})
+            return env
         env = os.environ.copy()
         env["PYTHONPATH"] = os.pathsep.join(p for p in (str(self.site), env.get("PYTHONPATH", "")) if p)
         link_dir = self.libcuda_link_dir()
@@ -258,11 +285,12 @@ class VllmServer:
     # --- process -----------------------------------------------------------------------------------------
     def launch(self, profile: str) -> None:
         model_dir = find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
-        cmd = [sys.executable, "-m", "vllm.entrypoints.openai.api_server", "--model", str(model_dir),
-               "--served-model-name", self.spec.served_model_name, "--host", "127.0.0.1",
-               "--port", str(self.cfg["port"])]
+        rt = self.runtime(profile)
+        serve = rt.get("serve", DEFAULT_SERVE) if rt else DEFAULT_SERVE
+        cmd = [sys.executable, *serve, str(model_dir), "--served-model-name", self.spec.served_model_name,
+               "--host", "127.0.0.1", "--port", str(self.cfg["port"])]
         for flag, value in self.spec.profiles[profile]["flags"].items():
-            cmd += [flag] if value is None else [flag, value]
+            cmd += [flag] if value is None else [flag, value.replace("{model_dir}", str(model_dir))]
         with self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(f"\n===== profile={profile} {time.ctime()} =====\n{' '.join(cmd)}\n")
         self.profile = profile
@@ -365,7 +393,15 @@ class VllmServer:
 
     def _start_profile(self, profile: str, smoke: bool = True) -> bool:
         t = time.time()
-        self.launch(profile)
+        try:  # a missing input or a failed runtime unpack fails this profile, not the chain
+            self.prepare(profile)
+            self.launch(profile)
+        except Exception as exc:  # noqa: BLE001
+            self.profile = profile
+            self.attempts.append({"profile": profile, "ok": False, "seconds": round(time.time() - t),
+                                  "tool_mode": None, "error": f"prepare/launch: {exc!r}"[:500]})
+            self.event("start_failed", seconds=round(time.time() - t), error=f"prepare/launch: {exc!r}"[:3000])
+            return False
         ok, err = self.wait_ready(self.cfg["startup_timeout_s"]), ""
         if ok and smoke:
             try:
@@ -388,8 +424,7 @@ class VllmServer:
 
     def start(self, chain: list[str] | None = None) -> None:
         self.gate.down()  # nothing is served until a profile passes
-        self.install()
-        for profile in chain or self.chain:
+        for profile in chain or self.chain:  # each profile installs or unpacks what it runs on (_start_profile)
             if self._start_profile(profile):
                 self.gate.up(ramp=False)
                 return
