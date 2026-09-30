@@ -53,27 +53,24 @@ DEFAULT: dict[str, Any] = {
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },
     # --- model ---------------------------------------------------------------------------------------------
+    # "gemma" | "qwen". Picks prime/llm/gemma.py or prime/llm/qwen.py: weights, vLLM profiles, parsers, sampling and
+    # thinking policy all come from there (build_config merges them under the overrides below).
+    "model": "gemma",
     "llm": {
         "base_url": "http://127.0.0.1:8000/v1",
-        "model": "gemma-4-31b-it",
-        "temperature": 1.0,            # Gemma 4 model card defaults: temperature 1.0, top_p 0.95, top_k 64
-        "top_p": 0.95,
-        "top_k": 64,
-        "chat_template_kwargs": {"enable_thinking": True},
-        "request_timeout_s": 900.0,
+        "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included (E007)
         "retries": 4,
     },
     # --- vLLM on Kaggle ------------------------------------------------------------------------------------
     "vllm": {
-        "model_dataset": "banwait13/sarblohmodels",                  # Gemma-4-31B-IT-NVFP4, flat safetensors
         "wheelhouse_dataset": "driessmit1/arc3-vllm-h100-wheelhouse-v3",  # vLLM 0.19.0, torch 2.10
-        "overlay_dataset": "banwait13/sarbloh-wheels-gemma4",         # transformers 5.5.0 overlay
-        "served_model_name": "gemma-4-31b-it",
         "port": 8000,
-        "profile_chain": ["gemma_fast", "gemma_safe", "gemma_min"],
+        "profile_chain": None,         # None = the model spec's chain
         "startup_timeout_s": 1500.0,
+        "max_inflight": 32,            # requests admitted at once; ramps 2 -> 32 after a watchdog restart
         "bench": True,
         "watchdog": True,
+        "watchdog_cfg": {},            # overrides of prime.llm.vllm.WATCHDOG
     },
 }
 
@@ -83,6 +80,15 @@ def merge(base: dict[str, Any], over: dict[str, Any] | None) -> dict[str, Any]:
     for k, v in (over or {}).items():
         out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else copy.deepcopy(v)
     return out
+
+
+def build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    """DEFAULT, then the chosen model's spec defaults (served name, sampling, thinking), then ``overrides``."""
+    from prime.llm.spec import get_spec
+
+    spec = get_spec((overrides or {}).get("model", DEFAULT["model"]))
+    base = merge(DEFAULT, {"llm": {"model": spec.served_model_name, **spec.llm}})
+    return merge(base, overrides)
 
 
 def config_hash(cfg: dict[str, Any]) -> str:

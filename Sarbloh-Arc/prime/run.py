@@ -31,7 +31,7 @@ for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + prime/ live in Sarbloh-Arc; sarbloh
 # pyrefly: ignore [missing-import]
 from prime import trace
 from prime.agent import prompts
-from prime.config import DEFAULT, config_hash, merge
+from prime.config import build_config, config_hash
 
 COMPETITION_DIR = Path("/kaggle/input/competitions/arc-prize-2026-arc-agi-3")
 
@@ -212,7 +212,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
          working_dir: Path = Path("/kaggle/working")) -> dict[str, Any]:
     """Kaggle entry point."""
     start = notebook_start or time.time()
-    cfg = merge(DEFAULT, overrides)
+    cfg = build_config(overrides)
     rerun = is_competition_rerun()
     os.environ["ONLY_RESET_LEVELS"] = "true"
     run_dir = working_dir / "prime_run"
@@ -221,29 +221,30 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     working_dir.mkdir(parents=True, exist_ok=True)
     _print_env(cfg)
 
+    from prime.llm import bench
     from prime.llm.client import LLM
+    from prime.llm.spec import get_spec
     from prime.llm.vllm import VllmServer
     from sarbloh.harness.games import build_games, make_arcade
 
-    server = VllmServer(cfg["vllm"], working_dir)
+    spec = get_spec(cfg["model"])
+    soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
+    server = VllmServer(spec, cfg["vllm"], working_dir, deadline=soft_end)
     summary: dict[str, Any] = {}
     try:
         server.start()
         cfg["llm"]["base_url"] = server.base_url
-        cfg["llm"]["model"] = cfg["vllm"]["served_model_name"]
+        cfg["llm"]["model"] = spec.served_model_name
         cfg["agent"]["tool_mode"] = server.tool_mode
-        from prime.llm.vllm import PROFILES
-
-        max_len = int(PROFILES[server.profile]["--max-model-len"])  # fit context handling to the profile that started
-        fit_context(cfg["agent"], max_len)
+        fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
         if cfg["vllm"]["bench"] and not rerun:
             try:
-                server.throughput_probe()
+                bench.quick(server)
             except Exception as exc:  # noqa: BLE001
                 print(f"[vllm] throughput probe failed: {exc!r}", flush=True)
         if cfg["vllm"]["watchdog"]:
             server.start_watchdog()
-        llm = LLM(cfg["llm"])
+        llm = LLM(cfg["llm"], spec=spec, gate=server.gate)
         if rerun:
             os.environ.setdefault("ARC_API_KEY", "test-key-123")
             os.environ.setdefault("ARC_BASE_URL", "http://gateway:8001/")
@@ -255,10 +256,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             arcade = make_arcade("offline", environments_dir=str(COMPETITION_DIR / "environment_files"),
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
-        soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
         summary = run_games(games, cfg, llm, run_dir, soft_end)
         summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode,
                         "vllm_attempts": server.attempts, "vllm_restarts": server.restarts,
+                        "vllm_freezes": server.freezes,
                         "throughput": server.bench})
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
@@ -317,7 +318,7 @@ def local() -> None:
     from prime.llm.client import LLM
     from sarbloh.harness.games import build_games, make_arcade
 
-    cfg = merge(DEFAULT, {
+    cfg = build_config({
         "experiment": a.experiment or ("E006_dedicated_tools_local" if a.toolset == "dedicated"
                                        else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
