@@ -55,6 +55,16 @@ def find_kaggle_input(ref: str) -> Path:
     raise FileNotFoundError(f"Kaggle input {ref!r} is not attached")
 
 
+def wheelhouse_dir(root: Path) -> Path:
+    """The folder holding requirements.lock: the input root (driessmit's flat layout) or one level down (a dataset
+    made from kaggle/wheels.ipynb's output keeps its wheelhouse/ folder)."""
+    if (root / "requirements.lock").exists():
+        return root
+    for lock in sorted(root.glob("*/requirements.lock")):
+        return lock.parent
+    raise FileNotFoundError(f"no requirements.lock in {root} or one level below")
+
+
 def find_model_dir(root: Path) -> Path:
     if (root / "config.json").exists():
         return root
@@ -225,7 +235,7 @@ class VllmServer:
         if stamp.exists() and stamp.read_text(encoding="utf-8") == want:
             log(f"install cached at {self.site}")
             return
-        wheelhouse = find_kaggle_input(self.cfg["wheelhouse_dataset"])
+        wheelhouse = wheelhouse_dir(find_kaggle_input(self.cfg["wheelhouse_dataset"]))
         shutil.rmtree(self.site, ignore_errors=True)
         self.site.mkdir(parents=True)
         t = time.time()

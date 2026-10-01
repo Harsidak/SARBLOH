@@ -83,7 +83,7 @@ DEFAULT: dict[str, Any] = {
     },
     # --- vLLM on Kaggle ------------------------------------------------------------------------------------
     "vllm": {
-        "wheelhouse_dataset": "driessmit1/arc3-vllm-h100-wheelhouse-v3",  # vLLM 0.19.0, torch 2.10
+        "wheelhouse_dataset": "banwait13/sarbloh-vllm-wheelhouse",  # kaggle/wheels.ipynb, vLLM 0.19.0
         "port": 8000,
         "profile_chain": None,         # None = the model spec's chain
         "startup_timeout_s": 1500.0,
