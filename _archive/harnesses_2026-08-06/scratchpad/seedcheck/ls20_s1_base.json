@@ -1,0 +1,136 @@
+[
+ {
+  "official": 0.0016948313562094315,
+  "honest": 0.0016948313562094315,
+  "honest_rhae": 1.6948313562094314e-05,
+  "real_levels": 1,
+  "credited_levels": 1,
+  "wipes": 0,
+  "inflation": 1.0,
+  "levels_denominator": 7,
+  "official_level_scores": [
+   0.05,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "honest_level_actions": [
+   964,
+   536,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "warn": null,
+  "game": "ls20",
+  "win_levels": 7,
+  "actions": 1500,
+  "state": "NOT_FINISHED",
+  "won": false,
+  "secs": 853.6,
+  "stall": null,
+  "resets": 0,
+  "game_overs": 14,
+  "spend": {
+   "boot": 48,
+   "graph": 298,
+   "react.greedy": 46,
+   "react.bfs1": 349,
+   "react.exper": 367,
+   "react.frontier1": 4,
+   "react.exper>esc.graph": 14,
+   "react.greedy>esc.graph": 2,
+   "react.greedy>esc.key": 2,
+   "react.exper>esc.key": 12,
+   "react.goal1": 1,
+   "react.goal": 1,
+   "react.plan": 1,
+   "rand": 214,
+   "rand>esc.key": 136,
+   "boot>esc.key": 5
+  },
+  "banked": {
+   "react.bfs1": 1
+  },
+  "wiped": {},
+  "deaths": {
+   "react.bfs1": 2,
+   "react.exper": 4,
+   "graph": 3,
+   "rand": 1,
+   "rand>esc.key": 4
+  },
+  "changed": {
+   "boot": 48,
+   "graph": 298,
+   "react.greedy": 46,
+   "react.bfs1": 343,
+   "react.exper": 367,
+   "react.frontier1": 4,
+   "react.exper>esc.graph": 14,
+   "react.greedy>esc.graph": 2,
+   "react.greedy>esc.key": 2,
+   "react.exper>esc.key": 12,
+   "react.goal1": 1,
+   "react.goal": 1,
+   "react.plan": 1,
+   "rand": 214,
+   "rand>esc.key": 136,
+   "boot>esc.key": 5
+  },
+  "novel": {
+   "boot": 23,
+   "graph": 271,
+   "react.greedy": 28,
+   "react.bfs1": 308,
+   "react.exper": 316,
+   "react.frontier1": 4,
+   "react.exper>esc.graph": 12,
+   "react.greedy>esc.key": 2,
+   "react.exper>esc.key": 11,
+   "react.greedy>esc.graph": 1,
+   "react.goal1": 1,
+   "react.goal": 1,
+   "react.plan": 1,
+   "rand": 112,
+   "rand>esc.key": 59,
+   "boot>esc.key": 1
+  },
+  "route_ms": {
+   "boot": 5726.7,
+   "graph": 164796.7,
+   "react.greedy": 11365.2,
+   "react.bfs1": 226372.4,
+   "react.exper": 219434.4,
+   "react.frontier1": 1837.6,
+   "react.exper>esc.graph": 9479.4,
+   "react.greedy>esc.graph": 260.5,
+   "react.greedy>esc.key": 355.8,
+   "react.exper>esc.key": 8196.6,
+   "react.goal1": 556.3,
+   "react.goal": 562.9,
+   "react.plan": 497.9,
+   "rand": 114961.4,
+   "rand>esc.key": 79784.3,
+   "boot>esc.key": 465.6
+  },
+  "level_events": {
+   "events": [
+    [
+     1,
+     964
+    ]
+   ],
+   "wipes": 0,
+   "real_levels": 1,
+   "first_reach": {
+    "1": 964
+   }
+  }
+ }
+]

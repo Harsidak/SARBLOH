@@ -1,0 +1,7 @@
+{
+  "title": "SARBLOH agent",
+  "id": "banwait13/sarbloh-agent",
+  "subtitle": "SARBLOH ARC-AGI-3 agent source (Apache-2.0)",
+  "description": "Source of the SARBLOH ARC-AGI-3 agent, imported by the SARBLOH Kaggle notebook. Built by scripts/kaggle_push.py; sarbloh-bundle.json records the git SHA. Authored code is Apache-2.0. sarbloh/agent/duck/ is vendored from Tufa Labs' Duck harness and keeps its own upstream terms (UNCONFIRMED).",
+  "licenses": [{"name": "apache-2.0"}]
+}

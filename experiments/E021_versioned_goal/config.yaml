@@ -1,0 +1,26 @@
+# E021 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008). Arm A = the same with
+# goal_versioning: false.
+experiment: E021_versioned_goal
+baseline: E008_perception_memory      # same code, switch off
+
+code: Sarbloh-Experimentation/prime
+games: [ls20]                         # owner decision 2026-10-01: local only, ls20 only
+
+agent:
+  toolset: e008
+  memory:
+    goal_versioning: true             # the switch under test
+    caps:
+      goal_versioned: 250             # goal block cap with the switch on (E008: goal 150)
+
+local:
+  model: Qwen3.5-4B Q4_K_M + mmproj (llama.cpp, scripts/serve_llm.ps1 -Vision)
+  ctx: 16384
+  command: >-
+    uv run python Sarbloh-Experimentation/prime/run.py --games ls20 --max-actions 30 --minutes 12 --vision
+    --ctx 16384 --goal-versioning --experiment E021_versioned_goal --out runs/experimentation_local/E021_ls20
+
+kaggle:                               # not run (owner's call); notebook EXPERIMENT_OVERRIDES would be:
+  EXPERIMENT: E021_versioned_goal
+  EXPERIMENT_OVERRIDES: {agent: {memory: {goal_versioning: true}}}

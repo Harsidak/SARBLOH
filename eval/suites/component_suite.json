@@ -1,0 +1,300 @@
+{
+ "_doc": "Component-stress suite, fixed 2026-07-29. Replaces the full 25-game run as the iterate loop: a full --real pass costs ~2h (ar25 alone is 710s) and 23/25 games score 0, so most of that time buys no signal. Each game below is here because it is the HARDEST case for a named component -- not because the agent happens to do well on it. DEV games only; the 8 held-out games are never run while tuning. Selection is by component stress, so a fix that only helps one of these games still has to survive the others plus the held-out split.",
+ "tiers": {
+  "0_units": {
+   "when": "after every edit, seconds",
+   "run": [
+    "python my_agent.py",
+    "python test_eyes.py",
+    "python test_griddsl.py",
+    "python test_synth.py",
+    "python test_livelock.py",
+    "local_eval.py (toys) reachgoal keydoor"
+   ],
+   "gate": "self-tests pass, test_eyes 31/31, test_griddsl 204/204 (17871 sweep combos), test_synth 101/101, test_livelock 108/108, reachgoal 3/3 (69 acts), keydoor 2/2 (93 acts)",
+   "_gate_history": "reachgoal was 78 acts until the 2026-07-29 GridDSL work (data-derived displacement + step_color stride); 69 is the new floor, do not relax it back.  2026-07-30: the world-model work (masked verify + premise check + judge) measures reachgoal 3/3 at 70 acts and keydoor 2/2 at 92 acts. Toys still SOLVE, but reachgoal is +1 over the 69 floor. NOT relaxing the floor to 70: it is one action on a toy, cause not yet isolated (suspected the widened _candidate_ops changing an early tie-break). Investigate before the next floor edit.  2026-07-30 (livelock breaker): reachgoal 3/3 at 70 acts, keydoor 2/2 at 91 acts. The reachgoal 70 was CONFIRMED PRE-EXISTING -- a control run with ARC_NO_BREAKER=1 also measures 70, so the +1 belongs to the earlier world-model work, not the breaker; the breaker improved keydoor 92->91. Floor still NOT relaxed. Seeds 1/2/3 give reachgoal 81/90/99 and keydoor 119/112/174, so seed 0's 69-70 is the lucky tail, not a hard bound -- the real gate is that both toys SOLVE at every seed.  2026-08-03 (A1 death control + C1 object basis + the buckets() relative-ranking fix): reachgoal 3/3 at 78 acts, keydoor 2/2 at 93 acts. The reachgoal 70->78 drift is CONFIRMED PRE-EXISTING and NOT from this session's work -- a control run with ARC_NO_DEATH=1 ARC_NO_OBJFEAT=1 ARC_NO_O3=1 measures 78 identically, and reachgoal routes through ReactivePlanner which never touches ProgressModel. 78 is exactly the pre-GridDSL number, so suspect the stride/step_color path regressed between 07-30 and now (the reachgoal log shows the world model PROMOTE stride-8, DEMOTE it at acc=0.35, then re-PROMOTE stride-6 -- one wasted promotion cycle). Floor still NOT relaxed; both toys still SOLVE, which is the real gate. INVESTIGATE: bisect the stride fit between the 07-30 state and now."
+  },
+  "1_core": {
+   "when": "after every change with pipeline blast radius, ~4 min",
+   "games": [
+    "lp85",
+    "r11l",
+    "ls20",
+    "sb26"
+   ],
+   "why": "the four CHEAP representatives, one per game family: pure-click (lp85 = standing gate, 37s), click with brutally short human budgets (r11l, 18s), movement/mechanical (ls20, 150s), odd action set 5/6/7 (sb26, 43s). Rebalanced 2026-07-29 after measuring: tr87 741s, wa30 877s, sc25 663s and tu93 638s are too slow for a per-change loop, and all four score 0 or unchanged, so they buy nothing at this cadence.",
+   "gate": "no game's `honest` may fall below the baseline below. Levels-completed is NOT the gate: it is a coarse integer that cannot see a level won in half the actions, which is exactly what RHAE pays for. Read `honest` (capability, each level counted once), never `official` (which credits churn) -- both come from eval/official_score.py, the single scoring source.",
+   "honest_baseline": {
+    "_as_of": "2026-08-02, seed 0, cap 1500, re-confirmed unchanged after the O1 proof/budget split, the O1 button-identity fix, and O3 (ProgressModel) frontier ordering",
+    "lp85": 0.3352,
+    "r11l": 0.0,
+    "ls20": 0.0,
+    "sb26": 0.0,
+    "overall": 0.0838
+   },
+   "_honest_history": "2026-08-01: lp85 0.0988 -> 0.3352 (3.4x) when ClickPlanner started expanding its own graph in imagination instead of replaying from the root for every probe (click.search 72% -> 12% of budget, 0 wipes, still 1/8 levels). LEVEL COUNTS DID NOT MOVE AT ALL for this change -- the entire gain is invisible to a levels-based gate, which is why the gate is now `honest`. || 2026-08-02: O1 (proof-vs-budget split + Chebyshev button identity) and O3 (ProgressModel orders the click frontier by progress before cost) land at EXACTLY the baseline -- lp85 0.3352 / r11l 0 / ls20 0 / sb26 0, overall 0.0838, 0 wipes, inflation 1.0x. Correct and expected, not a disappointment: lp85's only win is level 1 at action 95, reached identically in every build, and all three changes act on the part of the run that has never succeeded. Neither has yet EARNED its place on score; both are kept because they are strictly more truthful (a resource limit is no longer filed as a refutation) and reversible (ARC_NO_O3=1). The O3 prior (ARC_O3_PRIOR=1) is written but UNMEASURED and off.",
+   "measured_s": {
+    "lp85": 20,
+    "r11l": 18,
+    "ls20": 219,
+    "sb26": 24
+   },
+   "_timing_history": "2026-07-30: profiling ls20 (cProfile, 300 actions) charged 122.0s of 137.2s to EnumerativeSynthesizer.synthesize -- detect_background recomputed per CANDIDATE inside _fits (66.2s), json.dumps of every candidate against an empty `banned` set (12.8s), and the 200-deep transition buffer rescanned for `changed`/palette every action. Memoising Transition.changed/.palette and hoisting bg out of the candidate loop cut ls20 475.3s -> 219.0s and lp85 34.1 -> 19.7s with bit-identical behaviour (toys still 69/93 actions, all tier-1 level counts unchanged). ls20 was 150s before the 2026-07-29 GridDSL work; ARC_NO_STRIDE=1 measured 409.7s vs 465.2s, so the data-derived displacement candidates account for ~12% of the remaining gap and the richer per-colour op set for the rest."
+  },
+  "2_full": {
+   "when": "before declaring a component done, ~55 min",
+   "games": [
+    "lp85",
+    "r11l",
+    "ls20",
+    "sb26",
+    "tr87",
+    "tu93",
+    "sc25",
+    "bp35",
+    "wa30"
+   ],
+   "why": "tier 1 plus the five expensive stressors: tr87 (world model), tu93 (hidden state -- and the current best score, 2/9), sc25 (routing), bp35 (perception), wa30 (long-horizon pathing)",
+   "measured_s": {
+    "tr87": 741,
+    "tu93": 638,
+    "sc25": 663,
+    "bp35": 259,
+    "wa30": 877
+   }
+  },
+  "3_heldout": {
+   "when": "rarely -- generalization report only, never inspected while tuning",
+   "games": [
+    "ar25",
+    "cd82",
+    "ft09",
+    "g50t",
+    "m0r0",
+    "s5i5",
+    "sk48",
+    "vc33"
+   ]
+  }
+ },
+ "by_component": {
+  "1_eyes_StateEncoder": {
+   "games": [
+    "bp35",
+    "lp85",
+    "tr87"
+   ],
+   "evidence": "measured on a 643-frame real corpus: the outer chrome/HUD margin wins the border vote, so the play-field floor comes back as ONE phantom object. bp35 bg_cov=0.46 largest_obj=1529px AND n_objs=191 (worst in both directions); lp85 bg_cov=0.39 largest=1962px (48% of the grid); tr87 bg_cov=0.38 largest=1352px.",
+   "stresses": "detect_background / play-area isolation, flood_fill_objects, object count sanity"
+  },
+  "2_world_model_GridDSL_synth": {
+   "games": [
+    "tr87",
+    "tu93"
+   ],
+   "evidence": "tr87 is the purest target: 4 actions, no clicks, human 37/30/39/29/63/119 -- if a learned transition model works anywhere it works here. tu93 has history-dependent HIDDEN state (recorded), so it is the case that falsifies a purely visible-state model.",
+   "stresses": "op exactness, synthesis only trusting verified programs, latent-state representability"
+  },
+  "3_memory_StateGraph": {
+   "games": [
+    "tu93",
+    "ls20"
+   ],
+   "evidence": "HUD periodicity masks were validated on tu93/tr87 (row 63) and ls20 (rows 61-62); tu93's hidden state makes visible-graph exhaustion illusory, which is exactly what nearest_untested must not be fooled by.",
+   "stresses": "exact edges, HUD masking, BFS-to-nearest-untested, DeadActionTracker"
+  },
+  "4_planners": {
+   "movement": {
+    "games": [
+     "ls20",
+     "wa30"
+    ],
+    "evidence": "wa30 is 5-action keyboard, 9 levels, human 125/58/259/113/499 -- the longest-horizon pathing in the set; ls20 is the mechanical movement case where BFS-on-lattice provably does not transfer."
+   },
+   "click": {
+    "games": [
+     "lp85",
+     "r11l"
+    ],
+    "evidence": "lp85 is the standing gate (1/8). r11l has the tightest human budgets in the whole set (7/28/30/20/37/45) -- under RHAE's square, a coverage sweep is instantly fatal there, so it is the sharpest test of plan-unscored discipline. Both are cheap (7s / 18s)."
+   }
+  },
+  "5_orchestrator_choose_action": {
+   "games": [
+    "sc25",
+    "sb26"
+   ],
+   "evidence": "sc25 offers actions 1,2,3,4,6 with tiny baselines (39/5/32/33) -- routing must pick the right planner family fast. sb26's action set is 5,6,7 (no directional keys at all), so it breaks any router that assumes keyboard=movement.",
+   "stresses": "the routing ladder; NO game-specific branches allowed"
+  }
+ },
+ "baseline_2026_07_29_seed0": {
+  "_doc": "Pre-change reference for the suite, max-actions 1500, seed 0, PYTHONHASHSEED=0. Full 25-game partials are in _archive/logs/baseline_scores.txt (was baseline_partial_10games.txt, a byte-identical duplicate removed in the 2026-08-03 cleanup); these five are in suite_baseline_rest.txt.",
+  "lp85": "1/8",
+  "r11l": "0/6",
+  "ls20": "0/7",
+  "sb26": "0/8",
+  "tr87": "0/6",
+  "tu93": "2/9  <-- best score in the whole set",
+  "sc25": "0/6",
+  "bp35": "0/9",
+  "wa30": "0/9"
+ },
+ "not_in_suite": {
+  "cn04, dc22, ka59, lf52, re86, sp80, su15, tn36": "dev games kept OUT of the iterate loop -- they duplicate a stratum already covered and cost 100-420s each. Use them as an extra dev check when a change looks suspiciously targeted."
+ },
+ "measured_2026_07_30_world_model": {
+  "_doc": "Two full 11-game runs, seed 0, PYTHONHASHSEED=0, max-actions 1500. state_A = masked verify + evidence() premise check; state_B = A + WorldModelManager.judge (the ONLINE accuracy tracker, which had been comparing raw). EVERY level score in both states equals baseline_2026_07_29_seed0 -- the world-model work is score-neutral so far. What it buys: synthesize went from returning None on all 16 dev games to promoting verified models on 6 of these 11, demotions fell 57 -> 4 (-93%), and suite-9 wall clock fell 3459s -> 2807s (0.81x). WARNING: state_B tu93's 12996.8s is an artifact -- Windows Modern Standby suspended the process for 12206s (Kernel-Power 506 at 16:01:14, 507 at 19:24:40). Real time ~790s; the log profile is identical to state A (3 promotions, 0 demotions, 2 level-ups, 2/9).",
+  "levels_all_states_equal_baseline": true,
+  "avg_level_fraction": {
+   "state_A": 0.047,
+   "state_B": 0.047
+  },
+  "totals": {
+   "promotions": {
+    "state_A": 160,
+    "state_B": 110
+   },
+   "demotions": {
+    "state_A": 57,
+    "state_B": 4
+   }
+  },
+  "per_game": {
+   "bp35": {
+    "levels": "0/9",
+    "A": "22/0",
+    "B": "22/0",
+    "A_s": 573.0,
+    "B_s": 317.0
+   },
+   "dc22": {
+    "levels": "0/6",
+    "A": "35/28",
+    "B": "12/0",
+    "A_s": 281.5,
+    "B_s": 93.5
+   },
+   "lp85": {
+    "levels": "1/8",
+    "A": "0/0",
+    "B": "0/0",
+    "A_s": 14.0,
+    "B_s": 18.1
+   },
+   "ls20": {
+    "levels": "0/7",
+    "A": "0/0",
+    "B": "0/0",
+    "A_s": 697.4,
+    "B_s": 810.0,
+    "note": "the pure never-promote case: judge has no lever, a retry backoff would"
+   },
+   "r11l": {
+    "levels": "0/6",
+    "A": "0/0",
+    "B": "0/0",
+    "A_s": 14.2,
+    "B_s": 14.5
+   },
+   "sb26": {
+    "levels": "0/8",
+    "A": "1/0",
+    "B": "1/0",
+    "A_s": 144.2,
+    "B_s": 80.7
+   },
+   "sc25": {
+    "levels": "0/6",
+    "A": "3/2",
+    "B": "1/0",
+    "A_s": 424.8,
+    "B_s": 154.2
+   },
+   "sp80": {
+    "levels": "1/6",
+    "A": "66/12",
+    "B": "48/0",
+    "A_s": 58.8,
+    "B_s": 51.7
+   },
+   "tr87": {
+    "levels": "0/6",
+    "A": "22/14",
+    "B": "15/3",
+    "A_s": 155.1,
+    "B_s": 81.8
+   },
+   "tu93": {
+    "levels": "2/9",
+    "A": "3/0",
+    "B": "3/0",
+    "A_s": 390.2,
+    "B_s": null,
+    "note": "B wall clock invalid, machine suspended mid-game"
+   },
+   "wa30": {
+    "levels": "0/9",
+    "A": "8/1",
+    "B": "8/1",
+    "A_s": 393.9,
+    "B_s": 339.9
+   }
+  },
+  "unit_gates": "my_agent self-tests pass; test_eyes 0F/0W; test_griddsl 204/204; test_synth 101/101 (NEW, component 2b); reachgoal 3/3 70 acts; keydoor 2/2 92 acts"
+ },
+ "measured_2026_08_03_o3_grounding": {
+  "_doc": "A1 (fit_death control) + C1 (object feature basis) + the buckets() fix, seed 0, PYTHONHASHSEED=0, max-actions 1500, measured on a quiet box (the earlier attempt's timings were corrupted by concurrent test suites, NOT by Modern Standby -- checked Kernel-Power 506/507, none). Scored via eval/official_score.py -> arc_agi.scorecard.",
+  "levels_all_equal_baseline": true,
+  "tier1_seed0": {
+   "lp85": {
+    "levels": "1/8",
+    "official": 0.3352,
+    "honest": 0.3352,
+    "secs": 79.2,
+    "where": "click.search 54% +1L | click.cover>esc.cell 36% | click.cover 10%"
+   },
+   "ls20": {
+    "levels": "0/7",
+    "official": 0.0,
+    "honest": 0.0,
+    "secs": 940.5,
+    "where": "react.exper 41% | react.bfs1 30% | graph 17% | react.greedy 4%",
+    "note": "never routes through ClickPlanner, so A1/C1/buckets() cannot reach it"
+   },
+   "r11l": {
+    "levels": "0/6",
+    "official": 0.0,
+    "honest": 0.0,
+    "secs": 79.5,
+    "where": "click.search 95% | click.cover 5%"
+   },
+   "sb26": {
+    "levels": "0/8",
+    "official": 0.0,
+    "honest": 0.0,
+    "secs": 96.8,
+    "where": "novelty+click 62% | novelty+click>esc.cell 11% | rand+click 11% | rand 10%"
+   }
+  },
+  "aggregate": {
+   "official": 0.0838,
+   "honest": 0.0838,
+   "inflation": 1.0,
+   "real_levels_banked": "1/29",
+   "wipe_events": 0
+  },
+  "what_it_bought": "Score-neutral so far. The MECHANISM moved on lp85: features_with_a_direction 3->4; budget shifted click.search 30%->54% and click.cover 31%->10%; search 1 actions 180->336 and teleport 1->9; search 2 edges 256->261, dead 4->7, saved 7485->10245. O3 now actually orders the frontier -- before the buckets() fix it ranked every state identically and O2 (cost) decided everything.",
+  "unit_gates": "my_agent self-tests pass; test_progress 110 (was 67); test_eyes 35; test_griddsl 231; test_synth 120; test_livelock 125; HARD FAILS 0 in all; reachgoal 3/3 78 acts; keydoor 2/2 93 acts",
+  "kill_switches": [
+   "ARC_NO_DEATH=1 (A1)",
+   "ARC_NO_OBJFEAT=1 (C1)",
+   "ARC_NO_O3=1 (whole model)",
+   "ARC_O3_DUMP=<dir> + ARC_O3_DUMP_TAG=<gid> (episode dumps, diagnostic only)"
+  ],
+  "refuted_do_not_rebuild": {
+   "B2_hud_progress_meter": "lp85's 10 never-revisiting candidate cells (rows 43-46, cols 24-27) are constant for frames 0-90 of the 95-frame win and change only at frames 91/93/94 -- the level-up animation. Backtests perfectly, guides nothing. r11l/sb26 have zero candidates.",
+   "A1_as_avoidance_direction": "across 19 distinct r11l deaths only 1 of 20 colour features and 0 of 10 object features share a direction. Deaths agree about almost nothing, so -death cannot serve as a progress direction on the 23 never-winning games."
+  }
+ }
+}

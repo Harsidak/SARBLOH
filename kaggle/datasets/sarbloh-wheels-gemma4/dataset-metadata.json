@@ -1,0 +1,7 @@
+{
+  "title": "sarbloh wheels gemma4",
+  "id": "banwait13/sarbloh-wheels-gemma4",
+  "subtitle": "transformers 5.5.0 + huggingface_hub 1.x overlay for vLLM 0.19 (Gemma 4)",
+  "description": "Installed with --no-deps on top of driessmit1/arc3-vllm-h100-wheelhouse-v3 (vLLM 0.19.0, transformers 4.57.6), because Gemma 4 (model_type gemma4) needs transformers>=5.5.0 (vllm-project/vllm#39216). Downloaded from PyPI 2026-09-27 for manylinux x86_64, cp312. Each wheel keeps its upstream licence (Apache-2.0).",
+  "licenses": [{"name": "apache-2.0"}]
+}

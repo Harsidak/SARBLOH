@@ -27,8 +27,13 @@ resources/web/*
 resources\_TEMPLATE.meta.yaml
 
 
-# --- Kaggle workspace: submission notebook, dataset staging, model weights (see CLAUDE.md §5) ---
-kaggle/
+# --- Kaggle workspace: notebooks are public; weights, staging and third-party code are not (see CLAUDE.md §5) ---
+kaggle/.push/
+kaggle/datasets/models/
+kaggle/datasets/Taaf agent/
+kaggle/datasets/sarbloh-agent/sarbloh/
+kaggle/datasets/*/*.whl
+kaggle/reference/
 
 # --- Local inference binaries ---
 tools/llama.cpp/
@@ -50,9 +55,7 @@ Thumbs.db
 CLAUDE.md
 
 # other files
-_archive/
-eval/
-experiments/
+experiments/BACKLOG.md
 history/
 planning/
 resources/

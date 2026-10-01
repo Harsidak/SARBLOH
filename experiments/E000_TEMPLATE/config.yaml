@@ -1,0 +1,37 @@
+# E000 — configuration. The hash of this file goes in the ledger.
+experiment: E000_template
+baseline: null            # experiment id or baselines.json key
+
+model:
+  backbone: qwen3.6-27b-fp8
+  quantisation: fp8
+  max_reasoning_tokens: null
+
+memory:
+  clocks: [frame, level, environment]
+  promotion: verified_only     # verified_only | surprise_gated | none
+  falsified_log: true
+
+worldmodel:
+  representation: executable    # executable | natural_language | dual
+  k_hypotheses: 1
+  refactor_every: null
+
+parkh:
+  mode: exact                   # exact | partial
+  partial_threshold: null
+
+jugat:
+  planner: bfs                  # bfs | astar | beam
+  action_selection: greedy      # greedy | infogain
+  max_depth: 5
+
+agent:
+  commit_prefix: 1
+  halt_on_misprediction: true
+  stagnation_supervisor: false
+  wallclock_budget_s: null      # per environment
+
+eval:
+  split: heldout
+  seeds: 3

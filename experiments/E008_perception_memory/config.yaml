@@ -1,0 +1,42 @@
+# E008 — configuration (arm A). The hash of this file goes in the ledger; the run's own config hash (prime/config.py
+# DEFAULT + the notebook OVERRIDES, printed as LEDGER_ROW) goes next to it.
+experiment: E008_perception_memory
+baseline: E005_prime_fidelity     # 1/76 levels on 10 games (Gemma-4-31B, ipython toolset)
+
+model:
+  backbone: qwen3.8-27b-fp8       # Kaggle fumiyauchiyama/qwen3-8-27b-fp8-hf-snapshot (official Qwen/Qwen3.8-27B-FP8)
+  quantisation: fp8
+  serving: vllm-0.19.0
+  profile_chain: [qwen_fp8_vision, qwen_fp8]   # 1 image per prompt, else text only
+  sampling: {temperature: 0.6, top_p: 0.95, top_k: 20, thinking: true}
+  context_window: 65536
+
+agent:
+  toolset: e008                   # ipython (read-only scene) + act + recall
+  act_max_actions: 5
+  subagents: false                # max_depth 0
+  compaction: {trigger_tokens: 40000, keep_recent_tokens: 16000, reserve_tokens: 16384}
+  max_actions_per_game: 400
+
+perception:
+  image: true                     # arm B: false
+  upscale: 4                      # 64x64 -> 256x256 PNG
+  ascii: true                     # full board at level start, changed region (margin 3) after
+  segmentation: true
+  crop_margin: 3
+  max_objects: 40
+  observation_tokens: 800
+
+memory:
+  lessons: true                   # arm C: false
+  curator: true                   # at level-up, after compaction, every 25 turns
+  curator_every_turns: 25
+  recall_tokens: 1500
+  caps: {goal: 150, plan: 200, skills: 600, hypotheses: 400, findings: 300, lessons: 400, questions: 100}
+  promotion: agent_marked_verified   # the host judges nothing (no expect, no world-model check)
+
+eval:
+  split: dev                      # the 17 dev games of eval/splits/heldout_split.json; held-out only via submission
+  seeds: 1
+  concurrency: 6
+  notebook_budget_s: 18000
