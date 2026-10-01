@@ -267,9 +267,50 @@ E022_REVIEW_TEXT = (" After each level you win, a reviewer reads the whole level
                     "(Level reviews: how it was won, what was wasted, what to try next): use it on the next level.")
 
 
+# E110 (``agent.prompt_version: "e110"``): make thinking short. 2026-10-01 run: 6,367 completion tokens per action,
+# 9.4% of turns cut at the output limit, grids read cell by cell in the thinking, 2.2 actions per act. Ideas from
+# reading the Taaf agent prompts and the milestone-2 patch (code over reasoning, search once the rules are known, HUD
+# strips, level carry-over, "the game is solvable"); the wording is ours. Each (old, new) pair: old occurs once in the
+# formatted E008 text; ``{act_max}`` and ``{cut}`` are filled by e008_system.
+E110_EDITS = (
+    ("Act when you know what you expect to see.",
+     "Act when you know what you expect to see.\n\n"
+     "## Time\n"
+     "Your clock runs while you think. The GPU writes about 30 tokens a second for you, so 1,000 tokens of thinking "
+     "cost about half a minute, and a 6,000-token think costs over 3 minutes. A reply longer than {cut} tokens is cut "
+     "off and lost: nothing is done. Keep each turn's thinking short, about 1,500 tokens: decide, call a tool, read "
+     "the result."),
+    ("- Use ipython for anything you would count or compare by eye: distances, paths, which objects share a hash.",
+     "- Never read, count or compare cells in your thinking: no copying rows, no lists of positions. Ask ipython "
+     "(`scene.find`, `scene.ascii` of a small window, distances, which objects share a hash). One short ipython call "
+     "answers faster than a long thought.\n"
+     "- When you know what you control and where it must go, write the path search in ipython (a BFS over the moves "
+     "you have verified) and send the path in one act of up to {act_max} actions; continue with the next act.\n"
+     "- A strip of small blocks on the screen edge that changes on every step is a budget or a timer, not a puzzle "
+     "piece: do not click its segments.\n"
+     "- The game can be solved. If your search finds no way to the goal, one of your rules is wrong: test the rule "
+     "you are least sure of."),
+    ("5. After a level-up: the layout is new. Read the lessons in your memory, find what is new, then continue.",
+     "5. After a level-up: keep the mechanics you verified; do not test them again. Look for elements you have not "
+     "seen before: they usually carry the new mechanic, so test them first, with one or two actions. Then check "
+     "whether your goal still holds on this board."),
+)
+E110_LEVEL_UP = (" Start from the mechanics you verified. Look for new elements and test them first; then check that "
+                 "the goal still holds.")
+E110_CUT = ("Your reply hit the output limit: the whole turn was lost and nothing was done. Do not count or copy cells "
+            "in your thinking: ask ipython. Think briefly, then call a tool.")
+
+
 def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, goal_versioning: bool = False,
-                goal_lock_after: int = 0, level_review: bool = False) -> str:
+                goal_lock_after: int = 0, level_review: bool = False, prompt_version: str = "e008",
+                max_tokens: int = 16384) -> str:
     arc = E008_ARC.format(game_id=game_id, win_levels=win_levels, act_max=act_max)
+    if prompt_version == "e110":
+        for old, new in E110_EDITS:
+            assert arc.count(old) == 1, old
+            arc = arc.replace(old, new.format(act_max=act_max, cut=max_tokens))
+    elif prompt_version != "e008":
+        raise ValueError(f"unknown prompt_version {prompt_version!r}")
     if goal_versioning:
         for old, new in E021_GOAL_LINES:
             assert arc.count(old) == 1, old

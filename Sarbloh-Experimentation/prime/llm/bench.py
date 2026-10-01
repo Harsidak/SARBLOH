@@ -74,7 +74,9 @@ def decode(server: VllmServer, streams: int, max_tokens: int = 512) -> dict[str,
     return {"streams": streams, "tok_s": round(total / max(1e-6, wall), 1),
             "per_stream_tok_s": round(total / max(1e-6, wall) / streams, 1), "wall_s": round(wall, 1),
             "spec_accept": _ratio(_delta(m0, m1, "vllm:spec_decode_num_accepted_tokens_total"),
-                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total"))}
+                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total")),
+            # E109: SGLang reports the mean accepted draft length (tokens per verify step) as a gauge
+            "spec_accept_length": (m1 or {}).get("sglang:spec_accept_length")}
 
 
 def cold_prefill(server: VllmServer, streams: int, grids: int = 3) -> dict[str, Any]:
@@ -160,7 +162,8 @@ def quick(server: VllmServer, concurrency: int = 8) -> dict[str, Any]:
     """The throughput probe run.py prints before the games (same keys as before E007)."""
     one, many = decode(server, 1), decode(server, concurrency)
     server.bench = {"single_stream_tok_s": one["tok_s"], "aggregate_tok_s": many["tok_s"],
-                    "concurrency": concurrency, "spec_accept": many["spec_accept"]}
+                    "concurrency": concurrency, "spec_accept": many["spec_accept"],
+                    "spec_accept_length": many["spec_accept_length"], "backend": server.backend}
     log(f"throughput: {server.bench}")
     return server.bench
 

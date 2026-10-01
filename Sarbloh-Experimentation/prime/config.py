@@ -20,6 +20,10 @@ DEFAULT: dict[str, Any] = {
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on a cell's first action its thought and code). Off on the competition rerun.
     "record": True,
+    # E111 priority scheduler (prime/scheduler.py). Off = E008: `concurrency` games at a time, each for game_wall_s.
+    # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
+    # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
+    "scheduler": {"enabled": False, "slots": 6, "quantum_calls": 4, "token_scale": 80000.0},
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
@@ -27,6 +31,7 @@ DEFAULT: dict[str, Any] = {
         # agent-written memory (prime.agent.tools, prime.memory); "ipython" = upstream's single REPL tool (E003-E005,
         # the control arm). Fenced mode always uses "ipython".
         "toolset": "e008",
+        "prompt_version": "e008",      # E110: "e110" = short-thinking prompt edits (prompts.E110_*); "e008" = control
         "act_max_actions": 5,          # actions per act call
         "allow_fenced_code": True,     # also execute fenced code when no native call came back
         "max_tokens_per_turn": 16384,

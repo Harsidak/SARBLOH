@@ -1,0 +1,23 @@
+# E111 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008). Control = scheduler.enabled: false.
+experiment: E111_priority_scheduler
+baseline: E008_perception_memory (17 dev games, run 2026-10-01: 3 waves of 6, game_wall_s 5400)
+
+code: Sarbloh-Experimentation/prime
+scheduler:
+  enabled: true                       # the switch under test
+  slots: 6                            # games on the GPU at once (today's concurrency)
+  quantum_calls: 4                    # LLM calls a game keeps its slot before it competes again
+  token_scale: 80000                  # T: hope halves at 80k output tokens on one level
+
+kaggle:
+  notebook: kaggle/experimental/sarbloh_experimentation.ipynb
+  EXPERIMENT: E111_priority_scheduler
+  EXPERIMENT_OVERRIDES:               # the 17 public dev games of the baseline run; held-out games never run
+    games: [bp35, cn04, dc22, ka59, lf52, lp85, ls20, r11l, re86, sb26, sc25, sp80, su15, tn36, tr87, tu93, wa30]
+    concurrency: 17                   # all games alive; the scheduler decides who is on the GPU
+    notebook_budget_s: 18000          # 5 h, as the baseline
+    game_wall_s: 18000                # no fixed per-game slot
+    scheduler: {enabled: true, slots: 6, quantum_calls: 4, token_scale: 80000}
+    agent: {prompt_version: e110}     # owner: run together with E110 (levels then INCONCLUSIVE per experiment)
+    vllm: {profile_chain: null}       # the SGLang chain of E109 if it passes; else the vLLM default

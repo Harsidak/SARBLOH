@@ -1,0 +1,20 @@
+# E109 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008, E008 prompts).
+experiment: E109_sglang_serving
+baseline: E008_perception_memory (vLLM 0.19, qwen_fp8_vision, run 2026-10-01)
+
+code: Sarbloh-Experimentation/prime
+games: [ls20]                         # owner decision 2026-10-01: inference check on ls20, on Kaggle
+
+kaggle:
+  notebook: kaggle/experimental/sarbloh_experimentation.ipynb
+  extra_inputs: [dfranzen/pennyroyal-v253]          # SGLang 0.5.19 Pennyroyal wheelhouse (licence unknown)
+  EXPERIMENT: E109_sglang_serving
+  EXPERIMENT_OVERRIDES:
+    games: [ls20]
+    concurrency: 1
+    notebook_budget_s: 7200           # 2 h: install + up to 3 failed starts + about 60 min of play
+    game_wall_s: 3600
+    vllm:
+      profile_chain: [sglang_fp8_mtp_vision, sglang_fp8_vision, sglang_fp8, qwen_fp8_vision, qwen_fp8]
+      startup_timeout_s: 1200         # 20 min per start attempt (default 1500)

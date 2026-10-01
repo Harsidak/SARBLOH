@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from prime.llm import sglang
 from prime.llm.spec import ModelSpec
 
 FLASH = "keithtyser/qwen3-8-flash-next-nvfp4"  # Kaggle model, PyTorch/radixark-modelopt-fp4/1
@@ -96,6 +97,39 @@ PROFILES: dict[str, dict[str, Any]] = {
 PROFILES["qwen_fp8_vision"] = {**PROFILES["qwen_fp8"], "flags": {
     **PROFILES["qwen_fp8"]["flags"], "--limit-mm-per-prompt": '{"image": 1, "video": 0}'}}
 
+# E109: the same FP8 weights on SGLang 0.5.19 "Pennyroyal" (RTX Pro 6000 build, offline wheelhouse below; licence
+# "unknown" on Kaggle: UNCONFIRMED for a submission). Flag names are the ones the milestone-2 reference launcher passes
+# to this exact wheel; its Flash-Next-only flags (AutoRound, external draft, FR-Spec map, PLE offload, MoE runner) are
+# left out: the 27B is a dense-MLP hybrid (48 Gated-DeltaNet + 16 full-attention layers, 1 MTP layer; HF config).
+PENNYROYAL = "dfranzen/pennyroyal-v253"
+SGL_BASE = {
+    "--load-format": "safetensors", "--tensor-parallel-size": "1", "--dtype": "bfloat16", "--trust-remote-code": None,
+    "--context-length": "65536", "--mem-fraction-static": "0.88", "--max-running-requests": "16",
+    "--chunked-prefill-size": "8192", "--max-prefill-tokens": "16384",
+    "--reasoning-parser": "qwen3", "--tool-call-parser": "qwen3_coder",
+    "--default-chat-template-kwargs": '{"preserve_thinking": true}',
+    "--schedule-policy": "lpm", "--watchdog-timeout": "1800", "--enable-metrics": None, "--enable-cache-report": None}
+# The reference's tuning for this card: FP8 KV cache, 64-token pages, decode CUDA graphs up to the request cap, the
+# linear-attention (mamba) state cache with prefix reuse, flashinfer kernels for the linear layers, CPU image transport.
+SGL_TUNED = {
+    **SGL_BASE, "--kv-cache-dtype": "fp8_e4m3", "--page-size": "64", "--cuda-graph-max-bs-decode": "16",
+    "--max-mamba-cache-size": "48", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "64",
+    "--mamba-backend": "flashinfer", "--linear-attn-decode-backend": "flashinfer",
+    "--linear-attn-prefill-backend": "flashinfer", "--mm-feature-transport": "cpu", "--image-processor-backend": "pil"}
+# MTP speculation with the model's own MTP layer (no external draft): 3 draft tokens per step.
+SGL_MTP = {"--speculative-algorithm": "NEXTN", "--speculative-num-steps": "3", "--speculative-eagle-topk": "1",
+           "--speculative-num-draft-tokens": "4"}
+PROFILES.update({
+    # 1st: tuned + MTP + image. 2nd: SGLang defaults + image (a tuning flag or MTP that fails on the 27B is out).
+    # 3rd: SGLang defaults, text only. Each one that fails start or a smoke test hands over to the next.
+    "sglang_fp8_mtp_vision": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": True, "env": {},
+                              "flags": {**SGL_TUNED, **SGL_MTP}},
+    "sglang_fp8_vision": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": True, "env": {},
+                          "flags": dict(SGL_BASE)},
+    "sglang_fp8": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": False, "env": {}, "flags": dict(SGL_BASE)},
+})
+SGLANG_CHAIN = ["sglang_fp8_mtp_vision", "sglang_fp8_vision", "sglang_fp8", "qwen_fp8_vision", "qwen_fp8"]
+
 SPEC = ModelSpec(
     name="qwen",
     served_model_name="qwen3.8",
@@ -104,5 +138,5 @@ SPEC = ModelSpec(
     profile_chain=["qwen_fp8_vision", "qwen_fp8"],
     llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens
-    runtimes={"flash_next": flash_next_runtime},
+    runtimes={"flash_next": flash_next_runtime, "pennyroyal": sglang.runtime(PENNYROYAL)},
 )

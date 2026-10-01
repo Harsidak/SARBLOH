@@ -132,7 +132,7 @@ class AgentSession:
                       "refine_errors": 0, "tool_counts": {}, "tool_errors": 0, "act_actions": 0, "act_calls": 0,
                       "act_arg_errors": 0, "recalls": 0, "hypothesis_events": 0, "promotions": 0,
                       "curator_runs": 0, "curator_errors": 0, "observations": 0, "images_sent": 0,
-                      "observation_chars_max": 0, "pinned_chars_max": 0}
+                      "observation_chars_max": 0, "pinned_chars_max": 0, "length_cutoffs": 0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
         self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -164,6 +164,7 @@ class AgentSession:
         self.goal_lock_after = int((cfg.get("memory") or {}).get("goal_lock_after_level", 0) or 0) \
             if self.goal_versioning else 0                                                       # E021 amendment
         self.review_levels = bool((cfg.get("memory") or {}).get("level_review", False))        # E022
+        self.prompt_version = str(cfg.get("prompt_version") or "e008")                         # E110
         self._review_pending: list[int] = []      # E022: 0-based levels won and not yet reviewed
         self.tools = toolset(self.toolset, depth=depth, max_depth=cfg["max_depth"],
                              act_max=int(cfg.get("act_max_actions", 5)),
@@ -327,9 +328,10 @@ class AgentSession:
 
                 # in case the reply curs off
             if reply.finish_reason == "length":
-                self._append({"role": "user", "content": "Your reply was cut off by the output limit. Be shorter: "
-                                                         + ("think less, then call act." if self.e008 else
-                                                            "put the work in one `ipython` call.")})
+                self.stats["length_cutoffs"] += 1
+                self._append({"role": "user", "content": prompts.E110_CUT if self.e008 and self.prompt_version == "e110"
+                              else "Your reply was cut off by the output limit. Be shorter: "
+                              + ("think less, then call act." if self.e008 else "put the work in one `ipython` call.")})
                 continue
             # 7) if No tool call: the model ended its turn.
             if self.depth > 0:
@@ -668,7 +670,8 @@ class AgentSession:
                        "is kept with a confirmation. The new level is shown in full next."
                        + (" Your goal is now locked for the rest of the game." if mem.working.goal_locked else "")
                        + (" A review of the level you won is added to your memory (Level reviews)."
-                          if self.review_levels else ""))
+                          if self.review_levels else "")
+                       + (prompts.E110_LEVEL_UP if self.prompt_version == "e110" else ""))
         if s.engine_state.name == "GAME_OVER":
             out.append("GAME_OVER: the level is lost. Find the cause in the change lines, record it (refute a "
                        "hypothesis or add a finding), then act [\"reset\"].")
@@ -886,7 +889,9 @@ class AgentSession:
                                                cwd=str(self.kernel.session_dir),
                                                goal_versioning=self.goal_versioning,
                                                goal_lock_after=self.goal_lock_after,
-                                               level_review=self.review_levels)
+                                               level_review=self.review_levels,
+                                               prompt_version=self.prompt_version,
+                                               max_tokens=int(self.cfg["max_tokens_per_turn"]))
         if self._system is None:
             base = prompts.base_prompt(
                 cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,

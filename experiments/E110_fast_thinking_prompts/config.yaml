@@ -1,0 +1,11 @@
+# E110 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008). Control = prompt_version: e008.
+experiment: E110_fast_thinking_prompts
+baseline: E008_perception_memory (17 dev games, run 2026-10-01)
+
+code: Sarbloh-Experimentation/prime
+agent:
+  prompt_version: e110                # the switch under test; "e008" = unchanged control text
+
+kaggle:                               # runs together with E111 (owner decision 2026-10-01), see E111 config
+  EXPERIMENT_OVERRIDES: {agent: {prompt_version: e110}}

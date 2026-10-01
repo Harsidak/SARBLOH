@@ -32,17 +32,22 @@ class ModelSpec:
     smoke_template_kwargs: dict[str, Any] = field(default_factory=dict)
     # Prebuilt vLLM runtimes, for models the shared wheelhouse cannot serve. A profile with "runtime": "<name>" skips the
     # wheelhouse install; runtimes[name](working_dir, find_input) prepares the runtime once per process and returns
-    # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}}.
+    # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}},
+    # optionally "python" (the interpreter that runs "serve") and "backend" ("vllm" | "sglang": metric names). E109.
     runtimes: dict[str, Callable[..., dict[str, Any]]] = field(default_factory=dict)
 
     def max_model_len(self, profile: str) -> int:
-        return int(self.profiles[profile]["flags"]["--max-model-len"])
+        flags = self.profiles[profile]["flags"]
+        return int(flags["--max-model-len"] if "--max-model-len" in flags else flags["--context-length"])  # E109
 
     def has_tool_parser(self, profile: str) -> bool:
         return "--tool-call-parser" in self.profiles[profile]["flags"]
 
     def has_vision(self, profile: str) -> bool:
-        """True when the profile accepts at least one image per prompt (``--limit-mm-per-prompt`` image > 0)."""
+        """True when the profile accepts at least one image per prompt: ``"vision"`` in the profile (E109, SGLang has
+        no per-prompt limit flag), else ``--limit-mm-per-prompt`` image > 0."""
+        if "vision" in self.profiles[profile]:
+            return bool(self.profiles[profile]["vision"])
         raw = self.profiles[profile]["flags"].get("--limit-mm-per-prompt")
         try:
             return int(json.loads(raw).get("image", 0)) > 0 if raw else False

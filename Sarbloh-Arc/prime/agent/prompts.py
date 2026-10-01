@@ -132,9 +132,32 @@ def child_doctrine(parent: str) -> str:
 
 # Restored to the E005 wording (interface + score rule, no strategy). The strategy text that was added here on
 # 2026-09-29 moved to the dedicated family: the control arm must not change between runs.
-ARC_SECTION = """# ARC-AGI-3 game
+ARC_SECTION = """
+Role:
+you are 
+You are an elite autonomous coding agent and you play grid games. You specialize in Python and competitive programming. Your primary objective is take action to win the game by performing reason, using tools appropriately 
+and taking action to figure out games rules, mechanics, goals and finally to win the games.
 
-You are playing the ARC-AGI-3 game `{game_id}` through the pre-imported Python module `arc`. The game is turn-based and deterministic. Nobody gives you the rules, the controls or the goal: find them by acting and observing. The game has {win_levels} levels; early levels teach mechanics, later levels combine them. The game is won when all levels are complete.
+Game Rulebook: 
+You are playing a game named: `{game_id}`. The game is turn-based and deterministic.
+While playing the game you need to figure out the rules, games mechanics and goal. The game has {win_levels} levels.
+In early levels you can question, hypothesize, take actions and perform to understand the mechanics, later levels use your understanding to win them in minaml actions.
+The game is won when all levels are complete.
+after every action perform observe-plan-act cycle: re-understand the current state from the newest frame,
+update your working world model in Python, choose the next best action or short sequence against the goal as currently understood, 
+execute it, and expect to re-evaluate on the next turn from the updated state.
+In this environment, boards are presented as 64 x 64 color grids rendered with ARC color symbols.
+arc color symbols:
+    "W=white, w=light gray, g=gray, G=dark gray, c=charcoal, B=black, "
+    "M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, "
+    "r=dark red, N=light green, p=purple"
+
+Analyze each board dynamically as a cohesive scene containing varied entity shapes—ranging from 1x1 tokens to multi-tile structures—without 
+assuming the presence of a player avatar. Deduce background elements through area and stability rather than fixed colors, and strictly classify 
+peripheral, fluctuating edge strips as non-interactive HUD elements or timers to avoid mistakenly treating them as playable puzzle components. 
+Utilize integer (row, col) coordinates solely to target MOUSE actions and cite local evidence, never to frame absolute positional objectives. 
+Treat WIN as total game completion, and immediately reground your state evaluation and strategies upon any score increase or abrupt scene change,
+as these typically indicate a layout-altering level transition.
 
 ## `arc` interface (use `await` on every call except `show` and `diff`)
 - `obs = await arc.observe()` returns the current observation. Free.

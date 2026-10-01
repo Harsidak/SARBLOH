@@ -55,12 +55,18 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
 
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
-              soft_end: float) -> dict[str, Any]:
+              soft_end: float, scheduler: Any = None) -> dict[str, Any]:
     from prime.game.arc_host import ArcHost
     from prime.agent.agent import AgentSession
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
+    if scheduler is not None:  # E111: this game's LLM calls run only while it holds a scheduler slot
+        from prime.scheduler import ScheduledLLM
+
+        llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
+                           n_levels=game.number_of_levels,
+                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline)
     session_ref: dict[str, Any] = {}
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
@@ -78,6 +84,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     try:
         session.run()
     finally:
+        if scheduler is not None:
+            llm.close()
         game.finish("cancelled" if stop_event.is_set() and not host.finished else None)
     if game.scorecard:  # the SDK's own scorecard for this game (offline: one per game)
         (game_dir / "scorecard.json").write_text(json.dumps(game.scorecard, indent=1), encoding="utf-8")
@@ -114,17 +122,28 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
             started.append(game)
         except Exception as exc:  # noqa: BLE001 - one broken env must not sink the run
             print(f"[start-failed] {game.env_name}: {type(exc).__name__}: {exc}", flush=True)
-    print(f"[runner] started {len(started)}/{len(games)} games, concurrency={cfg['concurrency']}", flush=True)
+    sched_cfg = cfg.get("scheduler") or {}
+    scheduler = None
+    workers = max(1, int(cfg["concurrency"]))
+    if sched_cfg.get("enabled"):  # E111: every game alive at once; the scheduler decides who is on the GPU
+        from prime.scheduler import PriorityScheduler
+
+        scheduler = PriorityScheduler(int(sched_cfg.get("slots", 6)), int(sched_cfg.get("quantum_calls", 4)),
+                                      float(sched_cfg.get("token_scale", 80000.0)),
+                                      log_path=run_dir / "scheduler.jsonl")
+        workers = max(1, len(started))
+    print(f"[runner] started {len(started)}/{len(games)} games, concurrency={workers}"
+          + (f", scheduler slots={scheduler.slots}" if scheduler else ""), flush=True)
     sessions: dict[str, dict[str, Any]] = {}
 
     def job(g: Any) -> None:
         try:
-            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end)
+            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end, scheduler)
         except Exception:  # noqa: BLE001
             sessions[g.game_id] = {"end_reason": "crash", "traceback": traceback.format_exc()[-3000:]}
             g.finish("crashed")
 
-    pool = ThreadPoolExecutor(max_workers=max(1, int(cfg["concurrency"])), thread_name_prefix="game")
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="game")
     futures = [pool.submit(job, g) for g in started]
     last_status = time.time()
     try:
@@ -140,12 +159,18 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
             if time.time() - last_status >= 120:
                 last_status = time.time()
                 _status(started, t0, llm)
+                if scheduler is not None:
+                    print(f"[scheduler] {scheduler.status()}", flush=True)
     finally:
         stop_event.set()
+        if scheduler is not None:
+            scheduler.close()
         for g in started:
             g.finish("cancelled")
         pool.shutdown(wait=False, cancel_futures=True)
     summary = summarize(started, sessions, cfg, llm, time.time() - t0)
+    if scheduler is not None:
+        summary["scheduler"] = scheduler.stats()
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")
@@ -191,6 +216,7 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
         "act_calls": agg("act_calls"), "act_arg_errors": agg("act_arg_errors"), "recalls": agg("recalls"),
         "hypothesis_events": agg("hypothesis_events"), "promotions": agg("promotions"),
         "curator_runs": agg("curator_runs"), "curator_errors": agg("curator_errors"), "images_sent": agg("images_sent"),
+        "length_cutoffs": agg("length_cutoffs"),   # E110: turns cut at the output limit (the whole turn is lost)
         "llm": llm.usage.to_json(),
         "wall_s": round(wall_s, 1),
         "per_game": {r.game_id: {"score": round(r.final_score or 0.0, 3), "levels": r.levels_completed,
@@ -326,6 +352,9 @@ def local() -> None:
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
     ap.add_argument("--goal-versioning", action="store_true", help="E021: versioned goals with rivals")
     ap.add_argument("--level-review", action="store_true", help="E022: review of the whole level after each level-up")
+    ap.add_argument("--prompt-version", default="e008", choices=["e008", "e110"], help="E110: short-thinking prompts")
+    ap.add_argument("--scheduler-slots", type=int, default=0, metavar="N",
+                    help="E111: priority scheduler with N slots (0 = off: every game plays at once)")
     a = ap.parse_args()
     from prime.llm.client import LLM
     from sarbloh.harness.games import build_games, make_arcade
@@ -334,10 +363,12 @@ def local() -> None:
         "experiment": a.experiment or ("E008_perception_memory_local" if a.toolset == "e008"
                                        else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
+        "scheduler": {"enabled": a.scheduler_slots > 0, "slots": max(1, a.scheduler_slots)},
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
+                  "prompt_version": a.prompt_version,
                   "vision": a.vision, "memory": {"goal_versioning": a.goal_versioning, "level_review": a.level_review},
                   "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
