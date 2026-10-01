@@ -1,0 +1,45 @@
+{
+  "experiment": "E021_versioned_goal",
+  "run": "local_ls20_plumbing",
+  "date": "2026-10-01",
+  "git_sha": "109bebb (E021 uncommitted)",
+  "config_hash": "a42273c69097",
+  "split": "public-smoke (ls20 only, local 4B, not evidence)",
+  "model": "Qwen3.5-4B Q4_K_M (llama.cpp)",
+  "source": "runs/experimentation_local/E021_ls20/results.json",
+  "per_environment": [
+    {
+      "env_id": "ls20",
+      "levels_total": 7,
+      "levels_completed": 0,
+      "agent_actions": 11,
+      "rhae": 0.0,
+      "wallclock_s": 733.9,
+      "state": "cancelled (soft deadline)"
+    }
+  ],
+  "e021_metrics": {
+    "act_calls": 11,
+    "act_arg_errors": 0,
+    "goal_events": 1,
+    "goal_versions_per_level": {
+      "0": 1
+    },
+    "max_open_goals": 1,
+    "reproposed_refuted_goals": 0,
+    "llm_failures": 0
+  },
+  "tests": {
+    "test_prime_goals": "75 checks, 0 fails",
+    "test_prime_level_review (E021 lock + history e2e on ls20)": "40 checks, 0 fails",
+    "run_all_default": "26/26 suites, 1647 checks, 0 fails",
+    "prime_suites_on_copy_switch_off": "7 suites, 0 fails"
+  },
+  "verdict": "USEFUL (owner, 2026-10-01); no score evidence yet",
+  "amendment_1": {
+    "history_shown": 5,
+    "goal_lock_after_level": 1,
+    "cap_goal_versioned": 400,
+    "live_run": "none (llama.cpp stopped by the owner; 4B never wins level 1)"
+  }
+}

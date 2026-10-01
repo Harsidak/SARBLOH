@@ -11,8 +11,10 @@ agent:
   toolset: e008
   memory:
     goal_versioning: true             # the switch under test
+    goal_lock_after_level: 1          # amendment 1 (owner): goal locked once level 1 is won; 0 = never
+    goal_history_shown: 5             # amendment 1: last 5 goal changes, with reasons, in the goal block
     caps:
-      goal_versioned: 250             # goal block cap with the switch on (E008: goal 150)
+      goal_versioned: 400             # goal block cap with the switch on (E008: goal 150; first run: 250)
 
 local:
   model: Qwen3.5-4B Q4_K_M + mmproj (llama.cpp, scripts/serve_llm.ps1 -Vision)

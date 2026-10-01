@@ -1,0 +1,144 @@
+{
+ "experiment": "E107_lora_sft_pipeline",
+ "kernel": "banwait13/sarbloh-lora-sft-smoke",
+ "kernel_version": 3,
+ "run_dir": "runs/kaggle_sarbloh-lora-sft-smoke_20261001_193531",
+ "source": {
+  "git_sha": "109bebb",
+  "dirty": true,
+  "built_at": "2026-10-01T13:58:02+00:00",
+  "files": [
+   "data/smoke3.jsonl",
+   "lora_sft.py"
+  ]
+ },
+ "model": "Qwen/Qwen3.5-2B",
+ "gpu": "Tesla T4",
+ "dtype": "float32",
+ "verdict": "PASS",
+ "checks": {
+  "data": true,
+  "loss_mask": true,
+  "weights": true,
+  "trainable": true,
+  "finite": true,
+  "adapter_updated": true,
+  "loss_dropped": true,
+  "adapter_saved": true,
+  "reload_matches": true,
+  "completed": true
+ },
+ "eval_loss_before": 1.149402702432372,
+ "eval_loss_after": 0.002839889514113663,
+ "eval_loss_reloaded": 0.002839889514113663,
+ "token_accuracy_before": 0.78,
+ "token_accuracy_after": 1.0,
+ "train_seconds": 149.7,
+ "wall_s": 353.6,
+ "peak_vram_gb": 9.61,
+ "trainable_params": 16819200,
+ "lora_layers": 186,
+ "target_tokens": 681,
+ "total_tokens": 3806,
+ "examples": 4,
+ "generation_before": [
+  {
+   "similarity": 0.2821,
+   "exact": false,
+   "stopped": true,
+   "new_tokens": 85,
+   "tool_calls_generated": [
+    "ipython"
+   ],
+   "tool_calls_reference": [
+    "act"
+   ],
+   "tool_names_match": false
+  },
+  {
+   "similarity": 0.441,
+   "exact": false,
+   "stopped": true,
+   "new_tokens": 88,
+   "tool_calls_generated": [
+    "act"
+   ],
+   "tool_calls_reference": [
+    "act"
+   ],
+   "tool_names_match": true
+  },
+  {
+   "similarity": 0.0476,
+   "exact": false,
+   "stopped": false,
+   "new_tokens": 200,
+   "tool_calls_generated": [
+    "ipython"
+   ],
+   "tool_calls_reference": [
+    "remember"
+   ],
+   "tool_names_match": false
+  }
+ ],
+ "generation_after": [
+  {
+   "similarity": 0.9984,
+   "exact": true,
+   "stopped": true,
+   "new_tokens": 98,
+   "tool_calls_generated": [
+    "act"
+   ],
+   "tool_calls_reference": [
+    "act"
+   ],
+   "tool_names_match": true
+  },
+  {
+   "similarity": 0.9981,
+   "exact": true,
+   "stopped": true,
+   "new_tokens": 94,
+   "tool_calls_generated": [
+    "act"
+   ],
+   "tool_calls_reference": [
+    "act"
+   ],
+   "tool_names_match": true
+  },
+  {
+   "similarity": 0.9988,
+   "exact": true,
+   "stopped": true,
+   "new_tokens": 107,
+   "tool_calls_generated": [
+    "remember"
+   ],
+   "tool_calls_reference": [
+    "remember"
+   ],
+   "tool_names_match": true
+  }
+ ],
+ "history": [
+  {
+   "version": 1,
+   "verdict": "FAIL",
+   "cause": "peft is_torchao_available() raised ImportError on Kaggle's torchao 0.10.0 inside get_peft_model; fixed by guard_peft_torchao()"
+  },
+  {
+   "version": 2,
+   "verdict": "PASS",
+   "note": "all checks green, but generation ran past <|im_end|> (tokenizer eos is <|endoftext|>), so similarity/tool-name metrics were unreliable; fixed by stop_token_ids()",
+   "run_dir": "runs/kaggle_sarbloh-lora-sft-smoke_20261001_192521"
+  },
+  {
+   "version": 3,
+   "verdict": "PASS",
+   "note": "generations stop at <|im_end|>; after training 3/3 exact, 3/3 tool names match"
+  }
+ ]
+}

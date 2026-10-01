@@ -1,0 +1,27 @@
+# E022 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008). Arm A = the same with
+# level_review: false.
+experiment: E022_level_review
+baseline: E008_perception_memory      # same code, switch off
+
+code: Sarbloh-Experimentation/prime
+games: [ls20]                         # local plumbing only (owner decision 2026-10-01)
+
+agent:
+  toolset: e008
+  memory:
+    level_review: true                # the switch under test
+    level_review_max_tokens: 2048
+    level_review_steps_tokens: 3000   # the level's steps are clipped to this (first and last steps kept)
+    caps:
+      levels: 250                     # the "Level reviews" block
+
+local:
+  model: Qwen3.5-4B Q4_K_M + mmproj (llama.cpp, scripts/serve_llm.ps1 -Vision)
+  command: >-
+    uv run python Sarbloh-Experimentation/prime/run.py --games ls20 --max-actions 30 --minutes 12 --vision
+    --ctx 16384 --level-review --experiment E022_level_review --out runs/experimentation_local/E022_ls20
+
+kaggle:                               # not run (owner's call); notebook EXPERIMENT_OVERRIDES would be:
+  EXPERIMENT: E022_level_review
+  EXPERIMENT_OVERRIDES: {agent: {memory: {level_review: true}}}

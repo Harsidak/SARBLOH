@@ -1,0 +1,19 @@
+{
+  "experiment": "E022_level_review",
+  "run": "tests_only",
+  "date": "2026-10-01",
+  "git_sha": "109bebb (E022 uncommitted)",
+  "split": "none (tests with a scripted model on the public game ls20; not evidence)",
+  "model": "none (scripted fake model)",
+  "per_environment": [],
+  "e022_metrics": {
+    "level_reviews_e2e": 1,
+    "review_runs_before_next_turn": true,
+    "bad_reply_session_continues": true
+  },
+  "tests": {
+    "test_prime_level_review": "40 checks, 0 fails",
+    "run_all_default": "26/26 suites, 1647 checks, 0 fails",
+    "prime_suites_on_copy_switch_off": "7 suites, 0 fails"
+  }
+}

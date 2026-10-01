@@ -325,6 +325,7 @@ def local() -> None:
     ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
     ap.add_argument("--goal-versioning", action="store_true", help="E021: versioned goals with rivals")
+    ap.add_argument("--level-review", action="store_true", help="E022: review of the whole level after each level-up")
     a = ap.parse_args()
     from prime.llm.client import LLM
     from sarbloh.harness.games import build_games, make_arcade
@@ -337,7 +338,7 @@ def local() -> None:
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
-                  "vision": a.vision, "memory": {"goal_versioning": a.goal_versioning},
+                  "vision": a.vision, "memory": {"goal_versioning": a.goal_versioning, "level_review": a.level_review},
                   "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
                   "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,

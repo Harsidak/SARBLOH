@@ -61,3 +61,26 @@ Evaluation systems used:
 - **Kaggle (later):** `kaggle_push.py experimentation`, `prime_run/results.json` + `LEDGER_ROW`; per-game RHAE via
   `eval/official_score.py`.
 - **Secondary metrics:** goal versions per level, goals open at once, re-proposed refuted goals, act errors from `goal`.
+
+## Amendment 1 (owner, 2026-10-01, after the first local run), written before the code
+
+The owner restated E21: the agent keeps its guess about the win condition as a numbered entry ("goal v3: get the
+blue block onto the red cell"). When evidence changes the guess it writes v4 and keeps v3 with the reason it was
+replaced, so it neither changes the goal silently mid-plan nor drifts back to a goal it already ruled out. Two
+additions:
+
+1. **Goal history in view.** Each history entry now keeps the reason (`why`) with the version it belongs to. The
+   goal block shows the last `goal_history_shown` (5) goal changes with their reasons, so when the agent thinks its
+   last goal was wrong it can read the 4-5 before it without a tool call. `recall` scope `goal` still shows all of
+   them. The cap `goal_versioned` goes from 250 to 400 tokens to fit them.
+2. **Goal locked after level 1** (`agent.memory.goal_lock_after_level: 1`, 0 = never). Level 1 is for exploration.
+   Once level 1 is won, the goal that won it is kept for the rest of the game: the agent's `goal` argument is ignored
+   (the act still runs, with a note), and the block says the goal is locked. Exception (our assumption, UNCONFIRMED
+   with the owner): if level 1 was won with no active goal, the agent may set one, which then locks. A new game
+   unlocks. The host still marks the goal "won" at later level-ups.
+
+**Added predictions.** Local: the history lines and the lock note appear with no new act error type; a goal edit
+after level 1 never changes the goal memory (checked by tests on the real ls20 with a scripted model, because the
+4B does not win level 1). Kaggle: the agent sends 0 goal edits after level 1 on most games once it reads the note.
+**Added kill criterion (binding):** kill as a bug if a goal edit after level 1 changes the goal memory, or if the
+lock makes an act fail (it must only ignore the goal argument).

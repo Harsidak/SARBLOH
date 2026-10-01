@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from prime.agent import compaction, context, curator, prompts, refine
+from prime.agent import compaction, context, curator, level_review, prompts, refine
 from prime.agent.intuition import Scene, Tracker, rows_of
 from prime.agent.tools import toolset
 from prime.agent.vision import image_message
@@ -161,6 +161,10 @@ class AgentSession:
             "PRIME_TOOLSET": self.toolset,
         })
         self.goal_versioning = bool((cfg.get("memory") or {}).get("goal_versioning", False))   # E021
+        self.goal_lock_after = int((cfg.get("memory") or {}).get("goal_lock_after_level", 0) or 0) \
+            if self.goal_versioning else 0                                                       # E021 amendment
+        self.review_levels = bool((cfg.get("memory") or {}).get("level_review", False))        # E022
+        self._review_pending: list[int] = []      # E022: 0-based levels won and not yet reviewed
         self.tools = toolset(self.toolset, depth=depth, max_depth=cfg["max_depth"],
                              act_max=int(cfg.get("act_max_actions", 5)),
                              goal_versioning=self.goal_versioning) if cfg["tool_mode"] == "native" else None
@@ -636,6 +640,8 @@ class AgentSession:
                                  "i": st.get("i"), **promo})
                 self._level_start = True
                 self._curate_pending = "level_up"
+                if self.review_levels:
+                    self._review_pending.append(int(st.get("level", arc.game.state.levels_completed - 1)))
                 stop = "level up"
                 break
             if obs.get("state") == "GAME_OVER":
@@ -653,10 +659,16 @@ class AgentSession:
         back = [g["id"] for g in wrote.get("goals") or [] if g["reproposed"]]     # E021
         if back:
             out.append(f"note: goal {', '.join(back)} was refuted before and is open again.")
+        if wrote.get("goal_locked"):                                              # E021 amendment
+            out.append(f"note: the goal is locked after level {self.goal_lock_after} (the goal that won it is kept "
+                       "for the rest of the game); your `goal` was ignored, the rest of the act was done.")
         if level_up:
             out.append(f"LEVEL UP: {s.levels_completed} of {arc.game.number_of_levels} levels done. Your verified "
                        "hypotheses and findings became lessons; plan, hypotheses and findings were cleared; your goal "
-                       "is kept with a confirmation. The new level is shown in full next.")
+                       "is kept with a confirmation. The new level is shown in full next."
+                       + (" Your goal is now locked for the rest of the game." if mem.working.goal_locked else "")
+                       + (" A review of the level you won is added to your memory (Level reviews)."
+                          if self.review_levels else ""))
         if s.engine_state.name == "GAME_OVER":
             out.append("GAME_OVER: the level is lost. Find the cause in the change lines, record it (refute a "
                        "hypothesis or add a finding), then act [\"reset\"].")
@@ -703,6 +715,10 @@ class AgentSession:
                              "evidence": g["evidence"], "reproposed": g["reproposed"],
                              "open": sum(1 for x in self.memory.working.goals
                                          if x["status"] in ("active", "candidate"))})
+        if wrote.get("goal_locked"):            # E021 amendment: a goal edit after the lock, ignored
+            self.stats["goal_locked_ignored"] = self.stats.get("goal_locked_ignored", 0) + 1
+            self._log_event({"event": "goal_locked", "turn": turn, "call": call_id, "level": level,
+                             "action_count": acount, "goal": self.memory.working.goal})
         if wrote["goal"] and not wrote.get("goals"):
             self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
                              "goal": wrote["goal"]})
@@ -720,6 +736,7 @@ class AgentSession:
     # --- host-driven auto /refine (upstream serialized-refine checkpoint between turns) ----------------------
     def _maybe_auto_refine(self) -> None:
         if self.e008:
+            self._maybe_review()
             self._maybe_curate()
             return
         ar = self.cfg.get("auto_refine") or {}
@@ -754,6 +771,29 @@ class AgentSession:
         self._log_event({"event": "auto_refine", "duration_s": round(time.time() - t0, 1), **rec})
         if rec.get("notice"):
             self._append({"role": "user", "content": rec["notice"]})
+
+    def _maybe_review(self) -> None:
+        """E022: one hidden review of each level won, before the curator runs and before the next turn."""
+        if not self.review_levels or self.memory is None:
+            return
+        mc = self.cfg.get("memory") or {}
+        while self._review_pending:
+            level = self._review_pending.pop(0)
+            t0 = time.time()
+            try:
+                rec = level_review.review(llm=self.llm, memory=self.memory, level=level,
+                                          max_tokens=int(mc.get("level_review_max_tokens", 2048)),
+                                          steps_tokens=int(mc.get("level_review_steps_tokens", 3000)),
+                                          overflow=ContextOverflow)
+            except Exception as exc:  # noqa: BLE001 - the review must never kill the session
+                self.stats["level_review_errors"] = self.stats.get("level_review_errors", 0) + 1
+                self._log_event({"event": "level_review", "level": level + 1,
+                                 "error": f"{type(exc).__name__}: {exc}"[:500]})
+                continue
+            self.stats["level_reviews"] = self.stats.get("level_reviews", 0) + 1
+            self.stats["promotions"] += len(rec["promoted"])
+            self._log_event({"event": "level_review", "level": level + 1, "duration_s": round(time.time() - t0, 1),
+                             "action_count": self.arc.game.action_count, **rec})
 
     def _maybe_curate(self) -> None:
         """E008: the hidden curator at a level-up, after a compaction, and every ``curator_every_turns`` turns."""
@@ -844,7 +884,9 @@ class AgentSession:
             self._system = prompts.e008_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
                                                cwd=str(self.kernel.session_dir),
-                                               goal_versioning=self.goal_versioning)
+                                               goal_versioning=self.goal_versioning,
+                                               goal_lock_after=self.goal_lock_after,
+                                               level_review=self.review_levels)
         if self._system is None:
             base = prompts.base_prompt(
                 cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,

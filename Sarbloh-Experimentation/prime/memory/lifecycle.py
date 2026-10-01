@@ -8,6 +8,10 @@ Level-up: hypotheses the agent marked ``verified`` and its findings become ``rul
 (``refuted`` hypotheses become ``refuted`` nodes, the goal a ``goal`` node), each linked to the shapes it names as
 "obj N"; the goal gets "confirmed: won level N"; then plan, hypotheses, findings and open questions are erased.
 New game: the timeline is archived and everything except the lessons graph and the skills is erased.
+
+E022 (switch ``level_review``): after a level-up the agent runs one hidden review of the whole level
+(``prime.agent.level_review``); ``add_level_review`` writes it into the working memory (block "levels"), the lessons
+graph (source ``level_review``) and ``levels.jsonl`` (a ``review`` row that ``recall`` returns).
 """
 
 from __future__ import annotations
@@ -39,10 +43,13 @@ class GameMemory:
         self.caps = cfg["caps"]
         self.timeline = Timeline(self.dir / "timeline.jsonl")
         self.working = WorkingMemory(self.dir / "working.json", self.caps,
-                                     goal_versioning=bool(cfg.get("goal_versioning", False)))
+                                     goal_versioning=bool(cfg.get("goal_versioning", False)),
+                                     lock_after=int(cfg.get("goal_lock_after_level", 0) or 0),
+                                     history_shown=int(cfg.get("goal_history_shown", 5)))
         self.lessons = LessonsGraph.shared(self.root / "lessons.json") if cfg.get("lessons", True) else None
         self.skills = SkillBook.shared(self.root / "skills.json")
         self.promoted = 0
+        self.level_objects: dict[int, list[Any]] = {}   # E022: the objects of each level won, for "obj N" links
 
     def save(self) -> None:
         self.working.save()
@@ -61,6 +68,7 @@ class GameMemory:
         """``level_won`` = levels completed after the step; ``objects`` = the level's objects before the new layout,
         so "obj N" in the agent's text resolves to the ids it saw."""
         w = self.working
+        self.level_objects = {level_won - 1: list(objects or [])}
         goals = copy.deepcopy(w.goals)               # E021: the goals before the rivals are cleared
         line = w.confirm_goal(level_won)
         promoted: list[dict[str, Any]] = []
@@ -72,16 +80,7 @@ class GameMemory:
             if w.goal:
                 items.append(("goal", f"won a level with goal: {w.goal}"))
             for kind, text in items:
-                nid = self.lessons.add_node(kind, text, game=self.game, level=level_won - 1, source="level_up")
-                linked = []
-                for m in _OBJ.finditer(text):
-                    o = shapes.get(int(m.group(1)))
-                    if o is not None:
-                        sid = self.lessons.add_shape(o.label()[0], o.hash, o.label(), game=self.game,
-                                                     level=level_won - 1)
-                        self.lessons.add_edge(nid, sid, "about")
-                        linked.append(sid)
-                promoted.append({"node": nid, "type": kind, "text": clip(text, 60), "shapes": linked})
+                promoted.append(self._promote(kind, text, level_won - 1, shapes, "level_up"))
             self.promoted += len(promoted)
         gone = w.clear_level()
         extra = {"goals": goals} if w.goal_versioning else {}
@@ -91,6 +90,56 @@ class GameMemory:
         self.save()
         return {"confirmation": line, "promoted": promoted, "erased": {k: len(v) if isinstance(v, list) else bool(v)
                                                                       for k, v in gone.items()}}
+
+    def _promote(self, kind: str, text: str, level: int, shapes: dict[int, Any], source: str) -> dict[str, Any]:
+        """One lessons-graph node, linked to the shapes its text names as "obj N"."""
+        nid = self.lessons.add_node(kind, text, game=self.game, level=level, source=source)
+        linked = []
+        for m in _OBJ.finditer(text):
+            o = shapes.get(int(m.group(1)))
+            if o is not None:
+                sid = self.lessons.add_shape(o.label()[0], o.hash, o.label(), game=self.game, level=level)
+                self.lessons.add_edge(nid, sid, "about")
+                linked.append(sid)
+        return {"node": nid, "type": kind, "text": clip(text, 60), "shapes": linked}
+
+    def level_record(self, level: int) -> dict[str, Any]:
+        """E022: what the review reads about level ``level`` (0-based): its steps and acts from the timeline, and what
+        the working memory held when it ended (the ``levels.jsonl`` row)."""
+        steps = [r for r in self.timeline.rows if r.get("kind") == "step" and r.get("level") == level]
+        acts = [r for r in self.timeline.rows if r.get("kind") == "act" and r.get("level") == level]
+        rows = [r for r in read_jsonl(self.dir / "levels.jsonl") if r.get("kind") != "review"]
+        ended = next((r for r in reversed(rows) if r.get("level") == level), rows[-1] if rows else {})
+        return {"level": level, "steps": steps, "acts": acts, "ended": ended}
+
+    def add_level_review(self, level: int, review: dict[str, Any]) -> dict[str, Any]:
+        """E022: writes a parsed review of level ``level`` (0-based) into the memories. Returns what was written."""
+        w = self.working
+        clean = lambda xs, n: [clip(" ".join(str(x).split()), 40) for x in (xs or []) if str(x).strip()][:n]  # noqa: E731
+        rules = []
+        for r in review.get("rules") or []:
+            text = str((r.get("text") if isinstance(r, dict) else r) or "").strip()
+            status = str(r.get("status") or "verified").lower() if isinstance(r, dict) else "verified"
+            if text and status in ("verified", "refuted"):
+                rules.append({"text": clip(text, 40), "status": status})
+        rec = {"level": level + 1, "steps": len(self.level_record(level)["steps"]),
+               "summary": clip(str(review.get("summary") or ""), 80),
+               "win_condition": clip(str(review.get("win_condition") or ""), 40),
+               "rules": rules[:5], "mistakes": clean(review.get("mistakes"), 3),
+               "carry_over": clean(review.get("carry_over"), 3)}
+        if not (rec["summary"] or rec["win_condition"] or rec["rules"] or rec["carry_over"]):
+            raise ValueError("the review has no summary, win condition, rules or carry-over")
+        w.reviews.append(rec)
+        promoted: list[dict[str, Any]] = []
+        if self.lessons is not None:
+            shapes = _shapes(self.level_objects.get(level, []))
+            items = [("rule" if r["status"] == "verified" else "refuted", r["text"]) for r in rec["rules"]]
+            if rec["win_condition"]:
+                items.append(("goal", f"won a level when: {rec['win_condition']}"))
+            promoted = [self._promote(kind, text, level, shapes, "level_review") for kind, text in items]
+        append_jsonl(self.dir / "levels.jsonl", {"kind": "review", **rec, "level": level})
+        self.save()
+        return {"review": rec, "promoted": promoted}
 
     # --- writes from the act tool --------------------------------------------------------------------------
     def write_act(self, args: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
@@ -102,10 +151,13 @@ class GameMemory:
         w = self.working
         snapshot = (w.plan, [dict(h, history=list(h["history"])) for h in w.hypotheses], list(w.findings), w.goal,
                     w.next_h)
+        raw_goal = args.get("goal")
+        # E021 amendment: after level ``lock_after`` the goal argument is ignored (the act still runs).
+        locked = bool(w.goal_versioning and w.goal_locked and raw_goal not in (None, "", []))
         try:
             hyp = w.update_hypotheses(args.get("hypotheses"), turn=turn, level=level)
             found = w.add_findings(args.get("findings"), turn=turn, level=level)
-            goals = w.update_goals(args.get("goal"), turn=turn, level=level) if w.goal_versioning else []
+            goals = w.update_goals(raw_goal, turn=turn, level=level) if w.goal_versioning and not locked else []
         except Exception:
             w.plan, w.hypotheses, w.findings, w.goal, w.next_h = snapshot
             raise
@@ -116,7 +168,7 @@ class GameMemory:
             goal_changed = w.set_goal(args.get("goal") or "")
         w.save()
         return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None,
-                "goals": goals}
+                "goals": goals, "goal_locked": locked}
 
     def record_step(self, row: dict[str, Any]) -> None:
         self.timeline.append({"kind": "step", **row})
@@ -132,7 +184,7 @@ class GameMemory:
         if self.lessons is not None:
             on_screen = [shape_id(o.label()[0], o.hash) for o in objects or []]
             lessons = self.lessons.subgraph(on_screen, self.caps["lessons"])
-        return {"goal": b["goal"], "plan": b["plan"], "skills": self.skills.render(self.game, self.caps["skills"]),
+        return {"goal": b["goal"], "levels": b["levels"], "plan": b["plan"], "skills": self.skills.render(self.game, self.caps["skills"]),
                 "hypotheses": b["hypotheses"], "findings": b["findings"], "lessons": lessons,
                 "questions": b["questions"]}
 
@@ -154,9 +206,13 @@ class GameMemory:
                      if match(h["text"] + " " + h["status"] + " " + h["id"])]
             sections.append(("hypotheses", lines))
         if scope in ("all", "findings"):
-            past = [f for lv in read_jsonl(self.dir / "levels.jsonl") for f in lv.get("findings", [])]
+            rows = read_jsonl(self.dir / "levels.jsonl")
+            past = [f for lv in rows for f in lv.get("findings", [])]
+            reviews = [f"(level {r['level'] + 1} review) {self.working.review_line(r | {'level': r['level'] + 1})}"
+                       + (f" Summary: {r['summary']}" if r.get("summary") else "")
+                       for r in rows if r.get("kind") == "review"]
             sections.append(("findings", [f"(level {f.get('level')}) {f['text']}" for f in past + self.working.findings
-                                          if match(f["text"])]))
+                                          if match(f["text"])] + [x for x in reviews if match(x)]))
         if scope in ("all", "goal"):
             lines = ([*self.working.goal_history(), *self.working.goal_log] if self.working.goal_versioning else
                      [self.working.goal, *self.working.goal_log])

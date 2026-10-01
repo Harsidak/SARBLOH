@@ -67,9 +67,14 @@ DEFAULT: dict[str, Any] = {
             "curator_max_tokens": 4096,
             "recall_tokens": 1500,
             "goal_versioning": False,  # E021: up to 3 goals (active, rivals, refuted) with versions; False = E008
+            "goal_lock_after_level": 1,  # E021 (with goal_versioning): goal locked once this level is won; 0 = never
+            "goal_history_shown": 5,     # E021: goal changes (with reasons) shown in the goal block
+            "level_review": False,     # E022: hidden review of the whole level after every level-up; False = E008
+            "level_review_max_tokens": 2048,
+            "level_review_steps_tokens": 3000,  # the level's steps sent to the review (first and last kept)
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
-                     "questions": 100, "goal_versioned": 250},
+                     "questions": 100, "goal_versioned": 400, "levels": 250},
         },
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },

@@ -247,7 +247,9 @@ E021_GOAL_LINES = (
      "`candidate`. A string is a new version of the active goal. A list adds, switches or refutes, e.g. "
      "`[{\"text\": \"touch obj 9\", \"status\": \"candidate\"}, {\"id\": \"g1\", \"status\": \"refuted\", "
      "\"evidence\": [14], \"why\": \"reached obj 4, no win\"}]`. Refuted goals stay in view: do not propose them "
-     "again."),
+     "again. When you change a goal, give `why`. The goal block lists your last 5 goal changes with their reasons: "
+     "before you write a new goal, read them, so you do not go back to one you ruled out (`recall` scope goal shows "
+     "all)."),
     ('(the goal stays, with "confirmed: won level N")',
      '(the active goal stays, marked won; rival goals are cleared)'),
     ("- Keep several goal guesses. Act to tell them apart, not to confirm your favourite.",
@@ -256,12 +258,28 @@ E021_GOAL_LINES = (
 )
 
 
-def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, goal_versioning: bool = False) -> str:
+# E021 amendment (``memory.goal_lock_after_level``), added after the E021 goal line.
+E021_LOCK_LINE = ("- Level {n} is for exploration: settle the goal there. When level {n} is won, the goal that won it is "
+                  "locked for the rest of the game and `goal` is ignored.")
+# E022 (``memory.level_review``), added after the memory paragraph.
+E022_REVIEW_ANCHOR = "So mark what you have verified before you win the level."
+E022_REVIEW_TEXT = (" After each level you win, a reviewer reads the whole level and adds a short review to your memory "
+                    "(Level reviews: how it was won, what was wasted, what to try next): use it on the next level.")
+
+
+def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, goal_versioning: bool = False,
+                goal_lock_after: int = 0, level_review: bool = False) -> str:
     arc = E008_ARC.format(game_id=game_id, win_levels=win_levels, act_max=act_max)
     if goal_versioning:
         for old, new in E021_GOAL_LINES:
             assert arc.count(old) == 1, old
             arc = arc.replace(old, new)
+        if goal_lock_after > 0:
+            first = E021_GOAL_LINES[0][1]
+            arc = arc.replace(first, first + "\n" + E021_LOCK_LINE.format(n=goal_lock_after))
+    if level_review:
+        assert arc.count(E022_REVIEW_ANCHOR) == 1
+        arc = arc.replace(E022_REVIEW_ANCHOR, E022_REVIEW_ANCHOR + E022_REVIEW_TEXT)
     return "\n".join([
         E008_INTRO,
         "",
