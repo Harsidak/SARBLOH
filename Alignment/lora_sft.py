@@ -27,6 +27,7 @@ generate after the template's generation prompt, including the end-of-turn token
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import difflib
 import gc
@@ -658,28 +659,45 @@ def stop_token_ids(model, tok) -> list[int]:
     return sorted(ids)
 
 
+@contextlib.contextmanager
+def generation_mode(model):
+    """Eval mode with the KV cache on. Gradient checkpointing turns the cache off, which makes generation quadratic,
+    so it is suspended while generating and restored afterwards (with the train/eval mode)."""
+    was_training = model.training
+    checkpointing = bool(getattr(model, "is_gradient_checkpointing", False))
+    model.eval()
+    model.config.use_cache = True
+    if checkpointing:
+        model.gradient_checkpointing_disable()
+    try:
+        yield
+    finally:
+        model.config.use_cache = False
+        if checkpointing:
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.train(was_training)
+
+
+def cut_at_stop(new: list[int], stops: list[int]) -> tuple[list[int], bool]:
+    """Generated ids up to and including the first stop token, and whether one was found."""
+    for j, t in enumerate(new):
+        if t in stops:
+            return new[: j + 1], True
+    return new, False
+
+
 def generate(model, tok, prompts: list[tuple[str, str]], cfg: dict[str, Any], device, autocast) -> list[dict]:
     import torch
     stops = stop_token_ids(model, tok)
-    model.eval()
-    model.config.use_cache = True
-    # gradient checkpointing turns the KV cache off, which makes generation quadratic: suspend it while generating
-    checkpointing = bool(getattr(model, "is_gradient_checkpointing", False))
-    if checkpointing:
-        model.gradient_checkpointing_disable()
     out = []
-    try:
+    with generation_mode(model):
         for prompt, ref in prompts:
             ids = tok(prompt, add_special_tokens=False, return_tensors="pt").to(device)
             t0 = time.time()
             with torch.no_grad(), autocast():
                 gen = model.generate(**ids, max_new_tokens=cfg["gen_max_new_tokens"], do_sample=False,
                                      pad_token_id=tok.pad_token_id, eos_token_id=stops)
-            new = gen[0, ids["input_ids"].shape[1]:]
-            hits = [j for j, t in enumerate(new.tolist()) if t in stops]
-            stopped = bool(hits)
-            if hits:
-                new = new[: hits[0] + 1]
+            new, stopped = cut_at_stop(gen[0, ids["input_ids"].shape[1]:].tolist(), stops)
             text = tok.decode(new, skip_special_tokens=False)
             ref_cut = ref[: len(text) + 1]
             out.append({"generated": text, "reference": ref,
@@ -688,11 +706,7 @@ def generate(model, tok, prompts: list[tuple[str, str]], cfg: dict[str, Any], de
                         "exact": text.strip() == ref.strip(),
                         "tool_calls_generated": tool_names_in(text), "tool_calls_reference": tool_names_in(ref),
                         "tool_names_match": tool_names_in(text) == tool_names_in(ref),
-                        "stopped": stopped, "new_tokens": int(new.numel()), "seconds": round(time.time() - t0, 2)})
-    finally:
-        model.config.use_cache = False
-        if checkpointing:
-            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                        "stopped": stopped, "new_tokens": len(new), "seconds": round(time.time() - t0, 2)})
     return out
 
 
@@ -781,17 +795,23 @@ def lora_moved(model) -> float:
 
 
 # --- result card --------------------------------------------------------------------------------------------------
-def write_plot(history: list[dict[str, Any]], path: Path) -> bool:
+def write_plot(history: list[dict[str, Any]], path: Path,
+               series: tuple[tuple[str, str], ...] = (("loss", "train loss (target tokens)"),)) -> bool:
+    """One line per (key, label) in ``series``; a second series goes on a right-hand axis."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         return False
+    if not history:
+        return False
     fig, ax = plt.subplots(figsize=(6, 3.2), dpi=120)
-    ax.plot([h["step"] for h in history], [h["loss"] for h in history], marker="o", ms=3, lw=1.5)
+    axes = [ax] + [ax.twinx() for _ in series[1:2]]
+    for (key, label), a, colour in zip(series, axes, ("tab:blue", "tab:orange")):
+        a.plot([h["step"] for h in history], [h.get(key) for h in history], marker="o", ms=3, lw=1.5, color=colour)
+        a.set_ylabel(label, color=colour)
     ax.set_xlabel("step")
-    ax.set_ylabel("train loss (target tokens)")
     ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(path)
@@ -853,6 +873,12 @@ def check(card: dict[str, Any], name: str, ok: bool, detail: str = "") -> None:
 # --- driver -------------------------------------------------------------------------------------------------------
 def run(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = make_config(overrides)
+    return run_with_card(cfg, _run, render_card)
+
+
+def run_with_card(cfg: dict[str, Any], body, render) -> dict[str, Any]:
+    """Run ``body(cfg, card, out, log)`` and always write result_card.{json,md} and train.log, even on an exception.
+    The verdict is PASS only if every check recorded in card["checks"] passes."""
     out = Path(cfg["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
     log_fh = open(out / "train.log", "w", encoding="utf-8")
@@ -867,7 +893,7 @@ def run(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     card: dict[str, Any] = {"run_id": time.strftime("%Y%m%d_%H%M%S"), "config": cfg, "checks": {},
                             "verdict": "FAIL", "error": None}
     try:
-        _run(cfg, card, out, log)
+        body(cfg, card, out, log)
     except Exception:  # noqa: BLE001 - every failure still produces a card
         card["error"] = traceback.format_exc()
         log(card["error"])
@@ -877,7 +903,7 @@ def run(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     card["seconds_total"] = round(time.time() - t_start, 1)
     card["verdict"] = "PASS" if all(v["pass"] for v in card["checks"].values()) else "FAIL"
     (out / "result_card.json").write_text(json.dumps(card, indent=1, default=str), encoding="utf-8")
-    (out / "result_card.md").write_text(render_card(card), encoding="utf-8")
+    (out / "result_card.md").write_text(render(card), encoding="utf-8")
     log(f"VERDICT {card['verdict']}: " + ", ".join(f"{k}={'ok' if v['pass'] else 'FAIL'}"
                                                    for k, v in card["checks"].items()))
     log_fh.close()
@@ -1001,6 +1027,8 @@ def _run(cfg: dict[str, Any], card: dict[str, Any], out: Path, log) -> None:
               f"after {a:.4f} vs reloaded {r:.4f}")
         del re_model, base
         gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()   # the notebook runs the RL pipeline next in the same process
 
     card["plot"] = "loss.png" if write_plot(tr["history"], out / "loss.png") else None
 
