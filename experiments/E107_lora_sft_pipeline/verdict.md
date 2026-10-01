@@ -36,14 +36,16 @@ pipeline on our own verified trajectories, with a held-out eval file (`eval_path
 
 ## Using it for real training
 
-Edit `CONFIG` in `sft/make_notebook.py`:
-- `model`: the base model to fine-tune.
-- `data_path`: a chat/tool JSONL file or Prime `sft_levels.jsonl`.
-- `max_samples`: `None` for all rows.
-- `eval_path`: a held-out file.
-- `max_steps` / `epochs`, `min_loss_drop`.
+*(Updated 2026-10-01: `sft/` was renamed `Alignment/`, and the generated `sft_smoke.ipynb` was replaced by the
+shared, hand-edited `Alignment/alignment.ipynb`, which runs SFT and RL (E108).)*
 
-Then run `uv run python sft/make_notebook.py && uv run python scripts/kaggle_push.py sft`, followed by
-`sft-status` / `sft-output`. Data that is not in the repo needs a Kaggle dataset attached to the kernel; the
-embedded sources only cover `sft/`. A 27B base on the RTX Pro 6000 needs bf16 (selected automatically on sm80+)
-or `load_in_4bit`. Neither has been measured yet (UNCONFIRMED).
+In `Alignment/alignment.ipynb`, edit:
+- `MODEL`;
+- `DATA`: a `/kaggle/input/...` JSONL file. Attach its dataset under `alignment.datasets` in
+  `scripts/kaggle_settings.json`;
+- `MAX_SAMPLES`: `None` for all rows;
+- `SFT_CONFIG`: steps, lr, `eval_path`, `min_loss_drop`.
+
+Then run `uv run python scripts/kaggle_push.py alignment`, followed by `alignment-status` / `alignment-output`. A
+27B base on the RTX Pro 6000 needs bf16 (selected automatically on sm80+) or `load_in_4bit`. Neither has been
+measured yet (UNCONFIRMED).
