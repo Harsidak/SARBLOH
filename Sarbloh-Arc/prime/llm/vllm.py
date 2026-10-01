@@ -107,6 +107,9 @@ class VllmServer:
         self.root_url = f"http://127.0.0.1:{cfg['port']}"
         self.base_url = f"{self.root_url}/v1"
         self.chain = list(cfg.get("profile_chain") or spec.profile_chain)
+        unknown = [p for p in self.chain if p not in spec.profiles]
+        if unknown:  # e.g. a stale notebook forcing another model's chain: say so once, before any launch
+            raise ValueError(f"profile_chain {unknown} not in model {spec.name!r}; known: {sorted(spec.profiles)}")
         self.gate = gate or ServerGate(max_inflight=cfg.get("max_inflight"))
         self.deadline = deadline  # time.time() by which the run ends; None = no wall-clock budget
         self.wd = {**WATCHDOG, **(cfg.get("watchdog_cfg") or {})}
