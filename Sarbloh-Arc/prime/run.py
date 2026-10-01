@@ -66,12 +66,13 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
                    max_actions_per_cell=cfg.get("max_actions_per_cell"),
                    stop_after_levels=cfg.get("stop_after_levels"))
-    dedicated = cfg["agent"].get("toolset") == "dedicated" and cfg["agent"]["tool_mode"] == "native"
-    task = (prompts.TASK_DEDICATED if dedicated else prompts.TASK).format(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
-                               minutes=int(max(0, deadline - time.time()) // 60))
+    e008 = cfg["agent"].get("toolset") == "e008" and cfg["agent"]["tool_mode"] == "native"
+    task = (prompts.E008_TASK if e008 else prompts.TASK).format(game_id=game.game_id,
+                                                                max_actions=cfg["max_actions_per_game"],
+                                                                minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
-                           global_harness_dir=run_dir / "global_harness")
+                           global_harness_dir=run_dir / "global_harness", memory_root=run_dir / "memory")
     session_ref["s"] = session
     t0 = time.time()
     try:
@@ -186,6 +187,10 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
         "turns": agg("turns"), "tool_calls": agg("tool_calls"), "cell_errors": agg("cell_errors"),
         "native_calls": agg("native_calls"), "fenced_calls": agg("fenced_calls"), "compactions": agg("compactions"),
         "continuations": agg("continuations"), "children": agg("children"),
+        # E008: memory and perception use
+        "act_calls": agg("act_calls"), "act_arg_errors": agg("act_arg_errors"), "recalls": agg("recalls"),
+        "hypothesis_events": agg("hypothesis_events"), "promotions": agg("promotions"),
+        "curator_runs": agg("curator_runs"), "curator_errors": agg("curator_errors"), "images_sent": agg("images_sent"),
         "llm": llm.usage.to_json(),
         "wall_s": round(wall_s, 1),
         "per_game": {r.game_id: {"score": round(r.final_score or 0.0, 3), "levels": r.levels_completed,
@@ -236,6 +241,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         cfg["llm"]["base_url"] = server.base_url
         cfg["llm"]["model"] = spec.served_model_name
         cfg["agent"]["tool_mode"] = server.tool_mode
+        cfg["agent"]["vision"] = server.vision  # E008: images only when the served profile passed the image smoke test
         fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
         if cfg["vllm"]["bench"] and not rerun:
             try:
@@ -257,7 +263,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
         summary = run_games(games, cfg, llm, run_dir, soft_end)
-        summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode,
+        summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
+                        "image_probe": server.image_probe,
                         "vllm_attempts": server.attempts, "vllm_restarts": server.restarts,
                         "vllm_freezes": server.freezes,
                         "throughput": server.bench})
@@ -270,7 +277,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             pd.DataFrame([["1_0", "1", True, 1]], columns=["row_id", "game_id", "end_of_game", "score"]).to_parquet(
                 working_dir / "submission.parquet", index=False)
     print("LEDGER_ROW " + json.dumps({k: summary.get(k) for k in (
-        "experiment", "config_hash", "git_sha", "model", "toolset", "vllm_profile", "tool_mode", "throughput", "games",
+        "experiment", "config_hash", "git_sha", "model", "toolset", "vllm_profile", "tool_mode", "vision", "throughput",
+        "games",
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)
     return summary
@@ -304,14 +312,16 @@ def local() -> None:
     ap.add_argument("--no-thinking", action="store_true")
     ap.add_argument("--cell-cap", type=int, default=None, help="E004: max arc.step per cell")
     ap.add_argument("--reflect-every", type=int, default=None, help="E004: forced harness write every N actions")
-    ap.add_argument("--experiment", default=None, help="default: E006_dedicated_tools_local, or E005_prime_fidelity_local "
-                    "with --toolset ipython")
+    ap.add_argument("--experiment", default=None, help="default: E008_perception_memory_local, or "
+                    "E005_prime_fidelity_local with --toolset ipython")
     ap.add_argument("--ctx", type=int, default=16384, help="context window of the local server (llama.cpp -c)")
     ap.add_argument("--auto-refine", type=int, default=25, metavar="TURNS",
                     help="host-driven harness refine every TURNS turns (+ after compaction); 0 = off")
     ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
     ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
-    ap.add_argument("--toolset", default="dedicated", choices=["dedicated", "ipython"])
+    ap.add_argument("--toolset", default="e008", choices=["e008", "ipython"])
+    ap.add_argument("--vision", action="store_true", help="E008: send the image (the server must take images, e.g. "
+                    "serve_llm.ps1 -Vision)")
     ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
     a = ap.parse_args()
@@ -319,13 +329,14 @@ def local() -> None:
     from sarbloh.harness.games import build_games, make_arcade
 
     cfg = build_config({
-        "experiment": a.experiment or ("E006_dedicated_tools_local" if a.toolset == "dedicated"
+        "experiment": a.experiment or ("E008_perception_memory_local" if a.toolset == "e008"
                                        else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
+                  "vision": a.vision,
                   "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
                   "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,

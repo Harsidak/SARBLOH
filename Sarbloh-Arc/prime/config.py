@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 DEFAULT: dict[str, Any] = {
-    "experiment": "E006_dedicated_tools",
+    "experiment": "E008_perception_memory",
     "games": None,                     # None = every environment; else ids or id prefixes (offline only)
     "concurrency": 8,                  # games played at once (each is a root session with its own kernel)
     "notebook_budget_s": 3600.0,       # whole notebook wall clock, measured from its first cell
@@ -23,12 +23,11 @@ DEFAULT: dict[str, Any] = {
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
-        # E006: "dedicated" = ipython + plan/act/reset_level/remember/recall/delegate/message (prime.agent.tools);
-        # "ipython" = upstream's single REPL tool (E003-E005). Fenced mode always uses "ipython".
-        "toolset": "dedicated",
+        # "e008" = ipython (read-only `scene`) + act + recall, with perception pushed after every act and the
+        # agent-written memory (prime.agent.tools, prime.memory); "ipython" = upstream's single REPL tool (E003-E005,
+        # the control arm). Fenced mode always uses "ipython".
+        "toolset": "e008",
         "act_max_actions": 5,          # actions per act call
-        "act_halt_on_mispredict": True,  # stop an act batch at the first step the registered world model gets wrong
-        "replan_every_actions": 15,    # planner nudge after this many actions without a plan update
         "allow_fenced_code": True,     # also execute fenced code when no native call came back
         "max_tokens_per_turn": 16384,
         "request_timeout_s": 900.0,
@@ -39,7 +38,7 @@ DEFAULT: dict[str, Any] = {
         # Ours (E005): also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
         "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 40000},
-        "max_depth": 1,                # root may spawn children; children may not
+        "max_depth": 0,                # E008: subagents off (1 = root may spawn children; children may not)
         "max_running_children": 2,
         "subagent_keepalive_s": 300.0,
         "max_consecutive_llm_failures": 6,
@@ -50,12 +49,33 @@ DEFAULT: dict[str, Any] = {
         "auto_refine": {"enabled": True, "turn_interval": 25, "compact": True, "cooldown_s": 1200.0,
                         "max_tokens": 4096},
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
+        # --- E008 (toolset "e008") -------------------------------------------------------------------------
+        "vision": False,               # set by run.py: True when the served profile passed the image smoke test
+        "perception": {
+            "image": True,             # PNG of the newest frame after every act (only if "vision" is True)
+            "upscale": 4,              # nearest-neighbour: 64x64 -> 256x256 px
+            "ascii": True,             # letter grid: full board at level start, changed region after
+            "segmentation": True,      # object list with ids, hashes, containment, adjacency
+            "crop_margin": 3,          # cells around the changed region
+            "max_objects": 40,         # object rows shown per observation (the rest: `scene` in ipython)
+            "observation_tokens": 800,  # cap on the observation text after an act (chars / 4)
+        },
+        "memory": {
+            "lessons": True,           # the cross-game lessons graph (arm C switches it off)
+            "curator": True,           # hidden curator: open questions, promotions, skills (auto-refine)
+            "curator_every_turns": 25,  # also at every level-up and after every compaction
+            "curator_max_tokens": 4096,
+            "recall_tokens": 1500,
+            # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
+            "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
+                     "questions": 100},
+        },
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },
     # --- model ---------------------------------------------------------------------------------------------
     # "gemma" | "qwen". Picks prime/llm/gemma.py or prime/llm/qwen.py: weights, vLLM profiles, parsers, sampling and
     # thinking policy all come from there (build_config merges them under the overrides below).
-    "model": "gemma",
+    "model": "qwen",
     "llm": {
         "base_url": "http://127.0.0.1:8000/v1",
         "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included (E007)

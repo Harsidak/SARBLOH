@@ -1,20 +1,19 @@
 """Qwen 3.8: everything Qwen-specific for the shared serving layer (see spec.py).
 
-The model is Qwen3.8-Flash-Next NVFP4 (``RadixArk/Qwen3.8-Flash-Next-NVFP4`` rev 7b719225, ModelOpt), which is the
-model the Duck harness runs (owner decision, 2026-09-30). It is a ``qwen4_exp`` MoE: 512 experts with 10 active,
-48 layers with 1 full-attention layer in 4, and a 20M-row FP8 n-gram embedding (PLE) that vLLM offloads to CPU.
-Stock vLLM 0.19 cannot serve it. It runs on Keith Tyser's pinned runtime:
-- the ``vllm/vllm-openai:qwen38-flash-next`` image layers (vLLM 0.1.dev20073+g8e685d198, torch 2.13 cu130);
-- unpacked to /tmp and PLE-patched by his bundle's own ``serving_setup.py`` functions, which check every pin;
-- run under the host's Python 3.12.
-The bundle licence is MIT in its SOURCE_IDENTITY and "unknown" on Kaggle: UNCONFIRMED.
+E008 (owner decision, 2026-10-01): the model is Qwen3.8-27B, not Flash-Next. The chain is
+``qwen_fp8_vision`` -> ``qwen_fp8``: the official ``Qwen/Qwen3.8-27B-FP8`` (Kaggle snapshot ``FP8`` below) on the shared
+vLLM 0.19 wheelhouse with prefix caching and a 65k window, first with one image per prompt (the agent is shown a PNG of
+the game after every act), then text only if the image start or the image smoke test fails. The vision tower is in the
+checkpoint's config (checked 2026-10-01); image serving on vLLM 0.19 FP8 is UNCONFIRMED until the first Kaggle start.
 
-Flags follow the Duck/Keith recipe: qwen3_coder tool parser, qwen3 reasoning parser, MTP x3, async scheduling.
-Sampling follows the Duck: thinking on, temperature 0.6 / top_p 0.95 / top_k 20.
+Flags: qwen3_coder tool parser, qwen3 reasoning parser. Sampling follows the Duck: thinking on, temperature 0.6 /
+top_p 0.95 / top_k 20. E007 v3 measured ``qwen_fp8`` at 388 tok/s over 10 streams with a 0.63 prefix hit rate.
 
-The Qwen3.8-27B FP8 profiles (E007 v3: 648 tok/s at 10 streams with MTP) stay defined as the measured fallback but
-are not in the chain. The 27B NVFP4 (overseer66, an unsloth mixed quant) is gone: vLLM 0.19 has no
-``lm_head.weight_scale`` for its FP8 lm_head (E007 v3).
+The Flash-Next profiles (Keith Tyser's pinned runtime, ``qwen4_exp`` MoE, E007) stay defined but are not in the chain:
+E007 v4 killed ``qwen_flash_pc_64k`` (KV cache does not fit) and ``qwen_flash_pc`` (8.7% prefix hits), and the Flash-Next
+stress test failed. The bundle licence is MIT in its SOURCE_IDENTITY and "unknown" on Kaggle: UNCONFIRMED.
+The 27B NVFP4 (overseer66, an unsloth mixed quant) is gone: vLLM 0.19 has no ``lm_head.weight_scale`` for its FP8
+lm_head (E007 v3). ``nvidia/Qwen3.8-27B-NVFP4`` is E008 arm D, once it is on Kaggle and a newer vLLM starts it.
 """
 
 from __future__ import annotations
@@ -93,13 +92,16 @@ PROFILES: dict[str, dict[str, Any]] = {
         **BASE, **TOOLS, "--enable-prefix-caching": None, "--max-model-len": "65536", "--max-num-seqs": "32",
         "--max-num-batched-tokens": "8192"}},
 }
+# E008: the same profile with one image per prompt (the agent keeps only the newest game image in its context).
+PROFILES["qwen_fp8_vision"] = {**PROFILES["qwen_fp8"], "flags": {
+    **PROFILES["qwen_fp8"]["flags"], "--limit-mm-per-prompt": '{"image": 1, "video": 0}'}}
 
 SPEC = ModelSpec(
     name="qwen",
     served_model_name="qwen3.8",
     profiles=PROFILES,
-    # E007 v4 killed qwen_flash_pc_64k (KV cache does not fit) and qwen_flash_pc (8.7% prefix hits, slower turns).
-    profile_chain=["qwen_flash"],
+    # E008: Qwen3.8-27B-FP8 with images, then the same without (a failed image start or image smoke test).
+    profile_chain=["qwen_fp8_vision", "qwen_fp8"],
     llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens
     runtimes={"flash_next": flash_next_runtime},

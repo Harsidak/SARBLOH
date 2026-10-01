@@ -191,6 +191,11 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     remembers = [e for e in events if e.get("event") == "remember"]
     plans = [e for e in events if e.get("event") == "plan"]
     wm_events = [e for e in events if e.get("event") == "wm"]
+    hyps = [e for e in events if e.get("event") == "hypothesis"]          # E008
+    goal_events = [e for e in events if e.get("event") == "goal"]         # E008
+    level_ups = [e for e in events if e.get("event") == "level_up"]       # E008
+    curations = [e for e in events if e.get("event") == "curator"]        # E008
+    recalls = [e for e in events if e.get("event") == "recall"]           # E008
 
     # 1. actions and their causes ------------------------------------------------------------------------
     act_by_call = {str(a.get("call")): a for a in acts}
@@ -207,12 +212,12 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
         for s in steps:
             call = str(s.get("call"))
             act = act_by_call.get(call)
-            tool = "act" if s.get("source") == "tool" and s.get("action") != 0 else \
-                "reset_level" if s.get("source") == "tool" else "ipython"
+            tool = "act" if act is not None else "reset_level" if s.get("source") == "tool" else "ipython"
             actions.append({
                 "i": s.get("i"), "turn": s.get("turn"), "call": s.get("call"), "tool": tool,
                 "action": s.get("action"), "x": s.get("x"), "y": s.get("y"), "level": s.get("level"),
-                "expect": act.get("expect") if act else (reset_by_i.get(s.get("i")) or {}).get("reason"),
+                "expect": (act.get("expect") or act.get("plan")) if act else
+                (reset_by_i.get(s.get("i")) or {}).get("reason"),
                 "happened": s.get("change"), "changed_px": s.get("changed"), "state": s.get("state"),
                 "level_up": s.get("level_up"), "wm_match": wm_of.get(s.get("i")),
                 "self_verdict": next_verdict.get(call) if act else None, "repeat_of": s.get("repeat_of"),
@@ -256,7 +261,29 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
             beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
                             "first_level": None, "kinds": ["refine"], "versions": 1, "refuted_at": None,
                             "evidence": [], "content": _one(json.dumps(e.get("applied"), default=str), 300)}
+    for h in hyps:   # E008: the agent's hypotheses, with the statuses it set
+        bid = f"{h.get('level')}:{h.get('id')}"
+        b = beliefs.setdefault(bid, {"id": bid, "title": None, "first_turn": h.get("turn"),
+                                     "first_action": h.get("action_count"), "first_level": h.get("level"),
+                                     "kinds": [], "versions": 0, "refuted_at": None, "evidence": []})
+        if not b["kinds"] or b["kinds"][-1] != h.get("status"):
+            b["kinds"].append(h.get("status"))
+        b["versions"] += 1
+        b["evidence"] = sorted(set(b["evidence"]) | set(h.get("evidence") or []))
+        b["content"] = h.get("text")
+        if h.get("status") == "refuted" and b["refuted_at"] is None:
+            b["refuted_at"] = h.get("action_count")
+    for e in events:
+        if e.get("event") == "finding":
+            bid = f"finding:{e.get('t')}"
+            beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
+                            "first_level": e.get("level"), "kinds": ["finding"], "versions": 1, "refuted_at": None,
+                            "evidence": e.get("evidence") or [], "content": e.get("text")}
     goals = []
+    for g in goal_events:
+        goals.append({"version": f"goal (turn {g.get('turn')})", "turn": g.get("turn"),
+                      "action_count": g.get("action_count"), "level": g.get("level"), "phase": "act",
+                      "goal": g.get("goal"), "correct": None})
     for p in plans:
         if not goals or goals[-1]["goal"] != p.get("goal"):
             goals.append({"version": p.get("version"), "turn": p.get("turn"), "action_count": p.get("action_count"),
@@ -310,6 +337,9 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     for p in plans:
         if p.get("goal_changed") or p.get("version") == 1:
             belief_marks[p.get("level") or 0].append(p.get("action_count") or 0)
+    for h in hyps:
+        if h.get("prev_status") != h.get("status"):
+            belief_marks[h.get("level") or 0].append(h.get("action_count") or 0)
     waste = []
     for lvl in range(len(per_level) or (max((a["level"] or 0 for a in actions), default=0) + 1)):
         mine = [a for a in actions if a.get("level") == lvl]
@@ -347,7 +377,22 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "act_batch_mean": round(sum(a.get("done", 0) for a in acts) / len(acts), 2) if acts else None,
            "wm_events": [{k: v for k, v in e.items() if k not in ("event",)} for e in wm_events],
            "wm_checks": stats.get("wm_checks"), "wm_mispredictions": stats.get("wm_mispredictions"),
-           "children": stats.get("children"), "plan_versions": len(plans)}
+           "children": stats.get("children"), "plan_versions": len(plans),
+           # E008
+           "act_arg_errors": stats.get("act_arg_errors"), "recalls": len(recalls),
+           "recall_scopes": dict(Counter(str(r.get("scope")) for r in recalls)),
+           "hypotheses": len({(h.get("level"), h.get("id")) for h in hyps}),
+           "hypothesis_statuses": dict(Counter(h.get("status") for h in hyps)),
+           "levels_without_hypothesis": sorted({a["level"] for a in actions if a.get("level") is not None}
+                                               - {h.get("level") for h in hyps}) if hyps or acts else None,
+           "promotions": sum(len(e.get("promoted") or []) for e in level_ups),
+           "curator_runs": len([c for c in curations if not c.get("error")]),
+           "curator_errors": len([c for c in curations if c.get("error")]),
+           "skills_written": sorted({s for c in curations for s in c.get("skills") or []}),
+           "images_sent": stats.get("images_sent"), "observation_chars_max": stats.get("observation_chars_max"),
+           "pinned_chars_max": stats.get("pinned_chars_max"),
+           "repeated_share": round(sum(1 for r in actions if r.get("repeat_of") is not None) / len(actions), 3)
+           if actions and steps else None}
     return {"game_id": run.get("game_id"), "levels_completed": cleared, "number_of_levels": run.get("number_of_levels"),
             "score": run.get("final_score"), "actions": actions,
             "repeats": sum(1 for r in actions if r.get("repeat_of") is not None) if steps else None, "beliefs": list(beliefs.values()), "goals": goals,
@@ -362,9 +407,9 @@ def render_report(a: dict[str, Any]) -> str:
            f"| end {c.get('end_reason')} | toolset {c.get('toolset')}", ""]
     # 1
     out += ["## 1. Actions and their causes", "",
-            "`wm` = the registered world model's verdict on the step; `self` = the agent's own `was_right` on its "
-            "next act; `repeat` = same state and action as an earlier step.", "",
-            "| # | turn | call | tool | action | expect / reason | what happened | wm | self | repeat |",
+            "`expect / plan` = E006's prediction or E008's plan for the act; `wm` / `self` = E006 only; `repeat` = "
+            "same state and action as an earlier step.", "",
+            "| # | turn | call | tool | action | expect / plan | what happened | wm | self | repeat |",
             "|---|---|---|---|---|---|---|---|---|---|"]
     for r in a["actions"]:
         act = "RESET" if r["action"] == 0 else f"A{r['action']}" + (f"({r['x']},{r['y']})" if r.get("x") is not None else "")
@@ -432,6 +477,13 @@ def render_report(a: dict[str, Any]) -> str:
             + (", ".join(f"{e.get('kind')} {e.get('name', '')} v{e.get('version', '')}"
                          + (f" {e.get('passed')}/{e.get('tested')}" if e.get('kind') == 'check' else "")
                          for e in c.get("wm_events") or []) or "none"),
+            f"- E008: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
+            f"{json.dumps(c.get('recall_scopes'))}, hypotheses {c.get('hypotheses')} "
+            f"{json.dumps(c.get('hypothesis_statuses'))}, levels without a hypothesis "
+            f"{c.get('levels_without_hypothesis')}, promotions {c.get('promotions')}, curator runs "
+            f"{c.get('curator_runs')} (errors {c.get('curator_errors')}), skills written {c.get('skills_written')}, "
+            f"images {c.get('images_sent')}, largest observation {c.get('observation_chars_max')} chars, largest "
+            f"memory block {c.get('pinned_chars_max')} chars, repeated (state, action) share {c.get('repeated_share')}",
             f"- compactions: {len(c.get('compactions') or [])}"]
     for cp in c.get("compactions") or []:
         out.append(f"  - +{cp['t']}s ({cp['reason']}) at action {cp['action_count']}: {cp['summarized_messages']} "
@@ -486,7 +538,8 @@ def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], se
                 levels = acts[-1].get("levels") if acts[-1].get("levels") is not None else levels
             elif status:
                 out += [f"**No actions**{status}", ""]
-        elif kind in ("plan", "remember", "wm", "delegate", "message_sent", "tool_error"):
+        elif kind in ("plan", "remember", "wm", "delegate", "message_sent", "tool_error", "hypothesis", "finding",
+                      "goal", "recall", "level_up", "curator", "memory_init"):
             detail = {k: v for k, v in ev.items() if k not in ("t", "event", "prev_content", "steps")}
             out += [f"- **[{kind}]** {t} " + _cut(json.dumps(detail, default=str, ensure_ascii=False), 500)]
         elif kind in ("compaction", "compaction_error", "compaction_skipped", "auto_refine", "spawn", "crash",
@@ -521,10 +574,18 @@ def _merge_users(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in msgs:
         if out and m["role"] == "user" and out[-1]["role"] == "user":
-            out[-1] = {**out[-1], "content": f"{out[-1]['content']}\n\n{m['content']}"}
+            a, b = out[-1]["content"], m["content"]
+            if isinstance(a, str) and isinstance(b, str):
+                out[-1] = {**out[-1], "content": f"{a}\n\n{b}"}
+            else:   # E008 observations are lists of parts (text + image marker)
+                out[-1] = {**out[-1], "content": _as_parts(a) + _as_parts(b)}
         else:
             out.append(m)
     return out
+
+
+def _as_parts(content: Any) -> list[dict[str, Any]]:
+    return content if isinstance(content, list) else [{"type": "text", "text": str(content)}]
 
 
 def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[str, Any],
@@ -599,8 +660,8 @@ def build_run(run_dir: Path) -> Path:
              f"experiment `{context['experiment']}` | config `{context['config_hash']}` | git `{context['git_sha']}` | "
              f"model `{context['model']}` | toolset `{context['toolset']}`", "",
              "| game | levels | actions | turns | tools used | act calls | resets | GAME_OVERs | repeats | "
-             "beliefs | living code | wm checks | compactions | end | report | map |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "beliefs | living code | wm checks | promotions | compactions | end | report | map |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     sft: list[dict[str, Any]] = []
     for game_id, run in sorted(runs.items()):
         game_dir = run_dir / "games" / game_id
@@ -627,7 +688,8 @@ def build_run(run_dir: Path) -> Path:
             f"{a['context'].get('act_calls')} | {sum(1 for r in acts if r['action'] == 0)} | "
             f"{sum(1 for r in acts if r.get('state') == 'GAME_OVER')} | "
             f"{sum(1 for r in acts if r.get('repeat_of') is not None)} | {len(a['beliefs'])} | "
-            f"{a['living_code']['living_code_ratio']} | {a['context'].get('wm_checks')} | {session.get('compactions')} | "
+            f"{a['living_code']['living_code_ratio']} | {a['context'].get('wm_checks')} | "
+            f"{a['context'].get('promotions')} | {session.get('compactions')} | "
             f"{session.get('end_reason')} | [report](games/{game_id}/report.md) | [map](games/{game_id}/steps.md) |")
     with (run_dir / "sft_levels.jsonl").open("w", encoding="utf-8") as fh:
         for r in sft:

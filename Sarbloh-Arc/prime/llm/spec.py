@@ -41,6 +41,14 @@ class ModelSpec:
     def has_tool_parser(self, profile: str) -> bool:
         return "--tool-call-parser" in self.profiles[profile]["flags"]
 
+    def has_vision(self, profile: str) -> bool:
+        """True when the profile accepts at least one image per prompt (``--limit-mm-per-prompt`` image > 0)."""
+        raw = self.profiles[profile]["flags"].get("--limit-mm-per-prompt")
+        try:
+            return int(json.loads(raw).get("image", 0)) > 0 if raw else False
+        except (ValueError, AttributeError, TypeError):
+            return False
+
     def fix_tool_calls(self, calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Applies ``fix_tool_arguments`` to each call's JSON arguments; arguments that do not parse are left alone
         (the agent reports those to the model)."""

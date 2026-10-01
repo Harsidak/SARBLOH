@@ -118,6 +118,7 @@ class VllmServer:
         self.restarts = 0
         self.freezes: dict[str, int] = {}
         self.startup_s: float | None = None
+        self.image_probe: str | None = None  # the model's answer to the image smoke test (vision profiles)
         self._stop = threading.Event()
         self._lock = threading.RLock()
 
@@ -137,6 +138,11 @@ class VllmServer:
     @property
     def max_model_len(self) -> int:
         return self.spec.max_model_len(self.profile) if self.profile else 0
+
+    @property
+    def vision(self) -> bool:
+        """The running profile accepts an image per prompt (and passed the image smoke test)."""
+        return bool(self.profile) and self.spec.has_vision(self.profile)
 
     def event(self, name: str, **detail: Any) -> None:
         row = {"t": round(time.time(), 1), "event": name, "profile": self.profile, **detail}
@@ -391,6 +397,26 @@ class VllmServer:
         log(f"smoke: no native tool call parsed; using fenced mode. message={json.dumps(msg)[:800]}")
         return "fenced"
 
+    def image_smoke(self) -> str:
+        """One request with a small PNG (a red square): the server must accept the image part. The answer is logged,
+        not judged: the check is that the multimodal path works, not the model's eyesight."""
+        from prime.agent.vision import data_url
+
+        body: dict[str, Any] = {"model": self.spec.served_model_name, "temperature": 0.0, "max_tokens": 256,
+                                "messages": [{"role": "user", "content": [
+                                    {"type": "text", "text": "What colour fills this image? Answer in one word."},
+                                    {"type": "image_url", "image_url": {"url": data_url([[8] * 16] * 16, upscale=4)}}]}]}
+        if self.spec.smoke_template_kwargs:
+            body["chat_template_kwargs"] = dict(self.spec.smoke_template_kwargs)
+        t = time.time()
+        out = request_json(f"{self.base_url}/chat/completions", body, timeout=600)
+        msg = out["choices"][0]["message"]
+        answer = str(msg.get("content") or msg.get("reasoning_content") or "")[:200]
+        log(f"image smoke ok in {time.time() - t:.1f}s: prompt_tokens={(out.get('usage') or {}).get('prompt_tokens')} "
+            f"answer={answer!r}")
+        self.image_probe = answer
+        return answer
+
     def _start_profile(self, profile: str, smoke: bool = True) -> bool:
         t = time.time()
         try:  # a missing input or a failed runtime unpack fails this profile, not the chain
@@ -412,6 +438,12 @@ class VllmServer:
                 log(f"smoke test error on {profile}: {err[:800]}")
         elif not ok:
             err = "did not become ready"
+        if ok and smoke and self.spec.has_vision(profile):
+            try:  # a vision profile that cannot take an image fails; the chain moves on to a text-only profile
+                self.image_smoke()
+            except Exception as exc:  # noqa: BLE001
+                ok, err = False, f"image smoke failed: {exc!r}"
+                log(f"{err[:800]}")
         seconds = round(time.time() - t)
         self.attempts.append({"profile": profile, "ok": ok, "seconds": seconds,
                               "tool_mode": self.tool_mode if ok else None, "error": err[:500]})
@@ -434,10 +466,12 @@ class VllmServer:
     # --- watchdog ----------------------------------------------------------------------------------------
     def _fallbacks(self) -> list[str]:
         """Profiles to try on a restart: the current one unless it froze ``fallback_after`` times, then the rest of
-        the chain. Only profiles with the current tool mode: the agents are already configured for it."""
+        the chain. Only profiles with the current tool mode and image support: the agents are already configured for
+        them."""
         native = self.tool_mode == "native"
         rest = self.chain[self.chain.index(self.profile) + 1:] if self.profile in self.chain else []
-        rest = [p for p in rest if self.spec.has_tool_parser(p) == native]
+        rest = [p for p in rest if self.spec.has_tool_parser(p) == native
+                and self.spec.has_vision(p) == self.spec.has_vision(self.profile)]
         if self.freezes.get(self.profile, 0) < self.wd["fallback_after"]:
             return [self.profile, *rest]
         return rest or [self.profile]

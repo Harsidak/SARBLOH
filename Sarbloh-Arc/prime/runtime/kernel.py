@@ -44,10 +44,14 @@ try:
     import arc
 except Exception as _arc_exc:
     arc = None
-try:
-    import worldmodel as wm
-except Exception as _wm_exc:
-    wm = None
+if os.environ.get("PRIME_TOOLSET") == "e008":
+    import scene          # E008: the state is pushed after every act; the REPL reads it and cannot fetch the game
+    class _NoArc:
+        def __getattr__(self, name):
+            raise RuntimeError("there is no `arc` in this harness: the state is pushed to you after every act. "
+                               "Read it in `scene` (scene.objects, scene.ascii(...), scene.history(n)); act with "
+                               "the act tool.")
+    arc = _NoArc()
 """
 
 
