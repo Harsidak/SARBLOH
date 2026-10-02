@@ -1,0 +1,5 @@
+LOOK-ALIKE THREADS (things that are the same up to move / turn / mirror / resize / recolour)
+#1 TURNED: the blue irregular shape (24 cells) (it is drawn 2x bigger), mirrored left-right OR turned 90 deg clockwise, becomes exactly the blue 6-cell shape  [blue irregular shape (24 cells) @ HUD  <->  blue 6-cell shape @ rows 11-13, cols 35-37]
+     NEAR: as currently drawn they differ in 2 of 9 cells
+COPIES: 3 identical red squares (2x2) -> a count of something (lives, items, tiles)
+COLOUR LINK: blue appears in 3 different things: blue 6-cell shape; orange top / blue bottom square; blue irregular shape (24 cells) -> they likely belong together

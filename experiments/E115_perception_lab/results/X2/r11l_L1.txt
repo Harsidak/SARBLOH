@@ -1,0 +1,8 @@
+SURPRISE MAP - 90% of the screen is predictable texture; the rest, ranked by information:
+1. white bar (64x1) at rows 0-63, cols 0-0 [HUD] - 480 bits (5% of all surprise)
+2. purple with magenta centre disc (5x5) at rows 45-49, cols 15-19 [bottom-left] - 252 bits (2% of all surprise)
+3. white with purple centre diamond (5x5) at rows 34-38, cols 5-9 [middle-left] - 156 bits (1% of all surprise)
+4. dark grey with purple centre diamond (5x5) at rows 57-61, cols 25-29 [bottom-centre] - 156 bits (1% of all surprise)
+5. purple dotted ring (7x7) at rows 18-24, cols 36-42 [top-centre] - 132 bits (1% of all surprise)
+6. light grey line (9x7) at rows 49-57, cols 19-25 [bottom-centre] - 92 bits (1% of all surprise)
+7. light grey line (8x7) at rows 38-45, cols 9-15 [middle-left] - 81 bits (1% of all surprise)

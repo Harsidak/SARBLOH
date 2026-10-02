@@ -1,0 +1,8 @@
+EXPLODED INVENTORY - 6 kinds of thing on screen
+Background/terrain: charcoal (64%), dark grey (22%), black (11%)
+A: blue 6-cell shape (3x3 cells) -- top-centre, inside a black box; rows 11-13, cols 35-37
+B: white (top, right, centre) + light grey (bottom, left) plus (3x3 cells) -- middle-left, on dark grey ground; rows 31-33, cols 20-22
+C: orange top / blue bottom square (5x5 cells) -- bottom-centre, on dark grey ground; rows 45-49, cols 34-38
+D: blue irregular shape (24 cells) (6x6 cells) -- bottom-left, screen edge / HUD; rows 55-60, cols 3-8
+E: yellow bar (2x42 cells) -- bottom-centre, screen edge / HUD; rows 61-62, cols 13-54
+F x3: red square (2x2 cells) -- bottom-right, screen edge / HUD; rows 61-62, cols 56-57; rows 61-62, cols 59-60; rows 61-62, cols 62-63

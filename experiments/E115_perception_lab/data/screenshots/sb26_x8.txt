@@ -1,0 +1,62 @@
+BRIEFING (arrow keys)
+MEASURED (certain):
+- no tile grid -> free movement. Open space = charcoal (89% of screen).
+- all 5 main objects share one open space; straight paths between them are clear except: B (red/white ring) -> H (green square) (5 rock cells); B (red/white ring) -> I (purple square) (4 rock cells); B (red/white ring) -> J (blue square) (4 rock cells); B (red/white ring) -> K (yellow square) (5 rock cells)
+- B (red/white ring) encloses a 10x28 space
+- B (red/white ring) is directly below C/D/E/F (grey square) (shared columns 22-23)
+- B (red/white ring) is directly below C/D/E/F (grey square) (shared columns 28-29)
+- B (red/white ring) is directly below C/D/E/F (grey square) (shared columns 34-35)
+- B (red/white ring) is directly below C/D/E/F (grey square) (shared columns 40-41)
+- B (red/white ring) is directly above H (green square) (shared columns 18-21)
+- B (red/white ring) is directly above I (purple square) (shared columns 26-29)
+- B (red/white ring) is directly above J (blue square) (shared columns 34-37)
+- B (red/white ring) is directly above K (yellow square) (shared columns 42-45)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is directly above I (purple square) (shared columns 28-29)
+- C/D/E/F (grey square) is level with and left of C/D/E/F (grey square) (shared rows 29-30)
+- C/D/E/F (grey square) is directly above J (blue square) (shared columns 34-35)
+- H (green square) is level with and left of I (purple square) (shared rows 57-60)
+- H (green square) is level with and left of J (blue square) (shared rows 57-60)
+- H (green square) is level with and left of K (yellow square) (shared rows 57-60)
+- I (purple square) is level with and left of J (blue square) (shared rows 57-60)
+- I (purple square) is level with and left of K (yellow square) (shared rows 57-60)
+- J (blue square) is level with and left of K (yellow square) (shared rows 57-60)
+- H (green square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- I (purple square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- J (blue square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- K (yellow square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- H (green square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- I (purple square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- J (blue square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- K (yellow square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- H (green square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- I (purple square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- J (blue square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- K (yellow square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- H (green square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- I (purple square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- J (blue square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- K (yellow square) (it is drawn 2x bigger), as is, becomes exactly C/D/E/F (grey square)
+- same shape, different colour (green vs purple)
+- same shape, different colour (green vs blue)
+- same shape, different colour (green vs yellow)
+- same shape, different colour (purple vs blue)
+- same shape, different colour (purple vs yellow)
+- same shape, different colour (blue vs yellow)
+- 4 identical C/D/E/F (grey square)s (2x2) -> a count of something (lives, items, tiles)
+GUESSES (check with one action):
+- A (black/blue rectangle) = INVENTORY (67%) - test: watch it after touching the modifier
+- B (red/white ring) = YOU (75%) - test: press one arrow key: it should move one tile and the gauge should drop
+- C (grey square) = GOAL (50%) - test: get the right thing into it and see if the level ends
+- D (grey square) = GOAL (50%) - test: get the right thing into it and see if the level ends
+- E (grey square) = GOAL (50%) - test: get the right thing into it and see if the level ends
+- F (grey square) = GOAL (50%) - test: get the right thing into it and see if the level ends
+- G (grey bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- H (green square) = SCENERY (86%) - test: ignore unless something else fails
+- I (purple square) = SCENERY (86%) - test: ignore unless something else fails
+- J (blue square) = SCENERY (86%) - test: ignore unless something else fails
+- K (yellow square) = SCENERY (86%) - test: ignore unless something else fails

@@ -1,0 +1,16 @@
+BRIEFING (clicks)
+MEASURED (certain):
+- no tile grid -> free movement. Open space = black (81% of screen).
+- all 4 main objects share one open space; straight paths between them are ALL CLEAR of rock
+- the grey areas are solid rock/walls
+- B (purple dotted ring) encloses a EMPTY 5x5 space -- exactly the size of: C (white/purple diamond), D (purple/magenta disc), E (dark grey/purple diamond)
+- a light grey line connects C (white/purple diamond) to D (purple/magenta disc)
+- a light grey line connects D (purple/magenta disc) to E (dark grey/purple diamond)
+- D (purple/magenta disc) sits at the MIDPOINT of C (white/purple diamond) and E (dark grey/purple diamond) (error 0.5 cells) -> it is held between them; moving either end should move it to the new midpoint
+- same shape, different colour (white/purple vs dark grey/purple)
+GUESSES (check with one action):
+- A (white bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- B (purple dotted ring) = GOAL (80%) - test: get the right thing into it and see if the level ends
+- C (white/purple diamond) = HANDLE (click) (80%) - test: click an empty spot once: the selected handle should jump there
+- D (purple/magenta disc) = CARRIED THING (75%) - test: move one handle: it should slide to the new midpoint
+- E (dark grey/purple diamond) = HANDLE (click) (80%) - test: click an empty spot once: the selected handle should jump there

@@ -1,0 +1,28 @@
+ROLE LEDGER (arrow keys available)
+* orange top / blue bottom square @ rows 45-49, cols 34-38: YOU 80%
+     because: most self-like: compact, multi-coloured, unique, standing on the floor
+     because: its size (5) equals the floor tile size -> it walks tile by tile
+     test: press one arrow key: it should move one tile and the gauge should drop
+* blue irregular shape (24 cells) @ rows 55-60, cols 3-8: INVENTORY 80%
+     because: single icon in a status box
+     because: HUD icon is the same shape as the blue 6-cell shape (differently oriented/sized)
+     test: watch it after touching the modifier
+* blue 6-cell shape @ rows 11-13, cols 35-37: GOAL 75%
+     because: displayed inside a special box in the play area
+     because: its shape is repeated by the HUD icon -> it asks for that item, in this orientation
+     test: get the right thing into it and see if the level ends
+* yellow bar @ rows 61-62, cols 13-54: MOVES LEFT 75%
+     because: long bar at the screen edge = a gauge
+     test: take any action and check it shrinks by one unit
+* red square @ rows 61-62, cols 56-57: LIVES 75%
+     because: 3 identical copies at the screen edge = a count
+     test: watch it when the gauge runs out or you fail
+* red square @ rows 61-62, cols 59-60: LIVES 75%
+     because: 3 identical copies at the screen edge = a count
+     test: watch it when the gauge runs out or you fail
+* red square @ rows 61-62, cols 62-63: LIVES 75%
+     because: 3 identical copies at the screen edge = a count
+     test: watch it when the gauge runs out or you fail
+* white (top, right, centre) + light grey (bottom, left) plus @ rows 31-33, cols 20-22: MODIFIER 67%
+     because: small symbol on the floor with deliberately lopsided colours
+     test: step onto it, then check whether the inventory icon changed

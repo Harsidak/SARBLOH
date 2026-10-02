@@ -1,0 +1,9 @@
+VISUAL ROUTINES
+R1 REACH: no tile grid -> free movement. Open space = black (81% of screen).
+   - all 4 main objects share one open space; straight paths between them are ALL CLEAR of rock
+   - the grey areas are solid rock/walls
+R2 FIT: the purple dotted ring encloses a EMPTY 5x5 space -- exactly the size of: white with purple centre diamond, purple with magenta centre disc, dark grey with purple centre diamond
+R3 TRACE: a light grey line connects the white with purple centre diamond to the purple with magenta centre disc
+R3 TRACE: a light grey line connects the purple with magenta centre disc to the dark grey with purple centre diamond
+R3 TRACE: the purple with magenta centre disc sits at the MIDPOINT of the white with purple centre diamond and the dark grey with purple centre diamond (error 0.5 cells) -> it is held between them; moving either end should move it to the new midpoint
+R4 ALIGN: no two things line up.

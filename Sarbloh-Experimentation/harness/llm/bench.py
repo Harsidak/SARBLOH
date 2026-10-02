@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.llm.client import LLM, ServerGate
-from harness.llm.vllm import VllmServer, log, request_json
+from harness.llm.server import LlmServer, log, request_json
 
 SYSTEM = ("You are an agent playing a grid game. Frames are 64x64 grids of integers 0-15, origin top-left, (x, y). "
           "Actions: 1 up, 2 down, 3 left, 4 right, 5 use, 6 click x y. Think about the objects and their rules, "
@@ -53,18 +53,32 @@ def _ratio(a: float | None, b: float | None) -> float | None:
     return None if a is None or not b else round(a / b, 3)
 
 
-def _post(server: VllmServer, body: dict[str, Any], timeout: float = 900) -> tuple[dict, float]:
+def _post(server: LlmServer, body: dict[str, Any], timeout: float = 900) -> tuple[dict, float]:
     t = time.time()
     out = request_json(f"{server.base_url}/chat/completions", {"model": server.spec.served_model_name, **body},
                        timeout=timeout)
     return out, time.time() - t
 
 
-def decode(server: VllmServer, streams: int, max_tokens: int = 512) -> dict[str, Any]:
+PUZZLE = ("[{i}] A 12x12 grid game: a 2x2 player block at (1,1), a key at (9,2), a locked door in the wall at "
+          "(6,0..11) with one gap at (6,{gap}), the exit at (10,10). Actions: up, down, left, right. Work out the "
+          "shortest action sequence step by step, then check it cell by cell.")
+
+
+def decode(server: LlmServer, streams: int, max_tokens: int = 512, thinking: bool = False) -> dict[str, Any]:
+    """``thinking=False``: forced ``max_tokens`` (ignore_eos) of plain text, like for like since E007.
+    ``thinking=True`` (E112): the agent's real decode shape, a reasoning trace on a puzzle with the Duck's sampling
+    (temperature 0.6, top_p 0.95, top_k 20), stopping when the model stops; tok/s = completion tokens / wall."""
     def one(i: int) -> int:
-        out, _ = _post(server, {"temperature": 0.7, "max_tokens": max_tokens, "ignore_eos": True,
-                                "chat_template_kwargs": {"enable_thinking": False},
-                                "messages": [{"role": "user", "content": f"[{i}] Describe a grid puzzle game."}]})
+        if thinking:
+            body = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "max_tokens": max_tokens,
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "messages": [{"role": "user", "content": PUZZLE.format(i=i, gap=i % 10 + 1)}]}
+        else:
+            body = {"temperature": 0.7, "max_tokens": max_tokens, "ignore_eos": True,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "messages": [{"role": "user", "content": f"[{i}] Describe a grid puzzle game."}]}
+        out, _ = _post(server, body)
         return (out.get("usage") or {}).get("completion_tokens", 0)
 
     m0, t = server.metrics(), time.time()
@@ -79,7 +93,7 @@ def decode(server: VllmServer, streams: int, max_tokens: int = 512) -> dict[str,
             "spec_accept_length": (m1 or {}).get("sglang:spec_accept_length")}
 
 
-def cold_prefill(server: VllmServer, streams: int, grids: int = 3) -> dict[str, Any]:
+def cold_prefill(server: LlmServer, streams: int, grids: int = 3) -> dict[str, Any]:
     def one(i: int) -> tuple[int, float]:
         text = "\n\n".join(grid_text(10_000 + 97 * i + g) for g in range(grids))
         out, s = _post(server, {"temperature": 0.0, "max_tokens": 1, "chat_template_kwargs": {"enable_thinking": False},
@@ -109,7 +123,7 @@ def _session(chat: Any, sid: int, turns: int, max_tokens: int, thinking: bool) -
     return times
 
 
-def agent_like(server: VllmServer, sessions: int, turns: int = 5, max_tokens: int = 256,
+def agent_like(server: LlmServer, sessions: int, turns: int = 5, max_tokens: int = 256,
                thinking: bool = False) -> dict[str, Any]:
     def chat(msgs: list, max_tokens: int, thinking: bool) -> str:
         out, _ = _post(server, {"temperature": 0.6, "max_tokens": max_tokens, "messages": msgs,
@@ -143,7 +157,7 @@ TOOLS = [
 ]
 
 
-def tool_check(server: VllmServer) -> dict[str, Any]:
+def tool_check(server: LlmServer) -> dict[str, Any]:
     body: dict[str, Any] = {"temperature": 0.0, "max_tokens": 2048, "tools": TOOLS, "tool_choice": "auto",
                             "messages": [{"role": "user", "content": "Call the plan tool with goal 'find the exit' "
                                                                      "and phase explore. Only call the tool."}]}
@@ -158,7 +172,7 @@ def tool_check(server: VllmServer) -> dict[str, Any]:
             "repair_needed": args != [c["function"]["arguments"] for c in fixed]}
 
 
-def quick(server: VllmServer, concurrency: int = 8) -> dict[str, Any]:
+def quick(server: LlmServer, concurrency: int = 8) -> dict[str, Any]:
     """The throughput probe run.py prints before the games (same keys as before E007)."""
     one, many = decode(server, 1), decode(server, concurrency)
     server.bench = {"single_stream_tok_s": one["tok_s"], "aggregate_tok_s": many["tok_s"],
@@ -168,7 +182,7 @@ def quick(server: VllmServer, concurrency: int = 8) -> dict[str, Any]:
     return server.bench
 
 
-def profile_bench(server: VllmServer, streams: int = 10) -> dict[str, Any]:
+def profile_bench(server: LlmServer, streams: int = 10) -> dict[str, Any]:
     row: dict[str, Any] = {"profile": server.profile, "tool_mode": server.tool_mode,
                            "flags": server.spec.profiles[server.profile]["flags"],
                            "model_dataset": server.spec.profiles[server.profile]["model_dataset"],
@@ -177,6 +191,7 @@ def profile_bench(server: VllmServer, streams: int = 10) -> dict[str, Any]:
                      ("decode_1", lambda: decode(server, 1)),
                      ("decode_8", lambda: decode(server, 8)),  # E006's probe ran 8 streams: like for like
                      (f"decode_{streams}", lambda: decode(server, streams)),
+                     (f"think_{streams}", lambda: decode(server, streams, max_tokens=2048, thinking=True)),  # E112
                      ("cold_prefill", lambda: cold_prefill(server, streams)),
                      ("agent_like", lambda: agent_like(server, streams)),
                      ("agent_like_thinking", lambda: agent_like(server, streams, turns=3, max_tokens=1024,
@@ -190,7 +205,7 @@ def profile_bench(server: VllmServer, streams: int = 10) -> dict[str, Any]:
 
 
 # --- freeze injection ---------------------------------------------------------------------------------------
-def engine_pids(server: VllmServer) -> list[int]:
+def engine_pids(server: LlmServer) -> list[int]:
     """Every process in the server's group except the API server itself (the engine core and its workers)."""
     if server.process is None:
         return []
@@ -198,7 +213,7 @@ def engine_pids(server: VllmServer) -> list[int]:
     return [int(p) for p in out.split() if p.strip() and int(p) != server.process.pid]
 
 
-def stress(server: VllmServer, llm_cfg: dict[str, Any], minutes: float = 12.0, sessions: int = 10,
+def stress(server: LlmServer, llm_cfg: dict[str, Any], minutes: float = 12.0, sessions: int = 10,
            freeze_at_s: float = 120.0, turns: int = 6) -> dict[str, Any]:
     """Agent-like sessions through ``LLM`` + the server's gate, with the watchdog on, freezing the engine once."""
     llm = LLM(llm_cfg, spec=server.spec, gate=server.gate)
@@ -259,15 +274,15 @@ def stress(server: VllmServer, llm_cfg: dict[str, Any], minutes: float = 12.0, s
             "llm_failures": llm.usage.failures}
 
 
-def run(model_name: str, profiles: list[str], vllm_cfg: dict[str, Any], llm_cfg: dict[str, Any], out_dir: Path,
+def run(model_name: str, profiles: list[str], server_cfg: dict[str, Any], llm_cfg: dict[str, Any], out_dir: Path,
         deadline: float, streams: int = 10, stress_minutes: float = 12.0) -> list[dict[str, Any]]:
     """Bench each profile on a fresh server, then stress the fastest native-tool profile. Rows go to
-    ``out_dir/vllm_bench.json`` as they finish, so a crash keeps what was measured."""
+    ``out_dir/server_bench.json`` as they finish, so a crash keeps what was measured."""
     from harness.llm.spec import get_spec
 
     spec = get_spec(model_name)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "vllm_bench.json"
+    path = out_dir / "server_bench.json"
     rows: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
 
     def save() -> None:
@@ -278,7 +293,7 @@ def run(model_name: str, profiles: list[str], vllm_cfg: dict[str, Any], llm_cfg:
             rows.append({"model": model_name, "profile": profile, "skipped": "time"})
             save()
             continue
-        server = VllmServer(spec, vllm_cfg, out_dir, deadline=deadline)
+        server = LlmServer(spec, server_cfg, out_dir, deadline=deadline)
         try:
             server.start(chain=[profile])
             rows.append({"model": model_name, **profile_bench(server, streams)})
@@ -293,7 +308,7 @@ def run(model_name: str, profiles: list[str], vllm_cfg: dict[str, Any], llm_cfg:
     ranked.sort(key=lambda r: -r[f"decode_{streams}"]["tok_s"])
     if ranked and stress_minutes > 0 and time.time() < deadline - (stress_minutes * 60 + 900):
         best = ranked[0]["profile"]
-        server = VllmServer(spec, {**vllm_cfg, "max_inflight": streams}, out_dir, deadline=deadline)
+        server = LlmServer(spec, {**server_cfg, "max_inflight": streams}, out_dir, deadline=deadline)
         try:
             server.start(chain=[best])
             cfg = {**spec.llm, **llm_cfg, "base_url": server.base_url, "model": spec.served_model_name}
@@ -305,3 +320,22 @@ def run(model_name: str, profiles: list[str], vllm_cfg: dict[str, Any], llm_cfg:
             server.stop()
         save()
     return rows
+
+
+def print_table(rows: list[dict[str, Any]], streams: int = 10) -> None:
+    """One line per profile: start time, tool mode, decode tok/s at 1 / 8 / ``streams``, thinking-on decode, MTP
+    acceptance length, cold prefill tok/s, agent-like turn time and prefix hit rate, then the error if any."""
+    def field(row: dict[str, Any], workload: str, key: str) -> str:
+        v = row.get(workload)
+        return str(v.get(key) if isinstance(v, dict) else None)
+
+    n = streams
+    print(f"{'profile':32} {'start_s':>7} {'tool':>6} {'d1':>6} {'d8':>7} {f'd{n}':>7} {f'think{n}':>8} "
+          f"{'acc_len':>7} {'prefill':>8} {'turnN':>6} {'hit':>5}")
+    for r in rows:
+        print(f"{r.get('profile', ''):32} {r.get('startup_s')!s:>7} {r.get('tool_mode')!s:>6} "
+              f"{field(r, 'decode_1', 'tok_s'):>6} {field(r, 'decode_8', 'tok_s'):>7} "
+              f"{field(r, f'decode_{n}', 'tok_s'):>7} {field(r, f'think_{n}', 'tok_s'):>8} "
+              f"{field(r, f'decode_{n}', 'spec_accept_length'):>7} {field(r, 'cold_prefill', 'prefill_tok_s'):>8} "
+              f"{field(r, 'agent_like', 'later_turn_mean_s'):>6} {field(r, 'agent_like', 'prefix_hit_rate'):>5}  "
+              f"{str(r.get('error', ''))[:300]}")

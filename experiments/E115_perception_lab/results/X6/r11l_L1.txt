@@ -1,0 +1,9 @@
+BLUEPRINT: light beige = open floor (black in the original), hatched = wall/void (grey), No tile lattice: free placement.
+Objects on the map:
+A = purple dotted ring (7x7)
+B = white with purple centre diamond (5x5)
+C = light grey line (8x7)
+D = purple with magenta centre disc (5x5)
+E = light grey line (9x7)
+F = dark grey with purple centre diamond (5x5)
+Status panel: white bar

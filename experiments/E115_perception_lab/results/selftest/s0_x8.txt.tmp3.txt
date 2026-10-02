@@ -1,0 +1,9 @@
+VISUAL ROUTINES
+R1 REACH: the most self-like thing is the orange top / blue bottom square at rows 45-49, cols 34-38. It is 5x5 and the floor is built from 5x5 tiles, so it most likely moves one tile (5 cells) per step. Flood-filling the dark grey floor in tile steps reaches 35 tiles (green numbers = steps away).
+   - blue 6-cell shape: sits inside a black box that is NOT plain floor; the floor reaches the box's bottom side in 5 steps (the only way in)
+   - white (top, right, centre) + light grey (bottom, left) plus: reachable in 6 steps
+R2 FIT: a black box rows 9-15, cols 33-39 inside the play area contains: blue 6-cell shape
+R2 FIT: a black box rows 53-62, cols 1-10 at the screen edge (HUD) contains: blue irregular shape (24 cells)
+R2 FIT: a black box rows 60-63, cols 12-63 at the screen edge (HUD) contains: yellow bar; red square; red square; red square
+R3 TRACE: no connecting lines on screen.
+R4 ALIGN: the blue 6-cell shape is directly above the orange top / blue bottom square (shared columns 35-37)

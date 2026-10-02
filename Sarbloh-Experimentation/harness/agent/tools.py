@@ -63,21 +63,6 @@ ACT_E008 = _fn(
      "goal": {"type": "string", "description": "What wins the level, as you now believe it. Kept across levels."}},
     ["actions", "plan"])
 
-# E021 (``memory.goal_versioning``): ``goal`` also takes a list of goals, to keep rivals and refute them.
-GOAL_E021 = {
-    "anyOf": [
-        {"type": "string"},
-        {"type": "array", "items": {"type": "object", "properties": {
-            "id": {"type": "string", "description": "e.g. \"g2\"; leave out for a new goal"},
-            "text": {"type": "string", "description": "What wins the level, concrete: objects, places, counts."},
-            "status": {"type": "string", "enum": ["active", "candidate", "refuted"]},
-            "evidence": {"type": "array", "items": {"type": "integer"},
-                         "description": "Step numbers (#i) that support or refute it."},
-            "why": {"type": "string", "description": "Why you add, switch or refute it, in a few words."}}}}],
-    "description": "What wins the level. A string is a new version of your active goal. A list keeps up to 3 goals: "
-                   "one active (your plan pursues it), the rest candidate; refute one with evidence and why. Kept "
-                   "across levels."}
-
 RECALL_E008 = _fn(
     "recall",
     "Search your memory. Free. Finds steps (\"#12\", \"12-20\", \"level 1\", or words), hypotheses and findings of "
@@ -90,14 +75,12 @@ RECALL_E008 = _fn(
 E008_TOOLS = ("ipython", "act", "recall")
 
 
-def toolset(mode: str, *, depth: int, max_depth: int, act_max: int, goal_versioning: bool = False) -> list[dict]:
+def toolset(mode: str, *, depth: int, max_depth: int, act_max: int) -> list[dict]:
     """The tool list for a session. ``mode`` is the config's ``agent.toolset``: "e008" or "ipython"."""
     if mode == "e008" and depth == 0:
         fn = ACT_E008["function"]
         props = dict(fn["parameters"]["properties"])
         props["actions"] = {**props["actions"], "description": props["actions"]["description"].format(max=act_max)}
-        if goal_versioning:
-            props["goal"] = GOAL_E021
         act = {"type": "function", "function": {**fn, "description": fn["description"].format(max=act_max),
                                                 "parameters": {**fn["parameters"], "properties": props}}}
         return [IPYTHON_E008, act, RECALL_E008]

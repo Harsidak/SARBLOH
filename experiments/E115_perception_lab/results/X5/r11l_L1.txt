@@ -1,0 +1,6 @@
+FORESIGHT (click game): imagined effects of clicks under simple UI priors.
+  the white with purple centre diamond looks SELECTED (brighter twin of the dark grey with purple centre diamond).
+  the purple with magenta centre disc sits at the midpoint of the two handles, so: imagined 3-click plan:
+   1. click empty spot at row 18, col 22 -> selected handle moves there; held disc slides to the new midpoint; disc centre predicted at (38,24)
+   2. click the other handle at row 59, col 27 -> it becomes the selected one; disc centre predicted at (38,24)
+   3. click empty spot at row 24, col 56 -> it moves there; disc lands on the midpoint = centre of the dotted ring; disc centre predicted at (21,39)

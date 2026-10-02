@@ -1,0 +1,21 @@
+# E115 — configuration. The hash of this file goes in the ledger (no ledger row: not an RHAE run).
+experiment: E115_perception_lab
+baseline: E0_arc_eye            # code/baseline/arc_eye.py
+
+inputs:
+  dev_screenshots: [data/screenshots/ls20_L1.png, data/screenshots/r11l_L1.png]
+  actions: {ls20_L1: "1,2,3,4", r11l_L1: "6"}   # 1-4 = arrow keys, 6 = click
+  holdout_games: 23               # official games not used for design; screenshots made from the reset frame, 7 px cells
+
+front_end: code/experiments/scene.py   # screenshot -> 64x64 palette grid -> objects, shared by X1-X8
+
+arms: [X1_exploded, X2_surprise, X3_routines, X4_threads, X5_foresight, X6_blueprint, X7_ledger, X8_fusion]
+
+grading:
+  rubric: results/answer_keys.md  # 7 items x 2 points x 2 games = 28; -1 for a misleading claim
+  intuition: 1-5
+  holdout: code/experiments/holdout_check.py   # engine ground truth
+
+# Rerun one arm (from the repo root, uv env):
+#   uv run python experiments/E115_perception_lab/code/experiments/X8_fusion/x8_fusion.py \
+#       experiments/E115_perception_lab/data/screenshots/ls20_L1.png --actions 1,2,3,4 --out <dir>

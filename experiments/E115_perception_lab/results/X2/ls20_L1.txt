@@ -1,0 +1,12 @@
+SURPRISE MAP - 90% of the screen is predictable texture; the rest, ranked by information:
+1. yellow bar (2x42) at rows 61-62, cols 13-54 [HUD] - 582 bits (4% of all surprise)
+2. orange top / blue bottom square (5x5) at rows 45-49, cols 34-38 [bottom-centre] - 276 bits (2% of all surprise)
+3. blue irregular shape (24 cells) (6x6) at rows 55-60, cols 3-8 [HUD] - 257 bits (2% of all surprise)
+4. blue 6-cell shape (3x3) at rows 11-13, cols 35-37 [top-centre] - 72 bits (1% of all surprise)
+5. white (top, right, centre) + light grey (bottom, left) plus (3x3) at rows 31-33, cols 20-22 [middle-left] - 60 bits (0% of all surprise)
+6. red square (2x2) at rows 61-62, cols 62-63 [HUD] - 45 bits (0% of all surprise)
+7. red square (2x2) at rows 61-62, cols 56-57 [HUD] - 43 bits (0% of all surprise)
+8. red square (2x2) at rows 61-62, cols 59-60 [HUD] - 43 bits (0% of all surprise)
+Broken symmetries:
+- orange top / blue bottom square: shape is symmetric (mirror top-bottom, quarter turn) but colours are not: the odd colour (orange) sits on the top side -> it encodes a direction or state
+- white (top, right, centre) + light grey (bottom, left) plus: shape is symmetric (mirror left-right, mirror top-bottom, quarter turn) but colours are not: the odd colour (light grey) sits on the bottom-left side -> it encodes a direction or state

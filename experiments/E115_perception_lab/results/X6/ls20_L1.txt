@@ -1,0 +1,6 @@
+BLUEPRINT: light beige = open floor (dark grey in the original), hatched = wall/void (charcoal, black), yellow = special box. Faint grid = the game's 5x5 tile lattice.
+Objects on the map:
+A = blue 6-cell shape (3x3), inside the yellow-outlined box
+B = white (top, right, centre) + light grey (bottom, left) plus (3x3)
+C = orange top / blue bottom square (5x5)
+Status panel: blue irregular shape (24 cells); yellow bar; red square x3

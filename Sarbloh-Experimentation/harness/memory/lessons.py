@@ -8,14 +8,6 @@ linked to the shapes on screen now, then the most used goal patterns and rules, 
 
 Skills. Short knowledge notes (<= 200 tokens): three base notes shipped in ``harness/agent/skills/*.md`` and the notes
 the curator writes from lessons. At most three are loaded into the context; the curator picks them.
-
-E018 (``memory.skill_names: "use_case"``, E008 = "snake"): a skill is named by its use case in at most
-``USE_CASE_WORDS`` words ("when blocks must be pushed onto matching targets") instead of one snake_case word. Names
-are compared lower-cased without punctuation, so a reworded case or spacing still finds the skill. The base notes get
-the use-case names of ``BASE_USE_CASES``; their files are unchanged.
-
-E039 (``memory.lessons_reconcile``): ``remove`` and ``merge`` let the reconcile pass after a level won drop, rewrite or
-merge lessons (``harness.agent.lessons_reconcile``).
 """
 
 from __future__ import annotations
@@ -33,12 +25,6 @@ NODE_TYPES = ("shape", "rule", "refuted", "goal")
 EDGE_TYPES = ("moves", "blocks", "wins-when", "appears-in-level", "contradicts", "about")
 BASE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent" / "skills"
 SKILL_TOKENS = 200
-USE_CASE_WORDS = 10
-BASE_USE_CASES = {          # E018: file stem -> use-case name
-    "first_principles": "questions to ask when starting an unknown game",
-    "planning": "choosing the shortest action sequence to the goal",
-    "world_model": "building and testing the rules of how the game works",
-}
 
 _SHARED: dict[str, Any] = {}
 _SHARED_LOCK = threading.Lock()
@@ -100,46 +86,6 @@ class LessonsGraph:
             self.edges.append({"src": src, "dst": dst, "type": kind})
         return True
 
-    def remove(self, nid: str) -> dict[str, Any]:
-        """E039: deletes a lesson node and its edges. Shape nodes stay."""
-        with self.lock:
-            n = self.nodes.get(nid)
-            if n is None or n["type"] == "shape":
-                raise ValueError(f"no lesson {nid!r}")
-            del self.nodes[nid]
-            self.edges = [e for e in self.edges if nid not in (e["src"], e["dst"])]
-        return n
-
-    def merge(self, ids: list[str], text: str, *, source: str) -> str:
-        """E039: one lesson in place of ``ids`` (one id = a rewrite), with their type, games, levels, uses and edges.
-        The new id is the hash of ``text``, like any node."""
-        with self.lock:
-            olds = [self.nodes.get(i) for i in dict.fromkeys(ids)]
-            if not olds or any(n is None or n["type"] == "shape" for n in olds):
-                raise ValueError(f"unknown lessons in {ids}")
-            kinds = {n["type"] for n in olds}
-            if len(kinds) > 1:
-                raise ValueError(f"cannot merge lessons of types {sorted(kinds)}")
-        kind = kinds.pop()
-        nid = self.add_node(kind, text, source=source)
-        with self.lock:
-            n = self.nodes[nid]
-            for o in olds:
-                n["games"] += [g for g in o["games"] if g not in n["games"]]
-                n["levels"] += [lv for lv in o["levels"] if lv not in n["levels"]]
-                if o["id"] != nid:
-                    n["uses"] += o["uses"]
-            gone = {o["id"] for o in olds} - {nid}
-            for i in gone:
-                del self.nodes[i]
-            moved: list[dict[str, Any]] = []
-            for e in self.edges:
-                e = {**e, "src": nid if e["src"] in gone else e["src"], "dst": nid if e["dst"] in gone else e["dst"]}
-                if e["src"] != e["dst"] and e not in moved:
-                    moved.append(e)
-            self.edges = moved
-        return nid
-
     def add_shape(self, colour_letter: str, shape_hash: str, label: str, *, game: str | None = None,
                   level: int | None = None) -> str:
         return self.add_node("shape", f"{label} #{shape_hash}", game=game, level=level,
@@ -195,30 +141,18 @@ class SkillBook:
     """Base notes (read-only markdown files) plus curated notes (JSON, shared across games). ``loaded[game]`` is the
     curator's pick of at most three; before its first pick a game loads the three base notes."""
 
-    def __init__(self, path: Path, base_dir: Path = BASE_SKILLS_DIR, use_case_names: bool = False) -> None:
+    def __init__(self, path: Path, base_dir: Path = BASE_SKILLS_DIR) -> None:
         self.path = Path(path)
         self.lock = lock_for(self.path)
-        self.use_case_names = bool(use_case_names)
-        self.base: dict[str, str] = {
-            (BASE_USE_CASES.get(p.stem, p.stem.replace("_", " ")) if self.use_case_names else p.stem):
-                p.read_text(encoding="utf-8").strip() for p in sorted(Path(base_dir).glob("*.md"))}
+        self.base: dict[str, str] = {p.stem: p.read_text(encoding="utf-8").strip()
+                                     for p in sorted(Path(base_dir).glob("*.md"))}
         d = read_json(self.path, {})
         self.curated: dict[str, dict[str, Any]] = d.get("curated", {})
         self.loaded: dict[str, list[str]] = d.get("loaded", {})
 
     @classmethod
-    def shared(cls, path: Path, use_case_names: bool = False) -> SkillBook:
-        return _shared(cls, path, BASE_SKILLS_DIR, use_case_names)
-
-    def key(self, name: Any) -> str:
-        """The stored form of a skill name. E018 use-case names: lower case, words only, at most ``USE_CASE_WORDS``
-        (more raises). E008: one snake_case word of at most 40 characters."""
-        if not self.use_case_names:
-            return re.sub(r"[^a-z0-9_]+", "_", str(name or "").lower()).strip("_")[:40]
-        ws = re.findall(r"[a-z0-9]+(?:['-][a-z0-9]+)*", str(name or "").replace("_", " ").lower())
-        if len(ws) > USE_CASE_WORDS:
-            raise ValueError(f"a skill name is its use case in at most {USE_CASE_WORDS} words, got {len(ws)}")
-        return " ".join(ws)
+    def shared(cls, path: Path) -> SkillBook:
+        return _shared(cls, path)
 
     def save(self) -> None:
         with self.lock:
@@ -228,20 +162,14 @@ class SkillBook:
         return list(self.base) + [n for n in self.curated if n not in self.base]
 
     def text(self, name: str) -> str | None:
-        if self.use_case_names:
-            try:
-                name = self.key(name)
-            except ValueError:
-                return None
         if name in self.curated:
             return self.curated[name]["content"]
         return self.base.get(name)
 
     def upsert(self, name: str, content: str, *, game: str | None = None) -> str:
-        name = self.key(name)
+        name = re.sub(r"[^a-z0-9_]+", "_", str(name or "").lower()).strip("_")[:40]
         if not name or name in self.base:
-            raise ValueError(f"a curated skill needs a new {'use-case' if self.use_case_names else 'snake_case'} name "
-                             "(base skills are read-only)")
+            raise ValueError("a curated skill needs a new snake_case name (base skills are read-only)")
         content = clip(str(content or ""), SKILL_TOKENS)
         if not content:
             raise ValueError("a skill needs content")
@@ -253,8 +181,6 @@ class SkillBook:
         return name
 
     def set_loaded(self, game: str, names: list[str]) -> list[str]:
-        if self.use_case_names:
-            names = [self.key(n) for n in names if self.text(n) is not None]
         known = [n for n in dict.fromkeys(names) if self.text(n) is not None][:3]
         with self.lock:
             self.loaded[game] = known

@@ -1,0 +1,3 @@
+LOOK-ALIKE THREADS (things that are the same up to move / turn / mirror / resize / recolour)
+#1 STATE: same shape, different colour (white/purple vs dark grey/purple)  [white with purple centre diamond @ rows 34-38, cols 5-9  <->  dark grey with purple centre diamond @ rows 57-61, cols 25-29]
+COLOUR LINK: purple appears in 4 different things: purple dotted ring; white with purple centre diamond; purple with magenta centre disc; dark grey with purple centre diamond -> they likely belong together

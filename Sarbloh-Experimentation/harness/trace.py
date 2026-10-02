@@ -1,6 +1,6 @@
 """Trace of a Prime run: for every game, what the agent thought, ran, believed and spent, and a training export.
 
-    uv run python Sarbloh-Experimentation/harness/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
+    uv run python Sarbloh/harness/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
 
 Sources in <run_dir>: ``results.json`` and, per game, ``games/<game_id>/transcript.jsonl`` (every message of the
 root session with the model's reasoning, every cell, and, since E006, one structured event per step, act, reset,

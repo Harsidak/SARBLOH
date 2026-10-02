@@ -14,10 +14,9 @@ from __future__ import annotations
 from typing import Any
 
 PINNED_KIND = "pinned"
-ORDER = ("goal", "levels", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
+ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
 TITLES = {
     "goal": "Goal (you write it; kept across levels)",
-    "levels": "Level reviews (written after each level you won)",   # E022; empty with the switch off
     "plan": "Plan (from your last act)",
     "skills": "Skills (background knowledge)",
     "hypotheses": "Hypotheses (status set by you)",

@@ -1,6 +1,6 @@
 """Run Prime Agent on ARC-AGI-3 games: one root AgentSession per game, games in parallel, one deadline.
 
-    main(overrides)                       # Kaggle: vLLM up, games (COMPETITION on a rerun, OFFLINE otherwise)
+    main(overrides)                       # Kaggle: model server up, games (COMPETITION on a rerun, OFFLINE otherwise)
     python -m harness.run --local ...       # local: an already running OpenAI-compatible server (llama.cpp)
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
@@ -24,7 +24,7 @@ from typing import Any
 
 PRIME_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PRIME_ROOT.parent
-for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + harness/ live in Sarbloh-Experimentation; the games now live in harness/game/games.py
+for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + harness/ live in Sarbloh; the games now live in harness/game/games.py
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -73,9 +73,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
                    max_actions_per_cell=cfg.get("max_actions_per_cell"),
                    stop_after_levels=cfg.get("stop_after_levels"))
     e008 = cfg["agent"].get("toolset") == "e008" and cfg["agent"]["tool_mode"] == "native"
-    task = (prompts.E008_TASK if e008 else prompts.TASK).format(game_id=game.game_id,
-                                                                max_actions=cfg["max_actions_per_game"],
-                                                                minutes=int(max(0, deadline - time.time()) // 60))
+    task = prompts.task_message(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
+                                minutes=int(max(0, deadline - time.time()) // 60), toolset="game" if e008 else "ipython")
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
                            global_harness_dir=run_dir / "global_harness", memory_root=run_dir / "memory")
@@ -103,7 +102,7 @@ def git_sha() -> str:
     try:
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True,
                              timeout=10).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain", "--", PRIME_ROOT.name], cwd=REPO_ROOT,
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "Sarbloh"], cwd=REPO_ROOT,
                                capture_output=True, text=True, timeout=10).stdout.strip()
         return (sha + ("-dirty" if dirty else "")) if sha else "unknown"
     except Exception:  # noqa: BLE001
@@ -216,7 +215,6 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
         "act_calls": agg("act_calls"), "act_arg_errors": agg("act_arg_errors"), "recalls": agg("recalls"),
         "hypothesis_events": agg("hypothesis_events"), "promotions": agg("promotions"),
         "curator_runs": agg("curator_runs"), "curator_errors": agg("curator_errors"), "images_sent": agg("images_sent"),
-        "length_cutoffs": agg("length_cutoffs"),   # E110: turns cut at the output limit (the whole turn is lost)
         "llm": llm.usage.to_json(),
         "wall_s": round(wall_s, 1),
         "per_game": {r.game_id: {"score": round(r.final_score or 0.0, 3), "levels": r.levels_completed,
@@ -255,12 +253,12 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     from harness.llm import bench
     from harness.llm.client import LLM
     from harness.llm.spec import get_spec
-    from harness.llm.vllm import VllmServer
+    from harness.llm.server import LlmServer
     from harness.game.games import build_games, make_arcade
 
     spec = get_spec(cfg["model"])
     soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
-    server = VllmServer(spec, cfg["vllm"], working_dir, deadline=soft_end)
+    server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
     summary: dict[str, Any] = {}
     try:
         server.start()
@@ -269,12 +267,12 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         cfg["agent"]["tool_mode"] = server.tool_mode
         cfg["agent"]["vision"] = server.vision  # E008: images only when the served profile passed the image smoke test
         fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
-        if cfg["vllm"]["bench"] and not rerun:
+        if cfg["server"]["bench"] and not rerun:
             try:
                 bench.quick(server)
             except Exception as exc:  # noqa: BLE001
-                print(f"[vllm] throughput probe failed: {exc!r}", flush=True)
-        if cfg["vllm"]["watchdog"]:
+                print(f"[server] throughput probe failed: {exc!r}", flush=True)
+        if cfg["server"]["watchdog"]:
             server.start_watchdog()
         llm = LLM(cfg["llm"], spec=spec, gate=server.gate)
         if rerun:
@@ -289,10 +287,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
         summary = run_games(games, cfg, llm, run_dir, soft_end)
-        summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
+        summary.update({"server_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
                         "image_probe": server.image_probe,
-                        "vllm_attempts": server.attempts, "vllm_restarts": server.restarts,
-                        "vllm_freezes": server.freezes,
+                        "server_attempts": server.attempts, "server_restarts": server.restarts,
+                        "server_freezes": server.freezes,
                         "throughput": server.bench})
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
@@ -303,7 +301,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             pd.DataFrame([["1_0", "1", True, 1]], columns=["row_id", "game_id", "end_of_game", "score"]).to_parquet(
                 working_dir / "submission.parquet", index=False)
     print("LEDGER_ROW " + json.dumps({k: summary.get(k) for k in (
-        "experiment", "config_hash", "git_sha", "model", "toolset", "vllm_profile", "tool_mode", "vision", "throughput",
+        "experiment", "config_hash", "git_sha", "model", "toolset", "server_profile", "tool_mode", "vision", "throughput",
         "games",
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)
@@ -344,17 +342,12 @@ def local() -> None:
     ap.add_argument("--auto-refine", type=int, default=25, metavar="TURNS",
                     help="host-driven harness refine every TURNS turns (+ after compaction); 0 = off")
     ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
-    ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "experimentation_local"))
+    ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
     ap.add_argument("--toolset", default="e008", choices=["e008", "ipython"])
     ap.add_argument("--vision", action="store_true", help="E008: send the image (the server must take images, e.g. "
                     "serve_llm.ps1 -Vision)")
     ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
-    ap.add_argument("--goal-versioning", action="store_true", help="E021: versioned goals with rivals")
-    ap.add_argument("--level-review", action="store_true", help="E022: review of the whole level after each level-up")
-    ap.add_argument("--prompt-version", default="e008", choices=["e008", "e110"], help="E110: short-thinking prompts")
-    ap.add_argument("--scheduler-slots", type=int, default=0, metavar="N",
-                    help="E111: priority scheduler with N slots (0 = off: every game plays at once)")
     a = ap.parse_args()
     from harness.llm.client import LLM
     from harness.game.games import build_games, make_arcade
@@ -363,13 +356,11 @@ def local() -> None:
         "experiment": a.experiment or ("E008_perception_memory_local" if a.toolset == "e008"
                                        else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
-        "scheduler": {"enabled": a.scheduler_slots > 0, "slots": max(1, a.scheduler_slots)},
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
-                  "prompt_version": a.prompt_version,
-                  "vision": a.vision, "memory": {"goal_versioning": a.goal_versioning, "level_review": a.level_review},
+                  "vision": a.vision,
                   "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
                   "reflect_every_actions": a.reflect_every,
                   "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,

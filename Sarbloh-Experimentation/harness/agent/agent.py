@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.agent import compaction, context, curator, lessons_reconcile, level_review, prompts, refine
+from harness.agent import compaction, context, curator, prompts, refine
 from harness.agent.intuition import Scene, Tracker, rows_of
 from harness.agent.tools import toolset
 from harness.agent.vision import image_message
@@ -132,7 +132,7 @@ class AgentSession:
                       "refine_errors": 0, "tool_counts": {}, "tool_errors": 0, "act_actions": 0, "act_calls": 0,
                       "act_arg_errors": 0, "recalls": 0, "hypothesis_events": 0, "promotions": 0,
                       "curator_runs": 0, "curator_errors": 0, "observations": 0, "images_sent": 0,
-                      "observation_chars_max": 0, "pinned_chars_max": 0, "length_cutoffs": 0}
+                      "observation_chars_max": 0, "pinned_chars_max": 0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
         self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -160,17 +160,8 @@ class AgentSession:
             "RLM_GLOBAL_HARNESS_STATE_DIR": str(global_harness_dir),
             "PRIME_TOOLSET": self.toolset,
         })
-        self.goal_versioning = bool((cfg.get("memory") or {}).get("goal_versioning", False))   # E021
-        self.goal_lock_after = int((cfg.get("memory") or {}).get("goal_lock_after_level", 0) or 0) \
-            if self.goal_versioning else 0                                                       # E021 amendment
-        self.review_levels = bool((cfg.get("memory") or {}).get("level_review", False))        # E022
-        self.reconcile_lessons = bool((cfg.get("memory") or {}).get("lessons_reconcile", False))  # E039
-        self.prompt_version = str(cfg.get("prompt_version") or "e008")                         # E110
-        self._review_pending: list[int] = []      # E022: 0-based levels won and not yet reviewed
-        self._reconcile_pending: list[int] = []   # E039: 0-based levels won, lessons not yet reconciled
         self.tools = toolset(self.toolset, depth=depth, max_depth=cfg["max_depth"],
-                             act_max=int(cfg.get("act_max_actions", 5)),
-                             goal_versioning=self.goal_versioning) if cfg["tool_mode"] == "native" else None
+                             act_max=int(cfg.get("act_max_actions", 5))) if cfg["tool_mode"] == "native" else None
         self._acted_in_reply = False
         # E008: perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
@@ -250,8 +241,6 @@ class AgentSession:
                 self.memory.save()
                 self.stats["lessons"] = self.memory.lessons.counts() if self.memory.lessons is not None else None
                 self.stats["skills_loaded"] = self.memory.skills.loaded_for(self.memory.game)
-                if self.memory.wrong is not None:                                               # E018
-                    self.stats["wrong_rules"] = self.memory.wrong.counts()
             self._log_event({"event": "end", "reason": self.end_reason, "stats": self.stats})
 
     def _loop(self) -> None:
@@ -332,10 +321,7 @@ class AgentSession:
 
                 # in case the reply curs off
             if reply.finish_reason == "length":
-                self.stats["length_cutoffs"] += 1
-                self._append({"role": "user", "content": prompts.E110_CUT if self.e008 and self.prompt_version == "e110"
-                              else "Your reply was cut off by the output limit. Be shorter: "
-                              + ("think less, then call act." if self.e008 else "put the work in one `ipython` call.")})
+                self._append({"role": "user", "content": prompts.event_message("cut_off", self._toolset)})
                 continue
             # 7) if No tool call: the model ended its turn.
             if self.depth > 0:
@@ -372,7 +358,16 @@ class AgentSession:
             self._append({"role": "user", "content": self._continuation()})
 
     def _continuation(self) -> str:
-        return (prompts.CONTINUATION_E008 if self.e008 else prompts.CONTINUATION).format(status=self._status())
+        return prompts.continuation(status=self._status(), toolset=self._toolset, **self._left())
+
+    @property
+    def _toolset(self) -> str:
+        return "game" if self.e008 else "ipython"
+
+    def _left(self) -> dict[str, int | None]:
+        """Moves and minutes left, for the low-budget and low-time notes."""
+        return {"moves_left": self.arc.budget_left if self.arc is not None else None,
+                "minutes_left": max(0, int(self.deadline - time.time())) // 60}
 
     # --- tool calls --------------------------------------------------------------------------------------
     def _calls(self, reply: Any) -> list[dict[str, Any]]:
@@ -437,8 +432,7 @@ class AgentSession:
         elif call["name"] == "act" and self._acted_in_reply:
             failed = True
             self.stats["tool_errors"] += 1
-            text = ("act refused: one act per reply. Nothing was spent. Read the new state that follows the previous "
-                    "act, then act in your next reply.")
+            text = "act refused: " + prompts.event_message("act_twice")
             self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                              "error": "second act in one reply", "args": call["args"]})
         elif call["name"] != "ipython":
@@ -588,18 +582,23 @@ class AgentSession:
         elif isinstance(raw, int):
             raw = [raw]
         if not isinstance(raw, list) or not raw:
-            raise ValueError('actions must be a non-empty list, e.g. ["1", "4"], ["6 12 40"] or ["reset"]')
+            raise ValueError(prompts.event_message("act_bad_args", problem="`actions` must be a list of 1 or more moves"))
         cap = int(self.cfg.get("act_max_actions", 5))
         if len(raw) > cap:
-            raise ValueError(f"at most {cap} actions per act call, you sent {len(raw)}. Send the first ones, read "
-                             "the result, then continue.")
-        parsed = [self._parse_action(a) for a in raw]   # all or nothing: nothing runs if one item is bad
+            raise ValueError(prompts.event_message("act_too_many", sent=len(raw), act_max=cap))
+        try:
+            parsed = [self._parse_action(a) for a in raw]   # all or nothing: nothing runs if one item is bad
+        except ValueError as exc:
+            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
         legal = [a for a in arc.game.state.available_actions if a != 0]
         bad = [self._label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
         if bad:
-            raise ValueError(f"{', '.join(bad)} not legal now; legal: {legal} (and \"reset\"). Nothing was spent.")
+            raise ValueError(prompts.event_message("act_illegal", bad=", ".join(bad), legal=legal))
         level0 = arc.game.state.levels_completed
-        wrote = mem.write_act(args, turn=turn, level=level0)   # raises on a bad hypothesis before any action
+        try:
+            wrote = mem.write_act(args, turn=turn, level=level0)   # raises on a bad hypothesis before any action
+        except ValueError as exc:
+            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
         self.stats["act_calls"] += 1
         self._log_memory(wrote, call_id, turn)
         start = arc.game.action_count
@@ -646,10 +645,6 @@ class AgentSession:
                                  "i": st.get("i"), **promo})
                 self._level_start = True
                 self._curate_pending = "level_up"
-                if self.review_levels:
-                    self._review_pending.append(int(st.get("level", arc.game.state.levels_completed - 1)))
-                if self.reconcile_lessons:
-                    self._reconcile_pending.append(int(st.get("level", arc.game.state.levels_completed - 1)))
                 stop = "level up"
                 break
             if obs.get("state") == "GAME_OVER":
@@ -664,25 +659,13 @@ class AgentSession:
         self.stats["act_actions"] += done
         s = arc.game.state
         out = [f"act: {done} of {len(parsed)} actions done" + (f"; stopped: {stop}" if stop else ""), *lines]
-        back = [g["id"] for g in wrote.get("goals") or [] if g["reproposed"]]     # E021
-        if back:
-            out.append(f"note: goal {', '.join(back)} was refuted before and is open again.")
-        if wrote.get("goal_locked"):                                              # E021 amendment
-            out.append(f"note: the goal is locked after level {self.goal_lock_after} (the goal that won it is kept "
-                       "for the rest of the game); your `goal` was ignored, the rest of the act was done.")
-        if level_up:
-            out.append(f"LEVEL UP: {s.levels_completed} of {arc.game.number_of_levels} levels done. Your verified "
-                       "hypotheses and findings became lessons; plan, hypotheses and findings were cleared; your goal "
-                       "is kept with a confirmation. The new level is shown in full next."
-                       + (" Your goal is now locked for the rest of the game." if mem.working.goal_locked else "")
-                       + (" A review of the level you won is added to your memory (Level reviews)."
-                          if self.review_levels else "")
-                       + (prompts.E110_LEVEL_UP if self.prompt_version == "e110" else ""))
-        if s.engine_state.name == "GAME_OVER":
-            out.append("GAME_OVER: the level is lost. Find the cause in the change lines, record it (refute a "
-                       "hypothesis or add a finding), then act [\"reset\"].")
         if s.engine_state.name == "WIN":
-            out.append("WIN: every level is complete.")
+            out.append(prompts.event_message("win"))
+        elif level_up:
+            out.append(prompts.event_message("level_up", levels_done=s.levels_completed,
+                                             win_levels=arc.game.number_of_levels, **self._left()))
+        if s.engine_state.name == "GAME_OVER":
+            out.append(prompts.event_message("game_over", **self._left()))
         mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": wrote["plan"],
                         "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": wrote["plan"],
@@ -715,24 +698,7 @@ class AgentSession:
         for f in wrote["findings"]:
             self._log_event({"event": "finding", "turn": turn, "call": call_id, "level": level,
                              "action_count": acount, "text": f["text"], "evidence": f["evidence"]})
-        for g in wrote.get("goals") or []:      # E021: one event per goal change
-            self.stats["goal_events"] = self.stats.get("goal_events", 0) + 1
-            self.stats["goal_reproposed"] = self.stats.get("goal_reproposed", 0) + int(g["reproposed"])
-            self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
-                             "goal": g["text"], "goal_id": g["id"], "version": g["version"], "status": g["status"],
-                             "prev_status": g["prev_status"], "kind": g["kind"], "why": g["why"],
-                             "evidence": g["evidence"], "reproposed": g["reproposed"],
-                             "open": sum(1 for x in self.memory.working.goals
-                                         if x["status"] in ("active", "candidate"))})
-        for w in wrote.get("wrong") or []:      # E018: a hypothesis that restates a wrong rule (log only)
-            self.stats["wrong_rule_reproposed"] = self.stats.get("wrong_rule_reproposed", 0) + 1
-            self._log_event({"event": "wrong_rule_reproposed", "turn": turn, "call": call_id, "level": level,
-                             "action_count": acount, **w})
-        if wrote.get("goal_locked"):            # E021 amendment: a goal edit after the lock, ignored
-            self.stats["goal_locked_ignored"] = self.stats.get("goal_locked_ignored", 0) + 1
-            self._log_event({"event": "goal_locked", "turn": turn, "call": call_id, "level": level,
-                             "action_count": acount, "goal": self.memory.working.goal})
-        if wrote["goal"] and not wrote.get("goals"):
+        if wrote["goal"]:
             self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
                              "goal": wrote["goal"]})
 
@@ -749,8 +715,6 @@ class AgentSession:
     # --- host-driven auto /refine (upstream serialized-refine checkpoint between turns) ----------------------
     def _maybe_auto_refine(self) -> None:
         if self.e008:
-            self._maybe_review()
-            self._maybe_reconcile()
             self._maybe_curate()
             return
         ar = self.cfg.get("auto_refine") or {}
@@ -785,54 +749,6 @@ class AgentSession:
         self._log_event({"event": "auto_refine", "duration_s": round(time.time() - t0, 1), **rec})
         if rec.get("notice"):
             self._append({"role": "user", "content": rec["notice"]})
-
-    def _maybe_review(self) -> None:
-        """E022: one hidden review of each level won, before the curator runs and before the next turn."""
-        if not self.review_levels or self.memory is None:
-            return
-        mc = self.cfg.get("memory") or {}
-        while self._review_pending:
-            level = self._review_pending.pop(0)
-            t0 = time.time()
-            try:
-                rec = level_review.review(llm=self.llm, memory=self.memory, level=level,
-                                          max_tokens=int(mc.get("level_review_max_tokens", 2048)),
-                                          steps_tokens=int(mc.get("level_review_steps_tokens", 3000)),
-                                          overflow=ContextOverflow)
-            except Exception as exc:  # noqa: BLE001 - the review must never kill the session
-                self.stats["level_review_errors"] = self.stats.get("level_review_errors", 0) + 1
-                self._log_event({"event": "level_review", "level": level + 1,
-                                 "error": f"{type(exc).__name__}: {exc}"[:500]})
-                continue
-            self.stats["level_reviews"] = self.stats.get("level_reviews", 0) + 1
-            self.stats["promotions"] += len(rec["promoted"])
-            self._log_event({"event": "level_review", "level": level + 1, "duration_s": round(time.time() - t0, 1),
-                             "action_count": self.arc.game.action_count, **rec})
-
-    def _maybe_reconcile(self) -> None:
-        """E039: after each level won (and its E022 review), the lessons are compared with the wrong rulebook."""
-        if not self.reconcile_lessons or self.memory is None:
-            return
-        mc = self.cfg.get("memory") or {}
-        while self._reconcile_pending:
-            level = self._reconcile_pending.pop(0)
-            t0 = time.time()
-            try:
-                rec = lessons_reconcile.reconcile(llm=self.llm, memory=self.memory, level=level,
-                                                  max_tokens=int(mc.get("lessons_reconcile_max_tokens", 2048)),
-                                                  lessons_tokens=int(mc.get("lessons_reconcile_tokens", 2000)),
-                                                  overflow=ContextOverflow)
-            except Exception as exc:  # noqa: BLE001 - the pass must never kill the session
-                self.stats["reconcile_errors"] = self.stats.get("reconcile_errors", 0) + 1
-                self._log_event({"event": "lessons_reconcile", "level": level + 1,
-                                 "error": f"{type(exc).__name__}: {exc}"[:500]})
-                continue
-            self.stats["reconciles"] = self.stats.get("reconciles", 0) + 1
-            for key in ("dropped", "rewritten", "merged"):
-                self.stats[f"lessons_{key}"] = self.stats.get(f"lessons_{key}", 0) + len(rec.get(key) or [])
-            self._log_event({"event": "lessons_reconcile", "level": level + 1,
-                             "duration_s": round(time.time() - t0, 1), "action_count": self.arc.game.action_count,
-                             **rec})
 
     def _maybe_curate(self) -> None:
         """E008: the hidden curator at a level-up, after a compaction, and every ``curator_every_turns`` turns."""
@@ -920,24 +836,15 @@ class AgentSession:
     # --- context: system prompt, harness digest, compaction ----------------------------------------------
     def _system_prompt(self) -> str:
         if self._system is None and self.e008:
-            self._system = prompts.e008_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
+            self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
-                                               cwd=str(self.kernel.session_dir),
-                                               goal_versioning=self.goal_versioning,
-                                               goal_lock_after=self.goal_lock_after,
-                                               level_review=self.review_levels,
-                                               prompt_version=self.prompt_version,
-                                               max_tokens=int(self.cfg["max_tokens_per_turn"]))
+                                               cwd=str(self.kernel.session_dir), vision=self.vision)
         if self._system is None:
-            base = prompts.base_prompt(
-                cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,
-                parent=self.parent.name if self.parent else None,
-                allow_recursion=self.depth < self.cfg["max_depth"], toolset=self.toolset)
+            base = prompts.base_prompt(cwd=str(self.kernel.session_dir), transcript=str(self.transcript))
             if self.arc is not None:  # upstream appendSystemPrompt
                 base += "\n\n" + prompts.arc_section(
-                    game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels, depth=self.depth,
-                    cell_cap=self.arc.max_actions_per_cell, output_chars=self.cfg["tool_output_chars"],
-                    toolset=self.toolset, act_max=int(self.cfg.get("act_max_actions", 5)))
+                    game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
+                    cell_cap=self.arc.max_actions_per_cell, output_chars=self.cfg["tool_output_chars"])
             self._system = base
         return self._system
 
@@ -986,7 +893,8 @@ class AgentSession:
         self._summary = summary
         kept = [m for m in self.messages[prep.first_kept:] if m.get("_kind") != compaction.DIGEST_KIND]
         # E008: the memory is pinned outside the conversation, so the head carries the summary only.
-        head = compaction.head_message(summary, "" if self.e008 else refine.digest_block(self._digest()) + "\n\n")
+        head = compaction.head_message(summary, prompts.event_message("compacted", **self._left()) + "\n\n"
+                                       if self.e008 else refine.digest_block(self._digest()) + "\n\n")
         if self.e008 and not any(context._has_image(m) for m in kept):
             kept.append(self._observation_refresh())   # the newest state must survive a compaction
         self.messages = [head, *kept]

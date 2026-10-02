@@ -1,0 +1,19 @@
+BRIEFING (arrow keys)
+MEASURED (certain):
+- Floor is a 5x5 tile grid.
+- A (blue 6-cell shape): sits inside a black box that is NOT plain floor; the floor reaches the box's bottom side in 5 steps (the only way in)
+- B (white/light grey plus): reachable in 6 steps
+- A (blue 6-cell shape) is directly above C (blue/orange square) (shared columns 35-37)
+- D (blue irregular shape (24 cells)) (it is drawn 2x bigger), mirrored left-right OR turned 90 deg clockwise, becomes exactly A (blue 6-cell shape)
+- 3 identical F/G/H (red square)s (2x2) -> a count of something (lives, items, tiles)
+- B has a symmetric shape but lopsided colours (marks a direction/state)
+- C has a symmetric shape but lopsided colours (marks a direction/state)
+GUESSES (check with one action):
+- A (blue 6-cell shape) = GOAL (75%) - test: get the right thing into it and see if the level ends
+- B (white/light grey plus) = MODIFIER (67%) - test: step onto it, then check whether the inventory icon changed
+- C (blue/orange square) = YOU (80%) - test: press one arrow key: it should move one tile and the gauge should drop
+- D (blue irregular shape (24 cells)) = INVENTORY (80%) - test: watch it after touching the modifier
+- E (yellow bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- F (red square) = LIVES (75%) - test: watch it when the gauge runs out or you fail
+- G (red square) = LIVES (75%) - test: watch it when the gauge runs out or you fail
+- H (red square) = LIVES (75%) - test: watch it when the gauge runs out or you fail

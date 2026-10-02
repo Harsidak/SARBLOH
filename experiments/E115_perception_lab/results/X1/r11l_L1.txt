@@ -1,0 +1,9 @@
+EXPLODED INVENTORY - 5 kinds of thing on screen
+Background/terrain: black (81%), grey (16%)
+A: white bar (64x1 cells) -- middle-left, screen edge / HUD; rows 0-63, cols 0-0
+B: purple dotted ring (7x7 cells) -- top-centre, on black ground; rows 18-24, cols 36-42
+C: white with purple centre diamond (5x5 cells) -- middle-left, on black ground; rows 34-38, cols 5-9
+D: purple with magenta centre disc (5x5 cells) -- bottom-left, on black ground; rows 45-49, cols 15-19
+E: dark grey with purple centre diamond (5x5 cells) -- bottom-centre, on black ground; rows 57-61, cols 25-29
+thin light grey line from (38,9) to (45,15)
+thin light grey line from (49,19) to (57,25)

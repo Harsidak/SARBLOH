@@ -1,0 +1,5 @@
+FORESIGHT: you are probably the orange top / blue bottom square; it should move 5 cells per key press (its own size).
+  ACTION1 (UP): moves to rows 40-44, cols 34-38; yellow bar shrinks by one unit
+  ACTION2 (DOWN): BLOCKED by wall, stays put; yellow bar shrinks by one unit
+  ACTION3 (LEFT): moves to rows 45-49, cols 29-33; yellow bar shrinks by one unit
+  ACTION4 (RIGHT): moves to rows 45-49, cols 39-43; yellow bar shrinks by one unit

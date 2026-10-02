@@ -1,0 +1,19 @@
+ROLE LEDGER (clicks available)
+* purple dotted ring @ rows 18-24, cols 36-42: GOAL 80%
+     because: hollow outline whose empty inside fits a 5x5 object exactly
+     because: same colour as the carried purple with magenta centre disc
+     test: get the right thing into it and see if the level ends
+* white with purple centre diamond @ rows 34-38, cols 5-9: HANDLE (click) 80%
+     because: one of a same-shape pair that differs only in colour (on/off state)
+     because: a tether starts here -> an anchor you can grab
+     test: click an empty spot once: the selected handle should jump there
+* dark grey with purple centre diamond @ rows 57-61, cols 25-29: HANDLE (click) 80%
+     because: one of a same-shape pair that differs only in colour (on/off state)
+     because: a tether starts here -> an anchor you can grab
+     test: click an empty spot once: the selected handle should jump there
+* white bar @ rows 0-63, cols 0-0: MOVES LEFT 75%
+     because: long bar at the screen edge = a gauge
+     test: take any action and check it shrinks by one unit
+* purple with magenta centre disc @ rows 45-49, cols 15-19: CARRIED THING 75%
+     because: both tethers end on it (it hangs between the anchors)
+     test: move one handle: it should slide to the new midpoint

@@ -1,0 +1,5 @@
+ACTION1: predicted self top-left (40, 34), engine (40, 34) -> HIT; bar prediction HIT
+ACTION2: predicted self top-left (45, 34), engine (45, 34) -> HIT; bar prediction HIT
+ACTION3: predicted self top-left (45, 29), engine (45, 29) -> HIT; bar prediction HIT
+ACTION4: predicted self top-left (45, 39), engine (45, 39) -> HIT; bar prediction HIT
+position accuracy 4/4

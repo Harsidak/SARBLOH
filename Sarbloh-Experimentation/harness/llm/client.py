@@ -1,7 +1,7 @@
-"""OpenAI-compatible chat client (vLLM on Kaggle, llama.cpp locally). Standard library only: Kaggle is offline.
+"""OpenAI-compatible chat client (vLLM or SGLang on Kaggle, llama.cpp locally). Standard library only: Kaggle is offline.
 
 Model-free: sampling and the thinking policy arrive in ``cfg`` (from the model's spec, see spec.py), and parser quirks
-are repaired by ``spec.fix_tool_calls``. ``ServerGate`` is shared with the vLLM watchdog: while the server restarts,
+are repaired by ``spec.fix_tool_calls``. ``ServerGate`` is shared with the server watchdog: while the server restarts,
 requests wait for it instead of burning retries, and after a restart they ramp back up a few at a time (E006: the third
 freeze came right after a restart, on ten cold 40k-token prefills arriving at once).
 """

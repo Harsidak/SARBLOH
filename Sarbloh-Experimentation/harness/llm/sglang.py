@@ -1,12 +1,13 @@
-"""E109: SGLang as a prebuilt runtime for the shared serving layer (``ModelSpec.runtimes``), model-free.
+"""E109, E112: SGLang as a prebuilt runtime for the shared serving layer (``ModelSpec.runtimes``), model-free.
 
-The wheelhouse is an offline Kaggle dataset in driessmit's layout (``wheels/`` + ``requirements.lock``; the lock pins
-sglang itself, torch, flashinfer and the CUDA 13 toolkit wheels). It is installed once per process into its own venv
+The wheelhouse is an offline Kaggle dataset: ``wheels/`` + ``requirements.lock`` (dfranzen/pennyroyal-v253), or the wheels
+and the lock flat at the dataset root (banwait13/sglangwheels, the same Pennyroyal v2.5.3 build); the lock pins sglang
+itself, torch, flashinfer, uv and the CUDA 13 toolkit wheels. It is installed once per process into its own venv
 in /tmp with the wheelhouse's own ``uv`` (torch 2.13 must not touch the notebook's Python). ``nvidia/cu13`` from those
 wheels becomes ``CUDA_HOME``: flashinfer and SGLang JIT-compile kernels at start and need nvcc, libcudart and the
 driver's libcuda.so.
 
-``harness.llm.vllm.VllmServer`` launches the server with the returned ``python`` and ``serve`` args and reads
+``harness.llm.server.LlmServer`` launches the server with the returned ``python`` and ``serve`` args and reads
 ``sglang:*`` metrics (``backend``). Settings follow the documented Pennyroyal launch of the milestone-2 reference
 notebook (kaggle/reference/, licence UNCONFIRMED): this file is our own code, written from those settings.
 """
@@ -19,8 +20,10 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -41,11 +44,39 @@ def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True) 
 
 
 def wheelhouse(root: Path) -> tuple[Path, Path]:
-    """(wheels dir, requirements.lock) at the dataset root or one level down."""
+    """(wheels dir, requirements.lock): ``wheels/`` + lock at the dataset root or one level down, or both flat."""
     for base in (root, *sorted(p for p in root.iterdir() if p.is_dir())):
         if (base / "wheels").is_dir() and (base / "requirements.lock").is_file():
             return base / "wheels", base / "requirements.lock"
-    raise FileNotFoundError(f"no wheels/ + requirements.lock under {root}")
+        if (base / "requirements.lock").is_file() and any(base.glob("sglang-*.whl")):
+            return base, base / "requirements.lock"
+    raise FileNotFoundError(f"no wheels/ + requirements.lock (or flat *.whl + requirements.lock) under {root}")
+
+
+def precache(paths: list[Path], threads: int = 16, chunk: int = 32 << 20) -> dict[str, Any]:
+    """Read every file under ``paths`` once so the page cache holds it: /kaggle/input is a slow network mount and the
+    weight load (and the venv install from the wheels) is otherwise bound by it. Run in a background thread."""
+    t, jobs = time.time(), []
+    for root in paths:
+        files = [root] if root.is_file() else [f for f in sorted(root.rglob("*")) if f.is_file()]
+        for f in files:
+            size = f.stat().st_size
+            jobs += [(f, off, min(chunk, size - off)) for off in range(0, max(size, 1), chunk)]
+
+    def read(job: tuple[Path, int, int]) -> int:
+        f, off, n = job
+        try:
+            with f.open("rb") as fh:
+                fh.seek(off)
+                return len(fh.read(n))
+        except OSError:
+            return 0
+
+    with ThreadPoolExecutor(threads) as pool:
+        total = sum(pool.map(read, jobs))
+    info = {"gb": round(total / 1e9, 1), "seconds": round(time.time() - t), "files": len({j[0] for j in jobs})}
+    _log(f"precache done: {info}")
+    return info
 
 
 def uv_binary(wheels: Path, dest: Path) -> Path:
@@ -126,10 +157,33 @@ def server_env(venv: Path, home: Path) -> dict[str, str]:
         "SGLANG_CACHE_DIR": str(cache / "sglang"), "SGLANG_JIT_CACHE_DIR": str(cache / "sglang" / "jit"),
         "SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN": "1", "SGLANG_MM_PREPROCESS_DEVICE": "cpu",
         "SGLANG_ENABLE_SM120_LOWM_BF16_GEMM": "1", "SGLANG_NUMA_BIND_V2": "false",
+        "SGLANG_SM120_ONLINE_MXFP8": "0", "SGLANG_SM120_LOWM_FP8_WEIGHT": "0", "SGLANG_SM120_LM_HEAD_FP8": "0",
+        "SGLANG_MAMBA_CONV_DTYPE": "bfloat16", "CMAKE_BUILD_PARALLEL_LEVEL": "8", "FLASHINFER_NINJA_JOBS": "8",
+        "TORCHINDUCTOR_COMPILE_THREADS": "8",
         "OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "8", "TOKENIZERS_PARALLELISM": "false", "MAX_JOBS": "8",
         "FLASHINFER_NVCC_THREADS": "2", "NUMPY_MADVISE_HUGEPAGE": "0",
     })
     return env
+
+
+def relink(wheels: Path, lock: Path, dest: Path) -> Path:
+    """A find-links dir of symlinks to ``wheels`` with each local version's ``+`` restored. Kaggle drops ``+`` from
+    uploaded file names (``torch-2.13.0cu130-...whl``), so uv cannot match the lock's ``torch==2.13.0+cu130``."""
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True)
+    names = {p.name: p for p in wheels.glob("*.whl")}
+    for line in lock.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^([A-Za-z0-9._-]+)==([^+\s;]+)\+([A-Za-z0-9.]+)", line.strip())
+        if not m:
+            continue
+        norm, ver, local = re.sub(r"[-_.]+", "_", m[1]).lower(), m[2], m[3]
+        stripped = f"{norm}-{ver}{local}-"  # how the name looks on Kaggle, e.g. torch-2.13.0cu130-
+        for name in [n for n in names if n.lower().startswith(stripped.lower())]:
+            fixed = f"{name[:len(norm)]}-{ver}+{local}-{name[len(stripped):]}"
+            names[fixed] = names.pop(name)
+    for name, src in names.items():
+        (dest / name).symlink_to(src)
+    return dest
 
 
 def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
@@ -148,23 +202,36 @@ def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
     env = {**{k: v for k, v in os.environ.items() if k != "PYTHONPATH"}, "UV_OFFLINE": "1",
            "UV_PYTHON_DOWNLOADS": "never", "PYTHONNOUSERSITE": "1", "UV_CACHE_DIR": str(PREFIX / "uv-cache")}
     uv = str(uv_binary(wheels, PREFIX / "bin" / "uv"))
+    links = relink(wheels, lock, PREFIX / "links")
+    sgl_link = next(links.glob("sglang-*.whl"))  # the one sglang wheel checked above, its "+" restored
     _run([uv, "venv", "--python", sys.executable, str(venv)], env=env)
-    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(wheels), "-r", str(lock)],
+    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r", str(lock)],
          env=env)
+    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
+          "--no-deps", str(sgl_link)], env=env)
     stamp.write_text(want, encoding="utf-8")
     return py
 
 
-def runtime(dataset: str) -> Callable[[Path, Callable[[str], Path]], dict[str, Any]]:
-    """A ``ModelSpec.runtimes`` entry: install the wheelhouse ``dataset`` and return the SGLang server runtime."""
+def runtime(dataset: str,
+            precache_datasets: tuple[str, ...] = ()) -> Callable[[Path, Callable[[str], Path]], dict[str, Any]]:
+    """A ``ModelSpec.runtimes`` entry: install the wheelhouse ``dataset`` and return the SGLang server runtime.
+    ``precache_datasets`` (the model weights) are read into the page cache in the background meanwhile."""
     def prepare(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
         t = time.time()
+        for ds in precache_datasets:
+            try:
+                threading.Thread(target=precache, args=([find_input(ds)],), name=f"precache-{ds}",
+                                 daemon=True).start()
+            except Exception as exc:  # noqa: BLE001 - a missing optional input only loses the warm cache
+                _log(f"precache {ds} skipped: {exc!r}")
         py = install(dataset, find_input)
         venv = py.parent.parent
         env = server_env(venv, cuda_home(venv))
-        check = _run([str(py), "-c", "import sglang, torch, flashinfer; print(sglang.__version__, torch.__version__, "
-                                     "flashinfer.__version__, torch.cuda.is_available())"], env=env)
+        versions = ("import sglang, torch, flashinfer; print(sglang.__version__, torch.__version__, "
+                    "flashinfer.__version__, torch.cuda.is_available())")
+        check = _run([str(py), "-c", versions], env=env)
         return {"env": env, "python": str(py), "serve": list(SERVE), "backend": "sglang",
-                "info": {"dataset": dataset, "versions": check.stdout.strip(), "install_s": round(time.time() - t)}}
+                "info":{"dataset": dataset, "versions": check.stdout.strip(), "install_s": round(time.time() - t)}}
 
     return prepare

@@ -26,19 +26,18 @@ DEFAULT: dict[str, Any] = {
     "scheduler": {"enabled": False, "slots": 6, "quantum_calls": 4, "token_scale": 80000.0},
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
-        "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
+        "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); server start decides
         # "e008" = ipython (read-only `scene`) + act + recall, with perception pushed after every act and the
         # agent-written memory (harness.agent.tools, harness.memory); "ipython" = upstream's single REPL tool (E003-E005,
         # the control arm). Fenced mode always uses "ipython".
         "toolset": "e008",
-        "prompt_version": "e008",      # E110: "e110" = short-thinking prompt edits (prompts.E110_*); "e008" = control
         "act_max_actions": 5,          # actions per act call
         "allow_fenced_code": True,     # also execute fenced code when no native call came back
         "max_tokens_per_turn": 16384,
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
-        "context_window": 131072,      # served context; run.py sets it from the vLLM profile / local server
+        "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
         # Ours (E005): also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
@@ -71,25 +70,14 @@ DEFAULT: dict[str, Any] = {
             "curator_every_turns": 25,  # also at every level-up and after every compaction
             "curator_max_tokens": 4096,
             "recall_tokens": 1500,
-            "goal_versioning": False,  # E021: up to 3 goals (active, rivals, refuted) with versions; False = E008
-            "goal_lock_after_level": 1,  # E021 (with goal_versioning): goal locked once this level is won; 0 = never
-            "goal_history_shown": 5,     # E021: goal changes (with reasons) shown in the goal block
-            "level_review": False,     # E022: hidden review of the whole level after every level-up; False = E008
-            "level_review_max_tokens": 2048,
-            "level_review_steps_tokens": 3000,  # the level's steps sent to the review (first and last kept)
-            "wrong_rulebook": False,   # E018: refuted rules stored in the game's wrong rulebook (agent never sees it)
-            "skill_names": "snake",    # E018: "use_case" = a skill is named by its use case in <= 10 words
-            "lessons_reconcile": False,  # E039: after every level won, lessons compared with the wrong rulebook
-            "lessons_reconcile_max_tokens": 2048,
-            "lessons_reconcile_tokens": 2000,  # lessons sent to the pass (this game's first); wrong rules: half
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
-                     "questions": 100, "goal_versioned": 400, "levels": 250},
+                     "questions": 100},
         },
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },
     # --- model ---------------------------------------------------------------------------------------------
-    # "gemma" | "qwen". Picks harness/llm/gemma.py or harness/llm/qwen.py: weights, vLLM profiles, parsers, sampling and
+    # "gemma" | "qwen". Picks harness/llm/gemma.py or harness/llm/qwen.py: weights, server profiles, parsers, sampling and
     # thinking policy all come from there (build_config merges them under the overrides below).
     "model": "qwen",
     "llm": {
@@ -97,8 +85,8 @@ DEFAULT: dict[str, Any] = {
         "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included (E007)
         "retries": 4,
     },
-    # --- vLLM on Kaggle ------------------------------------------------------------------------------------
-    "vllm": {
+    # --- model server on Kaggle ----------------------------------------------------------------------------
+    "server": {
         "wheelhouse_dataset": "banwait13/sarbloh-vllm-wheelhouse",  # kaggle/wheels.ipynb, vLLM 0.19.0
         "port": 8000,
         "profile_chain": None,         # None = the model spec's chain
@@ -106,7 +94,7 @@ DEFAULT: dict[str, Any] = {
         "max_inflight": 32,            # requests admitted at once; ramps 2 -> 32 after a watchdog restart
         "bench": True,
         "watchdog": True,
-        "watchdog_cfg": {},            # overrides of harness.llm.vllm.WATCHDOG
+        "watchdog_cfg": {},            # overrides of harness.llm.server.WATCHDOG
     },
 }
 
@@ -122,6 +110,8 @@ def build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     """DEFAULT, then the chosen model's spec defaults (served name, sampling, thinking), then ``overrides``."""
     from harness.llm.spec import get_spec
 
+    if "vllm" in (overrides or {}):  # renamed 2026-10-02; merge() would keep it as a dead key and drop its profile_chain
+        raise ValueError('config key "vllm" was renamed to "server"')
     spec = get_spec((overrides or {}).get("model", DEFAULT["model"]))
     base = merge(DEFAULT, {"llm": {"model": spec.served_model_name, **spec.llm}})
     return merge(base, overrides)

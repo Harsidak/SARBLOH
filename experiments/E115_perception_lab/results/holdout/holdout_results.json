@@ -1,0 +1,355 @@
+[
+ {
+  "game": "lp85",
+  "actions": [
+   6
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "2/20 objects respond",
+  "handle_prec": "0/17",
+  "gauge_hit": false
+ },
+ {
+  "game": "cd82",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "purple (top, right, bottom, left) + grey (top, right, left) irregular shape (114 cells)",
+  "you_hit": true,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "click_resp": "0/2 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ },
+ {
+  "game": "sp80",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": null,
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "error IndexError",
+  "click_resp": "0/3 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ },
+ {
+  "game": "re86",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "blue with white centre plus",
+  "you_hit": true,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "gauge_hit": true
+ },
+ {
+  "game": "dc22",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "grey (top, bottom, left) + red (top) + maroon (top, right) + blue (left) + green (bottom, left) shape with 4 hole cell(s)",
+  "you_hit": true,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "click_resp": "2/15 objects respond",
+  "handle_prec": "2/2",
+  "gauge_hit": true
+ },
+ {
+  "game": "sc25",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "grey (top, right, bottom, left) + dark grey (top, right, bottom, left) + purple (top, right, bottom, left) square",
+  "you_hit": false,
+  "n_movers": 0,
+  "x5": "position accuracy 0/4",
+  "click_resp": "0/2 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": false
+ },
+ {
+  "game": "cn04",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "green (top, right, bottom, left) + red (top, bottom, left) ring",
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "click_resp": "0/2 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": false
+ },
+ {
+  "game": "vc33",
+  "actions": [
+   6
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "0/2 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ },
+ {
+  "game": "m0r0",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": null,
+  "you_hit": false,
+  "n_movers": 2,
+  "x5": "error IndexError",
+  "click_resp": "0/2 objects respond",
+  "handle_prec": "no HANDLE labels"
+ },
+ {
+  "game": "su15",
+  "actions": [
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "2/6 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ },
+ {
+  "game": "sk48",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "magenta (left) + red (top, bottom, left) + blue (right) + green (top, right, bottom) + white (left) + light grey (top, right, bottom, left) + grey (top, right, bottom, left) irregular shape (96 cells)",
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "click_resp": "0/5 objects respond",
+  "handle_prec": "0/3",
+  "gauge_hit": false
+ },
+ {
+  "game": "tn36",
+  "actions": [
+   6
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "6/9 objects respond",
+  "handle_prec": "no HANDLE labels"
+ },
+ {
+  "game": "sb26",
+  "actions": [
+   5,
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "4/9 objects respond",
+  "handle_prec": "4/4",
+  "gauge_hit": false
+ },
+ {
+  "game": "ft09",
+  "actions": [
+   6
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "0/8 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": false
+ },
+ {
+  "game": "tu93",
+  "actions": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "grey (top, right, bottom, left) + white (top, right, bottom, left) + green (right, bottom) + blue (top, left) + charcoal (top) shape with 36 hole cell(s)",
+  "you_hit": true,
+  "n_movers": 1,
+  "x5": "position accuracy 4/4",
+  "gauge_hit": true
+ },
+ {
+  "game": "lf52",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "black (top, right, bottom, left) + blue (right, bottom) ring",
+  "you_hit": false,
+  "n_movers": 0,
+  "x5": "position accuracy 0/4",
+  "click_resp": "6/6 objects respond",
+  "handle_prec": "no HANDLE labels"
+ },
+ {
+  "game": "wa30",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "charcoal (top, right, bottom, left) + blue (top, bottom) square",
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "position accuracy 0/4",
+  "gauge_hit": false
+ },
+ {
+  "game": "ar25",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "black (top, right, bottom, left) + white (top, right, bottom) irregular shape (45 cells)",
+  "you_hit": true,
+  "n_movers": 2,
+  "x5": "position accuracy 0/4",
+  "click_resp": "0/3 objects respond",
+  "handle_prec": "0/2",
+  "gauge_hit": false
+ },
+ {
+  "game": "g50t",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "grid_acc": 1.0,
+  "you_pred": null,
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "error IndexError",
+  "gauge_hit": false
+ },
+ {
+  "game": "ka59",
+  "actions": [
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "green with white centre square",
+  "you_hit": true,
+  "n_movers": 2,
+  "x5": "position accuracy 0/4",
+  "click_resp": "1/5 objects respond",
+  "handle_prec": "1/1",
+  "gauge_hit": true
+ },
+ {
+  "game": "tr87",
+  "actions": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "grid_acc": 1.0,
+  "you_pred": null,
+  "you_hit": false,
+  "n_movers": 3,
+  "x5": "error IndexError",
+  "gauge_hit": false
+ },
+ {
+  "game": "s5i5",
+  "actions": [
+   6
+  ],
+  "grid_acc": 1.0,
+  "click_resp": "0/6 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ },
+ {
+  "game": "bp35",
+  "actions": [
+   3,
+   4,
+   6,
+   7
+  ],
+  "grid_acc": 1.0,
+  "you_pred": "green (top, right, bottom, left, centre) + dark grey (top, bottom) square",
+  "you_hit": false,
+  "n_movers": 1,
+  "x5": "position accuracy 0/2",
+  "click_resp": "4/131 objects respond",
+  "handle_prec": "no HANDLE labels",
+  "gauge_hit": true
+ }
+]
