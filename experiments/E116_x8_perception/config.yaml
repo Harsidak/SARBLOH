@@ -1,0 +1,19 @@
+# E116 — configuration diff against Sarbloh-Experimentation/harness/config.py (agent.perception)
+experiment: E116_x8_perception
+baseline: E008 perception (vision.py + intuition.py, scene.* in the REPL)
+code: Sarbloh-Experimentation/harness/agent/perception.py   # replaces vision.py and intuition.py
+repl: Sarbloh-Experimentation/harness/runtime/skills/observation.py   # observe(), replaces scene.py
+
+agent:
+  perception:
+    image: true             # the X8 picture with every observation (only when the server takes images)
+    cell: 10                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
+    ascii: true
+    segmentation: true
+    briefing: true          # the X8 briefing (MEASURED facts and GUESSES), in the full view
+    briefing_lines: 30      # most briefing lines shown; the rest are counted, never dropped silently
+    crop_margin: 3
+    max_objects: 40
+    observation_tokens: 800
+
+games: [ls20, tr87, lp85, su15, tu93]   # the 5 public dev games

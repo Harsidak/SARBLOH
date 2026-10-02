@@ -439,12 +439,12 @@ class LlmServer:
     def image_smoke(self) -> str:
         """One request with a small PNG (a red square): the server must accept the image part. The answer is logged,
         not judged: the check is that the multimodal path works, not the model's eyesight."""
-        from harness.agent.vision import data_url
+        from harness.agent.perception import data_url, render
 
         body: dict[str, Any] = {"model": self.spec.served_model_name, "temperature": 0.0, "max_tokens": 256,
                                 "messages": [{"role": "user", "content": [
                                     {"type": "text", "text": "What colour fills this image? Answer in one word."},
-                                    {"type": "image_url", "image_url": {"url": data_url([[8] * 16] * 16, upscale=4)}}]}]}
+                                    {"type": "image_url", "image_url": {"url": data_url(render([[8] * 16] * 16, 4))}}]}]}
         if self.spec.smoke_template_kwargs:
             body["chat_template_kwargs"] = dict(self.spec.smoke_template_kwargs)
         t = time.time()

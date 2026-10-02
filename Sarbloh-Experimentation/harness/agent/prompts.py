@@ -14,8 +14,8 @@ So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else 
 
 Tools are described twice on purpose: ``TOOLS_BRIEFING`` says what each tool is for and what it costs;
 ``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED`` + ``ACT_DETAILED`` + ``RECALL_DETAILED``) gives every argument, limit,
-refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``, ``_tool_recall``) and
-``runtime/skills/scene.py``. If those change, change these.
+refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``, ``_tool_recall``),
+``runtime/skills/observation.py`` and ``agent/perception.py`` (E116). If those change, change these.
 
 Style (owner rule, 2026-10-02): simple English in full sentences that flow, written as instructions to a human. Exact
 tool and function names, no stories. The score formula is not shown to the agent on purpose (owner decision
@@ -43,7 +43,7 @@ You will play the game in a continuous cycle: look at the board, use Python to c
 Communication:
 Write your thinking and your notes in short, plain sentences."""
 
-# The colour legend in the form each toolset shows the board: letters (``scene``) or numbers (``arc``, ``obs.grid``).
+# The colour legend in the form each toolset shows the board: letters (``observe()``) or numbers (``arc``, ``obs.grid``).
 LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
                   "B=black, M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, r=dark red, N=green, "
                   "p=purple.")
@@ -80,34 +80,42 @@ GAME_FACTS = """Game:
 You are playing the ARC-AGI-3 game `{game_id}`. It has {win_levels} levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the controls, the rules or the goal. You find them out by looking and by trying moves. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
 You work alone. There is no human to answer questions, so never ask one. Thinking and using Python are free. Only game moves count, so make each move for a reason."""
 
-READING_THE_STATE = """What you see after every move:
-1. The result of your `act` call, with one line per move. For example:
+READING_THE_STATE = """What you see:
+1. After every `act`, the result has one line per move. For example:
    `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
    `#12` is the step number, and you use step numbers as evidence. A line that ends with `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
-2. The new board, in the next message. It has a status line, the objects in the area that changed, and that area drawn as letters{picture_after}.
-At the start of each level you get the whole board as letters and the full list of objects{picture_start}.
+2. The new state follows in the next message. It has a status line, the last step, the objects in the area that changed and that area drawn as letters{picture_after}.
+3. At the start of each level, after old messages are shortened, and whenever you call `observe()` in `ipython`, you get the full state instead: a briefing, the full list of objects and the whole board as letters{picture_start}.
 
+The briefing is worked out by code from the board, and it has two parts:
+- MEASURED facts are computed, so you can trust them. They say where the object most likely to be you can go and in how many steps, what encloses an empty space and what would fit in it, which lines tie objects together, which objects line up in a row or a column, which objects have the same shape (turned, mirrored, resized or in other colors), which objects are identical copies, and which objects have lopsided colors.
+- GUESSES are only guesses. Each one gives a role, such as YOU, GOAL, MOVES LEFT or HANDLE, and a quick test. On new games they are wrong about half the time, so check a guess with one move before you build a plan on it.
+{picture_help}
 How to read it:
 - Positions are written as rows and columns. `r10-12 c20-22` means rows 10 to 12 and columns 20 to 22. Row 0 is the top, and column 0 is the left.
 - An object is one connected area of one color. Its line gives its id, its color letter and its size (`R 3x3` is a full rectangle, `R 7px` is any other shape), where it is, and a `#hash`. The same shape always has the same hash, in any place and on any level. Then come its relations: `in 2` means it is inside object 2, `has 5,6` means it contains objects 5 and 6, and `adj 3` means it touches object 3. `hud` means it sits on the edge of the screen, where it is often a counter, a bar or a number of lives.
-- Object ids stay the same for the whole level. The most common color is the background, and it is not listed as an object."""
+- Object ids stay the same for the whole level, and the same ids are used in the briefing{picture_ids}. A thing made of several colors is named after the id of its biggest part. The most common color is the background, and it is not listed as an object."""
+
+PICTURE_HELP = """
+The picture is a map of the board. Open floor is light, walls and other large areas are dark and hatched, and the HUD at the edge of the screen is grey-blue and is drawn again, larger, on the right. Objects keep their real colors. Each object has a box and a tag with its id and its guessed role, for example `10: YOU?`. A dashed line joins objects with the same shape (pink when one is turned or resized, blue when only the colors differ), a yellow ring marks an object held between two others, and thin lines show the floor's tile grid. The letters are exact, so use the picture to see the layout at a glance and the letters for exact positions.
+"""
 
 TOOLS_BRIEFING = """Tools:
 You have three tools, and only `act` spends moves.
-- `ipython` (free) runs Python, so you can look at the board and compute things. It reads the current board from the object `scene`. It cannot make moves.
+- `ipython` (free) runs Python, so you can look at the board and compute things. It reads the current state with `observe()`. It cannot make moves.
 - `act` makes 1 to {act_max} moves, and in the same call you write your memory (plan, hypotheses, findings and goal). Each move costs one move. Use one `act` per reply.
 - `recall` (free) searches your memory: earlier steps, hypotheses, findings, goals, lessons and skills.
 The cycle is: read the new board, check your idea in `ipython`, then `act`. Use `recall` when you need something that is no longer in the conversation."""
 
 IPYTHON_TOOL_DETAILED = """`ipython` in detail:
 - Its argument is `code`, the Python to run. Top-level `await` works, and variables, functions and imports stay between calls.
-- The board is the read-only object `scene`, and it is updated after every `act`. There is no number grid: colors are letters, and positions are (row, column).
-  - `scene.objects` is a list of dicts, one per object, with the keys `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash`, `corners`, `parent`, `children`, `adjacent`, `hud` and `cells`. `cells` is a list of (row, column), or None when the object has more than 256 cells.
-  - `scene.letters` is the board, one string of letters per row. `scene.letters[r][c]` is the color at row r and column c.
-  - `print(scene.ascii(r0, c0, r1, c1))` prints a window of the board with row and column labels.
-  - `scene.find(letter="R")`, `scene.find(hash="...")`, `scene.find(id=4)` and `scene.find(size=9)` return the objects that match.
-  - `scene.history(10)` gives the last 10 steps. Each is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
-  - `scene.step` is the newest step number, `scene.status` the status line, `scene.change` the newest change, `scene.background` the background letter, and `scene.legend` maps each letter to its color name."""
+- `obs = observe()` gives you the current state. It is free, and the full state ({full_state}) also comes to you in the next message, once per state. There is no number grid: colors are letters, and positions are (row, column).
+  - `obs.board` is the board, one string of letters per row. `obs.board[r][c]` is the color at row r and column c.
+  - `obs.objects` is a list of dicts, one per object, with the keys `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash`, `corners`, `parent`, `children`, `adjacent`, `hud` and `cells`. `cells` is a list of (row, column), or None when the object has more than 256 cells. To find objects, filter the list, for example `[o for o in obs.objects if o["letter"] == "R"]`.
+  - `print(obs.ascii(r0, c0, r1, c1))` prints a window of the board with row and column labels.
+  - `obs.change` is the change line of the newest step, and `obs.history` lists the last 20 steps. Each step is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
+  - `obs.briefing` has every line of the briefing, `obs.step` is the newest step number, `obs.status` is the status line, `obs.background` is the background letter, and `obs.legend` maps each letter to its color name.
+- An `obs` does not change after you get it. Call `observe()` again after every `act`, and call it inside your helper functions instead of keeping an old board in a variable."""
 
 ACT_DETAILED = """`act` in detail:
 Arguments:
@@ -146,13 +154,13 @@ At the top of every turn there is a [memory] block. It is rebuilt from what you 
 When you finish a level, your verified hypotheses and findings are saved as lessons for later levels, and your plan, hypotheses and findings are cleared. Your goal is kept. So mark what you have verified before the level ends."""
 
 LEVEL_METHOD = """How to play a level:
-1. Look (free). Read the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge.
+1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start, but each one needs its test.
 2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first `act`.
 3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses.
 4. Solve. When the rules you need are verified, write a search in `ipython` (for example a breadth-first search over the moves you verified) to find the shortest path. Then send the path in `act` calls of up to {act_max} moves."""
 
 RULES = """Rules:
-- Do not read, count or copy cells in your head. Ask `ipython` instead, with `scene.find`, a small `scene.ascii` window, distances, or objects with the same hash. One short Python call is faster and more exact than a long thought.
+- Do not read, count or copy cells in your head. Ask `ipython` instead: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute distances and find objects with the same hash. One short Python call is faster and more exact than a long thought.
 - Keep your thinking short, then call a tool. A reply that is too long is cut off and lost.
 - "reset" costs a move and throws away your progress in the level. Use it after GAME_OVER, or when the level is clearly stuck. Do not use it to experiment.
 - Every level can be solved. If your search finds no way to the goal, one of your rules is wrong, so test the rule you are least sure about."""
@@ -164,7 +172,7 @@ The result is `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 
 Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You check the path in `ipython`, mark both hypotheses verified with evidence [0], and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
 
 ENVIRONMENT = """Working directory: {cwd}
-Python packages: numpy. `scene` (the current board, read-only) is already imported."""
+Python packages: numpy. `observe` (the current state, read-only) is already imported."""
 
 # =====================================================================================================================
 # 3. System-prompt snippets for the plain ipython toolset (the agent makes moves from Python with `arc`)
@@ -202,7 +210,7 @@ CAP_LINE = ("- At most {cap} `arc.step` or `arc.reset` calls fit in one `ipython
 
 TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. You have at most {max_actions} moves and about {minutes} minutes for the whole game.
 The first board is shown below. This is level 1, so nothing is known yet. Do this first:
-1. Look at the board and the object list. Use `ipython` (`scene.objects`, `scene.find`) to check what you think you see.
+1. Read the briefing, the board and the object list. Use `ipython` (`obs = observe()`, then `obs.objects`) to check what you think you see.
 2. In one `act` call, write your first plan, 2 to 4 hypotheses and a goal guess, and make 1 or 2 test moves."""
 
 TASK_IPYTHON = ("Play the ARC-AGI-3 game `{game_id}` and win it. You have at most {max_actions} moves and about {minutes} "
@@ -345,7 +353,10 @@ def event_message(kind: str, toolset: str = "game", *, moves_left: int | None = 
 def game_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, vision: bool = True, **_: Any) -> str:
     """System prompt of the game agent (tools ipython, act, recall). ``vision`` says whether pictures are sent."""
     pictures = {"picture_after": ", and a picture of the whole board (only the newest picture is kept)",
-                "picture_start": ", and a picture"} if vision else {"picture_after": "", "picture_start": ""}
+                "picture_start": ", and the picture", "full_state": "briefing, objects, board and picture",
+                "picture_ids": " and on the picture", "picture_help": PICTURE_HELP} if vision else \
+        {"picture_after": "", "picture_start": "", "full_state": "briefing, objects and board", "picture_ids": "",
+         "picture_help": ""}
     return assemble_system("game", legend=LEGEND_LETTERS, game_id=game_id, win_levels=win_levels, act_max=act_max,
                            cwd=cwd, **pictures)
 

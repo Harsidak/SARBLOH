@@ -3,8 +3,8 @@
     [system] -> [memory: game status, goal, plan, skills, hypotheses, findings, lessons, open questions] -> recent turns
 
 The memory message is rebuilt before every turn from ``harness.memory`` and is never stored in the transcript or
-summarised by compaction: it is the agent's memory, not its conversation. The observation (change lines, scene text,
-image) is not pinned here: it is pushed as a user message right after each act result, so the newest state is always
+summarised by compaction: it is the agent's memory, not its conversation. The observation (change lines, state text,
+picture) is not pinned here: it is pushed as a user message right after each act result, so the newest state is always
 the last thing the agent reads. Only the newest image is kept; older image parts become a one-line text stub (the
 server allows one image per prompt). Consecutive user messages are joined (some chat templates need alternating roles).
 """

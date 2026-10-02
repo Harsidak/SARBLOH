@@ -2,7 +2,7 @@
 
 Upstream Prime Agent exposes one tool, the persistent ``ipython`` REPL; that is ``toolset: "ipython"`` (E003-E005, the
 control arm). ``toolset: "e008"`` gives three: ``ipython`` to think and compute (it cannot act and cannot read the
-raw game; it reads the read-only ``scene``), ``act`` to move (1 to N actions, plus the agent's plan, hypotheses,
+raw game; it reads the state with ``observe()``), ``act`` to move (1 to N actions, plus the agent's plan, hypotheses,
 findings and goal), and ``recall`` to search memory and skills. The observation is pushed after every act; there is
 nothing to fetch. The handlers live in ``harness.agent.agent.AgentSession``.
 
@@ -27,11 +27,13 @@ IPYTHON_TOOL = _fn(
 
 IPYTHON_E008 = _fn(
     "ipython",
-    "Run Python in a persistent REPL, to think and compute. Free. `scene` is the current state, read-only: "
-    "`scene.objects` (list of dicts: id, letter, colour, size, bbox [r0,c0,r1,c1], hash, parent, children, adjacent, "
-    "hud, cells), `scene.letters` (rows as strings of colour letters), `print(scene.ascii(r0, c0, r1, c1))`, "
-    "`scene.find(letter=..., hash=..., id=...)`, `scene.history(n)` (the last n steps as change lines and objects). "
-    "Variables and functions persist. It cannot spend actions: use act.",
+    "Run Python in a persistent REPL, to think and compute. Free. `obs = observe()` gives the current state, "
+    "read-only, and the full state (briefing, objects, board and picture) is shown to you in the next message, once "
+    "per state. For your code: `obs.board[r][c]` (the colour letter at row r, column c), `obs.objects` (list of "
+    "dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, corners, parent, children, adjacent, hud, cells), "
+    "`obs.change` (the newest change line), `obs.briefing`, `obs.history` (the last 20 steps), "
+    "`print(obs.ascii(r0, c0, r1, c1))`. An `obs` does not update: call observe() again after an act. Variables and "
+    "functions persist. It cannot spend actions: use act.",
     {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
     ["code"])
 
@@ -39,7 +41,7 @@ ACT_E008 = _fn(
     "act",
     "Spend 1 to {max} game actions, in order; each costs 1 action against the score. Write your memory with the "
     "same call: `plan` always; `hypotheses`, `findings` and `goal` when they change. The result gives one change line "
-    "per action, then the new state (objects, the changed region and an image) arrives as the next message. The "
+    "per action, then the new state (the changed region, its objects and a picture) arrives as the next message. The "
     "batch stops early at a level-up or a GAME_OVER.",
     {"actions": {"type": "array", "items": {"type": "string"},
                  "description": "Up to {max} actions: \"1\" up, \"2\" down, \"3\" left, \"4\" right, \"5\" space "

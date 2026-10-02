@@ -21,11 +21,13 @@ Ours, not upstream: the game status line after each tool result, the "reply was 
 host-forced reflection checkpoint (off by default), and scaling upstream's chars/4 token estimate by the measured
 prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars, so chars/4 alone never triggered compaction).
 
-E008 ``toolset: "e008"`` (``harness.agent.tools``): ``ipython`` (think and compute; reads the read-only ``scene``,
+E008 ``toolset: "e008"`` (``harness.agent.tools``): ``ipython`` (think and compute; reads the state with ``observe()``,
 cannot act or fetch the game), ``act`` (1 to N actions plus the agent's plan, hypotheses, findings and goal) and
 ``recall`` (search memory and skills). After every act the host pushes the new state as the next user message: a
-change line per action in the act result, then the scene text (``harness.agent.intuition``) and a PNG
-(``harness.agent.vision``). The agent's memory (``harness.memory``) is rendered into one pinned message before the recent
+change line per action in the act result, then the short view (changed region) and the X8 picture
+(``harness.agent.perception``, E116). The full view (X8 briefing, every object, the whole board, the picture) is pushed
+at a level start, after a compaction, and when the agent calls ``observe()`` in ipython (once per state). The agent's
+memory (``harness.memory``) is rendered into one pinned message before the recent
 turns on every turn (``harness.agent.context``); the hidden curator (``harness.agent.curator``) replaces auto-refine. The
 host records what the agent writes and judges nothing. Every tool call is logged as a structured transcript event for
 ``harness.trace``. E006's ``dedicated`` toolset (plan, reset_level, remember, delegate, message, world-model checks)
@@ -45,15 +47,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.agent import compaction, context, curator, prompts, refine
-from harness.agent.intuition import Scene, Tracker, rows_of
+from harness.agent import compaction, context, curator, perception, prompts, refine
 from harness.agent.tools import toolset
-from harness.agent.vision import image_message
 from harness.game.arc_host import ArcHost
 from harness.llm.client import LLM, ContextOverflow
 from harness.memory.lifecycle import GameMemory
 from harness.runtime.kernel import Kernel
-from harness.runtime.skills import scene as scene_file
+from harness.runtime.skills import observation
 
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 _ACTION_NAMES = {0: "RESET", 1: "A1(up)", 2: "A2(down)", 3: "A3(left)", 4: "A4(right)", 5: "A5(space)",
@@ -132,7 +132,8 @@ class AgentSession:
                       "refine_errors": 0, "tool_counts": {}, "tool_errors": 0, "act_actions": 0, "act_calls": 0,
                       "act_arg_errors": 0, "recalls": 0, "hypothesis_events": 0, "promotions": 0,
                       "curator_runs": 0, "curator_errors": 0, "observations": 0, "images_sent": 0,
-                      "observation_chars_max": 0, "pinned_chars_max": 0}
+                      "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
+                      "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
         self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -166,11 +167,13 @@ class AgentSession:
         # E008: perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
         self.vision = bool(cfg.get("vision")) and bool(self.perception.get("image", True))
-        self.tracker = Tracker()
+        self.tracker = perception.Tracker()
         self._objects: list[Any] = []            # objects of the newest frame, ids stable within the level
         self._obs_rows: list[list[int]] | None = None   # the grid of the last observation pushed (crop baseline)
         self._level_start = True
         self._last_step: int | None = None
+        self._last_change: str | None = None     # the newest change line, "#12 A1(up): ..." (shown and in observe())
+        self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the X8 analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
         self._curate_pending: str | None = None
         self._pinned_chars = 0
@@ -466,6 +469,8 @@ class AgentSession:
                 self.stats["cell_errors"] += 1
                 failed = True
             text = res.render(self.cfg["tool_output_chars"])
+            if self.e008 and any(observation.MIME in d for d in res.displays):
+                text += "\n" + self._observe_called()
             spent = arc.game.action_count - start if arc is not None else 0
             if arc is not None:
                 arc.step_ref = {**ref, "after_cell": True}  # actions a background task spends after the cell
@@ -536,7 +541,7 @@ class AgentSession:
 
     def _frame(self) -> list[list[int]]:
         f = self.arc.game.state.raw.frame[-1]
-        return rows_of(f)
+        return perception.rows_of(f)
 
     def _game_status(self) -> str:
         arc = self.arc
@@ -549,30 +554,86 @@ class AgentSession:
                 f"{left} left | {self._time_left()}")
 
     def _observation(self, full: bool = False) -> dict[str, Any]:
-        """The newest state as a user message: scene text (+ image). Also published to the REPL's ``scene``.
-        Shown in full (board and every object) at a level start or when ``full``; else the changed region."""
+        """The newest state as a user message, with the X8 picture when vision is on. The full view (X8 briefing,
+        every object, the whole board) at a level start or when ``full``; else the short view (the changed region).
+        The full view and the data are also published for ``observe()`` in the REPL."""
+        t0 = time.time()
         rows = self._frame()
         if not self._objects:   # the first look at the game: ids start at 1 (act re-tracks at every level-up)
             self.tracker.reset()
             self._objects, _ = self.tracker.observe(rows)
         full = full or self._level_start or self._obs_rows is None
         p = self.perception
-        sc = Scene(self._last_step, rows, self._objects, change=None, prev=self._obs_rows, level_start=full,
-                   status=self._game_status())
-        text = sc.text(max_objects=int(p.get("max_objects", 40)), budget_tokens=int(p.get("observation_tokens", 800)),
-                       show_ascii=bool(p.get("ascii", True)), segmentation=bool(p.get("segmentation", True)),
-                       margin=int(p.get("crop_margin", 3)))
+        b = self._briefing(rows)
+        sc = perception.Scene(self._last_step, rows, self._objects, change=self._last_change, prev=self._obs_rows,
+                              status=self._game_status(), briefing=b, briefing_lines=int(p.get("briefing_lines", 30)))
+        opts = {"max_objects": int(p.get("max_objects", 40)), "show_ascii": bool(p.get("ascii", True)),
+                "segmentation": bool(p.get("segmentation", True))}
+        full_text = sc.text(full=True, **opts)
+        text = full_text if full else sc.text(budget_tokens=int(p.get("observation_tokens", 800)),
+                                              margin=int(p.get("crop_margin", 3)), **opts)
         try:
-            scene_file.write(self.kernel.session_dir, sc.to_json())
+            observation.write(self.kernel.session_dir, {**sc.to_json(), "text": full_text})
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
-            self._log_event({"event": "scene_write_error", "error": repr(exc)[:300]})
+            self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
         self._obs_rows, self._level_start = rows, False
+        msg = {"role": "user", "_kind": "observation", "content": text}
+        if self.vision:
+            png = self._picture(rows, b)
+            msg = perception.image_message(text, png, self._last_step)
+            self.stats["images_sent"] += 1
+        msg.update({"_full": full, "_step": self._last_step})
+        dt = time.time() - t0
         self.stats["observations"] += 1
         self.stats["observation_chars_max"] = max(self.stats["observation_chars_max"], len(text))
-        if self.vision:
-            self.stats["images_sent"] += 1
-            return image_message(rows, text, self._last_step, int(p.get("upscale", 4)))
-        return {"role": "user", "_kind": "observation", "content": text}
+        self.stats["perception_s_total"] = round(self.stats["perception_s_total"] + dt, 3)
+        self.stats["perception_s_max"] = round(max(self.stats["perception_s_max"], dt), 3)
+        return msg
+
+    def _briefing(self, rows: list[list[int]]) -> perception.Briefing | None:
+        """The X8 analysis of the newest frame, once per state. None when switched off or when it fails: the agent
+        then gets the text views without it, because perception must never fail an act."""
+        if not self.perception.get("briefing", True):
+            return None
+        key = (self._last_step, self.arc.game.state.levels_completed)
+        if self._brief[0] != key:
+            legal = [a for a in self.arc.game.state.available_actions if a != 0]
+            prev = self._brief[1] if self._brief[0] is not None and self._brief[0][1] == key[1] else None   # same level
+            try:
+                self._brief = (key, perception.brief(rows, self._objects, legal, prev))
+            except Exception as exc:  # noqa: BLE001
+                self.stats["perception_errors"] += 1
+                self._log_event({"event": "perception_error", "where": "brief", "error": repr(exc)[:300],
+                                 "traceback": traceback.format_exc()[-2000:]})
+                self._brief = (key, None)
+        return self._brief[1]
+
+    def _picture(self, rows: list[list[int]], b: perception.Briefing | None) -> bytes:
+        """The X8 picture; the plain frame when there is no briefing or drawing it fails."""
+        cell = int(self.perception.get("cell", 10))
+        if b is not None:
+            try:
+                return perception.picture(b, cell)
+            except Exception as exc:  # noqa: BLE001
+                self.stats["perception_errors"] += 1
+                self._log_event({"event": "perception_error", "where": "picture", "error": repr(exc)[:300],
+                                 "traceback": traceback.format_exc()[-2000:]})
+        return perception.render(rows, cell)
+
+    def _observe_called(self) -> str:
+        """``observe()`` ran in ipython: the full view goes in after this reply's tool results, once per state. The
+        returned note is added to the cell's output."""
+        self.stats["observe_calls"] += 1
+        where = f"step #{self._last_step}" if self._last_step is not None else "the game start"
+        if self._pending_obs is not None and self._pending_obs.get("_full"):
+            return f"[observe: the full state at {where} follows in the next message]"
+        newest = self._pending_obs or next((m for m in reversed(self.messages) if m.get("_kind") == "observation"),
+                                           None)
+        if newest is not None and newest.get("_full") and newest.get("_step") == self._last_step:
+            return f"[observe: the full state at {where} is already in the newest board message above]"
+        self._pending_obs = self._observation(full=True)
+        self.stats["observe_pushes"] += 1
+        return f"[observe: the full state at {where} follows in the next message]"
 
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
         arc, mem = self.arc, self.memory
@@ -674,19 +735,17 @@ class AgentSession:
                          "actions": [start, arc.game.action_count]})
         if done == 0 and stop:
             raise RuntimeError(stop + " (your plan and memory writes were saved)")
+        if lines:
+            self._last_change = lines[-1]
         self._pending_obs = self._observation()
         return "\n".join(out)
 
     def _publish_history(self, steps: list[dict[str, Any]]) -> None:
-        """One line per step for the REPL's ``scene.history(n)``."""
+        """One line per step for ``obs.history`` in the REPL."""
         try:
-            d = Path(self.kernel.session_dir) / ".prime"
-            d.mkdir(parents=True, exist_ok=True)
-            with (d / "history.jsonl").open("a", encoding="utf-8") as fh:
-                for row in steps:
-                    fh.write(json.dumps({k: row.get(k) for k in ("i", "level", "action", "change", "state")}) + "\n")
+            observation.append_history(self.kernel.session_dir, steps)
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
-            self._log_event({"event": "scene_write_error", "error": repr(exc)[:300]})
+            self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
 
     def _log_memory(self, wrote: dict[str, Any], call_id: str, turn: int) -> None:
         level = self.arc.game.state.levels_completed
@@ -916,7 +975,8 @@ class AgentSession:
             self._append({"role": "user", "content": self._continuation()})
 
     def _observation_refresh(self) -> dict[str, Any]:
-        """The current state in full (board, objects, image), e.g. after a compaction cut the last one away."""
+        """The current state in full (briefing, objects, board, picture), e.g. after a compaction cut the last one
+        away."""
         msg = self._observation(full=True)
         self._log_event({"event": "message", **context.loggable(msg)})
         return msg
@@ -928,9 +988,8 @@ class AgentSession:
             if self.arc is None:
                 raise RuntimeError("no game is attached to this session")
             if self.e008:
-                raise PermissionError("in this harness the game state is pushed to you after every act; read it in "
-                                      "`scene` (scene.objects, scene.ascii(...), scene.history(n)) and act with the "
-                                      "act tool")
+                raise PermissionError("in this harness the game state is pushed to you after every act; read it "
+                                      "with `observe()` and act with the act tool")
             return self.arc.handle(req, self.depth)
         if kind == "rlm.run":
             return self._spawn(req)

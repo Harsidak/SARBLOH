@@ -45,12 +45,11 @@ try:
 except Exception as _arc_exc:
     arc = None
 if os.environ.get("PRIME_TOOLSET") == "e008":
-    import scene          # E008: the state is pushed after every act; the REPL reads it and cannot fetch the game
+    from observation import observe   # E116: the state, read-only; the REPL cannot fetch the game or act
     class _NoArc:
         def __getattr__(self, name):
-            raise RuntimeError("there is no `arc` in this harness: the state is pushed to you after every act. "
-                               "Read it in `scene` (scene.objects, scene.ascii(...), scene.history(n)); act with "
-                               "the act tool.")
+            raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
+                               "and act with the act tool.")
     arc = _NoArc()
 """
 
@@ -62,6 +61,7 @@ class ExecResult:
     result: str | None = None
     error: str | None = None
     duration_s: float = 0.0
+    displays: list[dict[str, Any]] = field(default_factory=list)   # display events: dicts of MIME type -> payload
 
     def render(self, limit: int) -> str:
         parts: list[str] = []
@@ -199,7 +199,10 @@ class Kernel:
                 elif kind == "result":
                     res.result = ev.get("text")
                 elif kind == "display":
-                    out.append(f"[display: {', '.join(ev.get('data', {}).keys())}]\n")
+                    data = ev.get("data") or {}
+                    res.displays.append(data)
+                    if not any(k.startswith("application/vnd.sarbloh.") for k in data):   # ours are host signals
+                        out.append(f"[display: {', '.join(data.keys())}]\n")
                 elif kind == "error":
                     tb = "".join(ev.get("traceback") or [])
                     res.error = tb or f"{ev.get('ename')}: {ev.get('evalue')}"

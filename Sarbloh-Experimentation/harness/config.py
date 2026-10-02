@@ -27,7 +27,7 @@ DEFAULT: dict[str, Any] = {
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
         "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); server start decides
-        # "e008" = ipython (read-only `scene`) + act + recall, with perception pushed after every act and the
+        # "e008" = ipython (read-only `observe()`) + act + recall, with perception pushed after every act and the
         # agent-written memory (harness.agent.tools, harness.memory); "ipython" = upstream's single REPL tool (E003-E005,
         # the control arm). Fenced mode always uses "ipython".
         "toolset": "e008",
@@ -55,14 +55,18 @@ DEFAULT: dict[str, Any] = {
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         # --- E008 (toolset "e008") -------------------------------------------------------------------------
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test
+        # E116 (harness/agent/perception.py): the full view (X8 briefing, objects, whole board, picture) at a level
+        # start, after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
         "perception": {
-            "image": True,             # PNG of the newest frame after every act (only if "vision" is True)
-            "upscale": 4,              # nearest-neighbour: 64x64 -> 256x256 px
-            "ascii": True,             # letter grid: full board at level start, changed region after
+            "image": True,             # the X8 picture with every observation (only if "vision" is True)
+            "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
+            "ascii": True,             # letter board: whole in the full view, changed region after an act
             "segmentation": True,      # object list with ids, hashes, containment, adjacency
+            "briefing": True,          # X8 briefing: MEASURED facts and GUESSES, in the full view
+            "briefing_lines": 30,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
-            "max_objects": 40,         # object rows shown per observation (the rest: `scene` in ipython)
-            "observation_tokens": 800,  # cap on the observation text after an act (chars / 4)
+            "max_objects": 40,         # object rows shown per observation (the rest: `observe().objects`)
+            "observation_tokens": 800,  # cap on the short view's text (chars / 4)
         },
         "memory": {
             "lessons": True,           # the cross-game lessons graph (arm C switches it off)
