@@ -263,6 +263,10 @@ E021_LOCK_LINE = ("- Level {n} is for exploration: settle the goal there. When l
                   "locked for the rest of the game and `goal` is ignored.")
 # E022 (``memory.level_review``), added after the memory paragraph.
 E022_REVIEW_ANCHOR = "So mark what you have verified before you win the level."
+# E018 (``memory.wrong_rulebook``), added after the same anchor as E022.
+E018_WRONG_TEXT = (" A hypothesis you mark refuted goes into your wrong rulebook at once (kept across levels and games, "
+                   "shown in your memory, found by `recall` scope lessons): do not propose those rules again unless the "
+                   "level gives a reason.")
 E022_REVIEW_TEXT = (" After each level you win, a reviewer reads the whole level and adds a short review to your memory "
                     "(Level reviews: how it was won, what was wasted, what to try next): use it on the next level.")
 
@@ -302,7 +306,8 @@ E110_CUT = ("Your reply hit the output limit: the whole turn was lost and nothin
 
 
 def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, goal_versioning: bool = False,
-                goal_lock_after: int = 0, level_review: bool = False, prompt_version: str = "e008",
+                goal_lock_after: int = 0, level_review: bool = False, wrong_rulebook: bool = False,
+                prompt_version: str = "e008",
                 max_tokens: int = 16384) -> str:
     arc = E008_ARC.format(game_id=game_id, win_levels=win_levels, act_max=act_max)
     if prompt_version == "e110":
@@ -321,6 +326,9 @@ def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, goal_v
     if level_review:
         assert arc.count(E022_REVIEW_ANCHOR) == 1
         arc = arc.replace(E022_REVIEW_ANCHOR, E022_REVIEW_ANCHOR + E022_REVIEW_TEXT)
+    if wrong_rulebook:
+        assert arc.count(E022_REVIEW_ANCHOR) == 1
+        arc = arc.replace(E022_REVIEW_ANCHOR, E022_REVIEW_ANCHOR + E018_WRONG_TEXT)
     return "\n".join([
         E008_INTRO,
         "",

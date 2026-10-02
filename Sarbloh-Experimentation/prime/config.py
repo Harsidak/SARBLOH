@@ -77,9 +77,11 @@ DEFAULT: dict[str, Any] = {
             "level_review": False,     # E022: hidden review of the whole level after every level-up; False = E008
             "level_review_max_tokens": 2048,
             "level_review_steps_tokens": 3000,  # the level's steps sent to the review (first and last kept)
+            "wrong_rulebook": False,   # E018: refuted rules in their own cross-game memory, re-proposals flagged
+            "skill_names": "snake",    # E018: "use_case" = a skill is named by its use case in <= 10 words
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
-                     "questions": 100, "goal_versioned": 400, "levels": 250},
+                     "questions": 100, "goal_versioned": 400, "levels": 250, "wrong": 200},
         },
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },

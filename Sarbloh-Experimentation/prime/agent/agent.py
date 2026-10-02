@@ -164,6 +164,7 @@ class AgentSession:
         self.goal_lock_after = int((cfg.get("memory") or {}).get("goal_lock_after_level", 0) or 0) \
             if self.goal_versioning else 0                                                       # E021 amendment
         self.review_levels = bool((cfg.get("memory") or {}).get("level_review", False))        # E022
+        self.wrong_rulebook = bool((cfg.get("memory") or {}).get("wrong_rulebook", False))     # E018
         self.prompt_version = str(cfg.get("prompt_version") or "e008")                         # E110
         self._review_pending: list[int] = []      # E022: 0-based levels won and not yet reviewed
         self.tools = toolset(self.toolset, depth=depth, max_depth=cfg["max_depth"],
@@ -248,6 +249,8 @@ class AgentSession:
                 self.memory.save()
                 self.stats["lessons"] = self.memory.lessons.counts() if self.memory.lessons is not None else None
                 self.stats["skills_loaded"] = self.memory.skills.loaded_for(self.memory.game)
+                if self.memory.wrong is not None:                                               # E018
+                    self.stats["wrong_rules"] = self.memory.wrong.counts()
             self._log_event({"event": "end", "reason": self.end_reason, "stats": self.stats})
 
     def _loop(self) -> None:
@@ -661,6 +664,9 @@ class AgentSession:
         back = [g["id"] for g in wrote.get("goals") or [] if g["reproposed"]]     # E021
         if back:
             out.append(f"note: goal {', '.join(back)} was refuted before and is open again.")
+        for wr in wrote.get("wrong") or []:                                      # E018
+            out.append(f"note: {wr['id']} restates a rule in your wrong rulebook: {wr['where'][2:]}. Keep it only if "
+                       "this level gives a reason to test it again.")
         if wrote.get("goal_locked"):                                              # E021 amendment
             out.append(f"note: the goal is locked after level {self.goal_lock_after} (the goal that won it is kept "
                        "for the rest of the game); your `goal` was ignored, the rest of the act was done.")
@@ -718,6 +724,10 @@ class AgentSession:
                              "evidence": g["evidence"], "reproposed": g["reproposed"],
                              "open": sum(1 for x in self.memory.working.goals
                                          if x["status"] in ("active", "candidate"))})
+        for w in wrote.get("wrong") or []:      # E018: a hypothesis that restates a wrong rule
+            self.stats["wrong_rule_reproposed"] = self.stats.get("wrong_rule_reproposed", 0) + 1
+            self._log_event({"event": "wrong_rule_reproposed", "turn": turn, "call": call_id, "level": level,
+                             "action_count": acount, **w})
         if wrote.get("goal_locked"):            # E021 amendment: a goal edit after the lock, ignored
             self.stats["goal_locked_ignored"] = self.stats.get("goal_locked_ignored", 0) + 1
             self._log_event({"event": "goal_locked", "turn": turn, "call": call_id, "level": level,
@@ -890,6 +900,7 @@ class AgentSession:
                                                goal_versioning=self.goal_versioning,
                                                goal_lock_after=self.goal_lock_after,
                                                level_review=self.review_levels,
+                                               wrong_rulebook=self.wrong_rulebook,
                                                prompt_version=self.prompt_version,
                                                max_tokens=int(self.cfg["max_tokens_per_turn"]))
         if self._system is None:

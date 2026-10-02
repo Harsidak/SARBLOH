@@ -1,0 +1,42 @@
+# E114: configuration. The hash of this file goes in the ledger.
+experiment: E114_harness_self_evolution
+source: "Raven (EverMind AI), arXiv 2609.33439, Section 4; HarnessBank method"
+baseline: null            # h0 = best hand-tuned harness config id at start time
+status: parked            # owner decision 2026-10-02: run after ~30 RHAE
+
+model:
+  task_backbone: null     # frozen for the whole search
+  evolver_model: null     # may differ from the task backbone; record per proposal
+
+edit_space:               # X_edit: what candidates may change
+  mem:  [window_tokens, compaction_rule, submemory_caps, reset_wipe_policy]
+  plan: [prompts.py, planner_nudges, continuation_text]
+  cap:  [tools.py_schemas, vision_render_variant, intuition_views]
+  act:  [act_max_actions, act_halt_on_mispredict, stagnation_supervisor]
+kernel_fixed:             # K_fixed: must be byte-identical in every candidate
+  - prime/game/arc_host.py
+  - action budget and scoring
+  - prime/trace.py instrumentation
+  - eval protocol
+
+gene_bank:
+  edit_categories: [prompt, knowledge, runtime, config]
+  pathologies: [blind_action_loop, repeated_state_action, counter_overrun, compaction_loss,
+                act_format_rejection, premature_goal_commitment, hud_as_object]   # grows with diagnoses
+
+search:
+  K_att: 3
+  n_screen: 5             # screening games per round (n >= 2)
+  J_proposals: 4          # proposals per round
+  N_keep: 2               # survivors per round to full-training eval
+  R_round: 4
+  stagnation_P: 3
+  lambda_screen: 1.96     # paired-gain cutoff on t = mean(gamma)/(sd/sqrt(n))
+
+split:
+  train: null             # ~15 public games, fixed before round 0
+  heldout_sealed: null    # ~10 public + authored/synthetic; never used in search
+
+eval:
+  score: rhae_normalised_0_1
+  infra_failure_rule: retry_then_invalid   # never scored as agent failure

@@ -1,0 +1,20 @@
+# E018 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/prime/config.py DEFAULT (E008). Arm A = the same with
+# wrong_rulebook: false and skill_names: snake.
+experiment: E018_wrong_rulebook
+baseline: E008_perception_memory      # same code, switches off
+
+code: Sarbloh-Experimentation/prime
+games: [ls20, tr87, lp85, su15, tu93] # the 5 public dev games (smoke signal, not a held-out result)
+
+agent:
+  toolset: e008
+  memory:
+    wrong_rulebook: true              # switch 1: refuted rules -> wrong_rules.json, pinned block, re-proposal note
+    skill_names: use_case             # switch 2: skills named by their use case, at most 10 words
+    caps:
+      wrong: 200                      # the "Wrong rulebook" block, tokens (chars / 4)
+
+kaggle:                               # not run (owner's call); notebook EXPERIMENT_OVERRIDES would be:
+  EXPERIMENT: E018_wrong_rulebook
+  EXPERIMENT_OVERRIDES: {agent: {memory: {wrong_rulebook: true, skill_names: use_case}}}

@@ -12,6 +12,14 @@ New game: the timeline is archived and everything except the lessons graph and t
 E022 (switch ``level_review``): after a level-up the agent runs one hidden review of the whole level
 (``prime.agent.level_review``); ``add_level_review`` writes it into the working memory (block "levels"), the lessons
 graph (source ``level_review``) and ``levels.jsonl`` (a ``review`` row that ``recall`` returns).
+
+E018 (switch ``wrong_rulebook``): refuted rules go to the game's wrong rulebook (``prime.memory.wrong_rules``,
+``<root>/<game>/wrong_rules.json``) instead of ``refuted`` nodes: a hypothesis as soon as an act marks it refuted, and
+the refuted rules of the level-up and of the E022 review. The agent never sees it. A new hypothesis (or one taken back
+from refuted) that matches a wrong rule is written anyway and returned in ``write_act``'s ``wrong`` list, for the log.
+
+E039 (switch ``lessons_reconcile``): after every level won, a hidden pass compares the lessons graph with the wrong
+rulebook (``prime.agent.lessons_reconcile``); ``reconcile_lessons`` applies its drops, rewrites and merges.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from prime.memory.lessons import LessonsGraph, SkillBook, shape_id
 from prime.memory.store import append_jsonl, clip, read_jsonl
 from prime.memory.timeline import Timeline, render_row
 from prime.memory.working import WorkingMemory
+from prime.memory.wrong_rules import WrongRulebook
 
 SCOPES = ("all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills")
 _OBJ = re.compile(r"\bobj(?:ect)?s?\s*#?(\d+)", re.IGNORECASE)
@@ -47,7 +56,11 @@ class GameMemory:
                                      lock_after=int(cfg.get("goal_lock_after_level", 0) or 0),
                                      history_shown=int(cfg.get("goal_history_shown", 5)))
         self.lessons = LessonsGraph.shared(self.root / "lessons.json") if cfg.get("lessons", True) else None
-        self.skills = SkillBook.shared(self.root / "skills.json")
+        names = cfg.get("skill_names", "snake")
+        if names not in ("snake", "use_case"):
+            raise ValueError(f"memory.skill_names must be 'snake' or 'use_case', got {names!r}")
+        self.skills = SkillBook.shared(self.root / "skills.json", names == "use_case")
+        self.wrong = WrongRulebook.shared(self.dir / "wrong_rules.json") if cfg.get("wrong_rulebook") else None  # E018
         self.promoted = 0
         self.level_objects: dict[int, list[Any]] = {}   # E022: the objects of each level won, for "obj N" links
 
@@ -56,6 +69,8 @@ class GameMemory:
         if self.lessons is not None:
             self.lessons.save()
         self.skills.save()
+        if self.wrong is not None:
+            self.wrong.save()
 
     # --- lifecycle -----------------------------------------------------------------------------------------
     def on_new_game(self) -> dict[str, Any]:
@@ -92,7 +107,11 @@ class GameMemory:
                                                                       for k, v in gone.items()}}
 
     def _promote(self, kind: str, text: str, level: int, shapes: dict[int, Any], source: str) -> dict[str, Any]:
-        """One lessons-graph node, linked to the shapes its text names as "obj N"."""
+        """One lessons-graph node, linked to the shapes its text names as "obj N". E018: a refuted rule goes to the
+        wrong rulebook instead."""
+        if kind == "refuted" and self.wrong is not None:
+            return {"wrong": self.wrong.add(text, level=level, source=source), "type": kind,
+                    "text": clip(text, 60)}
         nid = self.lessons.add_node(kind, text, game=self.game, level=level, source=source)
         linked = []
         for m in _OBJ.finditer(text):
@@ -141,6 +160,45 @@ class GameMemory:
         self.save()
         return {"review": rec, "promoted": promoted}
 
+    def reconcile_lessons(self, out: dict[str, Any], shown: set[str], max_changes: int = 10) -> dict[str, Any]:
+        """E039: applies a reconcile reply (``drop`` / ``rewrite`` / ``merge``) to the lessons graph. Only the lessons
+        in ``shown`` (the ones the pass read) can change, and only a lesson of this game alone can be dropped. A bad
+        item is skipped and logged; the rest is applied. Returns what changed, with the old texts."""
+        g = self.lessons
+        rec: dict[str, Any] = {"dropped": [], "rewritten": [], "merged": [], "errors": []}
+        items = ([("drop", x) for x in out.get("drop") or []] + [("rewrite", x) for x in out.get("rewrite") or []]
+                 + [("merge", x) for x in out.get("merge") or []])
+        for kind, item in items[:max_changes]:
+            try:
+                if not isinstance(item, dict):
+                    raise ValueError("not an object")
+                ids = [str(i) for i in (item.get("ids") if kind == "merge" else [item.get("id")]) or []]
+                why = clip(str(item.get("why") or ""), 40)
+                bad = [i for i in ids if i not in shown or i not in g.nodes]
+                if bad or not ids:
+                    raise ValueError(f"unknown or already changed lessons {bad or ids}")
+                before = [g.nodes[i]["text"] for i in ids]
+                if kind == "drop":
+                    others = [x for x in g.nodes[ids[0]]["games"] if x != self.game]
+                    if others:
+                        raise ValueError(f"{ids[0]} is also from {others}: rewrite it, do not drop it")
+                    g.remove(ids[0])
+                    rec["dropped"].append({"id": ids[0], "text": before[0], "why": why})
+                    continue
+                text = str(item.get("text") or "").strip()
+                if not text or (kind == "merge" and len(ids) < 2):
+                    raise ValueError("a rewrite needs text; a merge needs text and two ids or more")
+                nid = g.merge(ids, text, source="reconcile")
+                shown.add(nid)
+                key = "rewritten" if kind == "rewrite" else "merged"
+                rec[key].append({"ids": ids, "before": before, "node": nid, "text": g.nodes[nid]["text"], "why": why})
+            except Exception as exc:  # noqa: BLE001 - one bad item does not void the others
+                rec["errors"].append(f"{kind}: {exc}"[:200])
+        if len(items) > max_changes:
+            rec["errors"].append(f"{len(items) - max_changes} changes over the limit of {max_changes} ignored")
+        self.save()
+        return rec
+
     # --- writes from the act tool --------------------------------------------------------------------------
     def write_act(self, args: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
         """plan (required), hypotheses, findings, goal. Validates everything before writing anything. With
@@ -161,6 +219,7 @@ class GameMemory:
         except Exception:
             w.plan, w.hypotheses, w.findings, w.goal, w.next_h = snapshot
             raise
+        wrong = self._route_wrong(hyp, level)
         w.set_plan(plan)
         if w.goal_versioning:
             goal_changed = bool(goals)
@@ -168,7 +227,28 @@ class GameMemory:
             goal_changed = w.set_goal(args.get("goal") or "")
         w.save()
         return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None,
-                "goals": goals, "goal_locked": locked}
+                "goals": goals, "goal_locked": locked, "wrong": wrong}
+
+    def _route_wrong(self, events: list[dict[str, Any]], level: int) -> list[dict[str, Any]]:
+        """E018. A hypothesis just marked refuted goes to the wrong rulebook. A new one, or one taken back from
+        refuted, that matches a wrong rule is kept and returned as {"id", "rule", "wrong_id"} (a re-proposal)."""
+        if self.wrong is None:
+            return []
+        out = []
+        for e in events:
+            if e["status"] == "refuted":
+                if e["prev_status"] != "refuted":
+                    self.wrong.add(e["text"], level=level, source="agent")
+                continue
+            if e["prev_status"] not in (None, "refuted"):
+                continue
+            r = self.wrong.match(e["text"])
+            if r is not None:
+                self.wrong.mark_reproposed(r["id"])
+                out.append({"id": e["id"], "rule": r["text"], "wrong_id": r["id"]})
+        if events:
+            self.wrong.save()
+        return out
 
     def record_step(self, row: dict[str, Any]) -> None:
         self.timeline.append({"kind": "step", **row})

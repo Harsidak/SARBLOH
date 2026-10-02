@@ -1,0 +1,33 @@
+# E113: configuration. The hash of this file goes in the ledger.
+experiment: E113_engine_world_model
+baseline: null            # set to the best harness config id when the experiment starts
+status: parked            # owner decision 2026-10-02: run after ~30 RHAE
+
+model:
+  backbone: null          # submission backbone at start time (Qwen/Gemma class)
+  frontier_reference: null  # Phase A ceiling only; never used for training data
+
+worldmodel:
+  representation: engine_native   # engine_native (arcengine game class) | executable (plain step()) | natural_language
+  engine: arcengine
+  api_card_tokens_max: 2000
+  worked_example: Sarbloh-Arc/Scratchpad.py
+
+parkh:
+  mode: exact             # clone_check: every replayed frame must match the recorded frame exactly
+
+jugat:
+  planner: bfs            # clone_plan over the candidate game's states
+
+phase_a:
+  inputs: first_frame_plus_transitions
+  n_transitions: 10
+  game_sets: [unseen_authored, unseen_mutated, public_contaminated]   # only unseen_* count
+  pass_threshold_open_backbone: 0.30   # kill below this after 2 prompt iterations
+
+agent:
+  halt_on_misprediction: true
+
+eval:
+  split: heldout
+  seeds: 3
