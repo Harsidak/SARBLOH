@@ -1,21 +1,3 @@
-"""Prompts.
-
-Two tool sets, two prompt families (``agent.toolset`` in the config):
-
-- ``"ipython"`` (E003-E005, the upstream-fidelity baseline). The base system prompt is upstream ``buildRlmPrompt`` +
-  ``buildSubagentGuidance`` (``core/prompts/rlm.ts``, commit 2d24ad4), in the same order and wording, for the
-  features this host has; the line-by-line check is experiments/E005_prime_fidelity/audit.md. ``ARC_SECTION`` states
-  the interface and the score rule and nothing about strategy, as in the paper (section 3.1). Do not edit this family:
-  it is the control arm of every ablation.
-- ``"e008"`` (E008). Ours. Three tools (ipython, act, recall); the state is pushed after every act; the agent writes
-  its own plan, hypotheses, findings and goal. Written for a mid-size open model (Qwen3.8-27B): short sentences, one
-  procedure, costs stated next to every tool, the E005/E006 failure modes named as rules, and one worked example.
-  E006's ``"dedicated"`` family was removed on 2026-10-01 (git history, commit f117ca4; also
-  ``prompts_backup_20260930.py``).
-
-Placeholders are filled with ``str.format``: a literal brace in any text here must be doubled.
-"""
-
 from __future__ import annotations
 
 # =====================================================================================================================
@@ -25,25 +7,20 @@ from __future__ import annotations
 LONG_RUNNING_WORK = "\n".join([
     "For slow or independently completing work, use a nonblocking control loop: start the work, record its handle or "
     "output location, then end your turn.",
-    "When delegation is available and useful, assign independent substantive tasks to separate workers. Start "
-    "independent workers without waiting for each one sequentially, and let them run in parallel.",
     "Do not keep the turn open by polling with `time.sleep()` or shell `sleep`, and do not replace polling with a long "
     "blocking `await`. Await only the short operation needed to start work or inspect a result that is already "
     "available; otherwise end the turn.",
 ])
 
 SIMPLIFIED_TECHNICAL_ENGLISH = "\n".join([
-    "Use simplified technical English by default for user-facing prose.",
-    "Prefer short sentences, common words, and concrete verbs. State one main action or fact per sentence when "
-    "practical. Use lists for steps or conditions.",
-    "Keep necessary technical terms, names, commands, code, paths, and exact quoted text unchanged. State uncertainty "
-    "directly.",
-    "Treat this as clarity guidance, not a claim of formal ASD-STE100 compliance. Preserve a user-requested format, "
-    "tone, terminology, and necessary precision.",
+    "Use simplified english:",
+    "- Write concise, declarative statements for plans, hypotheses, and findings.",
+    "- Avoid filler and conversational prose; report evidence, coordinates, and state changes directly.",
+    "- Preserve exact symbols, action numbers, object IDs, and hash keys.",
 ])
 
 REPL_CONTROL = "\n".join([
-    "The `ipython` tool is a persistent Python REPL — the agent's long-lived control environment for reasoning, "
+    "The `ipython` tool is a persistent Python coding tool you should use it as your primary tool for reasoning,"
     "context management, state, tool orchestration, and recursive subcalls. Top-level `await` works directly. Use it "
     "to keep intermediate variables, inspect and transform outputs, and write small helper functions.",
     "",
@@ -77,92 +54,36 @@ REPL_CONTROL = "\n".join([
     "runtime, Python REPL kernel, and native call interface exposed to the model.",
     "",
     "RLM-native call contract: installed Python skills are pre-imported modules. Continual harness skill entries are "
-    "Python REPL skills with an explicit Python `reference` and `arguments` contract. Spawn a reusable delegation spec "
-    "with `await rlm.spawn('sub-task', name='worker')`; admission returns a child handle immediately. Results arrive "
-    "only through an available messaging capability or files, never as an `rlm.spawn()` return value. Do not invent "
-    "non-native wrappers such as `call_skill(...)` or `run_subagent(...)`.",
+    "Python REPL skills with an explicit Python `reference` and `arguments` contract. Do not invent non-native "
+    "wrappers such as `call_skill(...)`.",
 ])
 
-RECURSION = [
-    "An `rlm` object is already in your global namespace. `await rlm.spawn('sub-task', name='api-reviewer')` spawns a "
-    "child and returns immediately after task admission with `rlm_child_id`, `name`, `session_dir`, and `model`; it "
-    "never waits for or returns the child's answer.",
-    "`name` is required: choose a stable child name that is unique among siblings.",
-    "A child inherits your model.",
-    "Use `await rlm.list_subagents()` to recover direct child handles after admission.",
-    "Children reply explicitly with `await agent_message.send(message, receiver_role='parent')` when an answer is "
-    "needed. Replies and follow-ups arrive as ordinary agent messages; not every task requires a reply.",
-    "Use `agent_message.send(..., receiver_role='child', receiver_name=child.name)` for follow-ups.",
-    "Inspect files a child wrote when you need to collect its work without an observation capability.",
-    "Spawn independent children in separate calls and end your turn instead of awaiting completion. Multiple replies "
-    "may arrive over multiple turns. Delete a direct child explicitly with `await rlm.delete_subagent(child)` when it "
-    "is no longer needed.",
-]
-
-SUBAGENT_GUIDANCE = "\n".join([
-    "# Delegating to sub-agents",
-    "",
-    "Spawn independent, self-contained work with `handle = await rlm.spawn('task', name='worker')`. This returns at "
-    "admission, not completion; keep the handle to stop or inspect the child later.",
-    "Ask for an explicit reply when needed. A child replies with `await agent_message.send(message, "
-    "receiver_role='parent')`; parent follow-ups use `receiver_role='child'` plus the child's name or id. Not every "
-    "message needs a reply.",
-    "Use `await rlm.list_subagents()` after kernel restart or compaction.",
-    "Long-running children can report in-flight status with `await rlm.progress_note(...)`; `rlm.list_subagents()` "
-    "shows each child's activity, latest progress note, and staleness.",
-    "Fan-in results with `await rlm.collect(targets, timeout_ms=0)`: it returns typed snapshots of direct children "
-    "(status, answer preview, error) without steering anyone; an explicit timeout blocks only that call until the "
-    "children settle or the deadline passes.",
-    "Large child outputs belong in files that you read selectively; `collect` snapshots are previews, not full results.",
-    "Delegate parallel context-heavy research or independent implementation; do a single known lookup, edit, or command "
-    "inline.",
-])
-
-
-def child_doctrine(parent: str) -> str:
-    return "\n".join([
-        f"You are a child agent spawned by {parent}. Task prompts are labeled `[task from parent]`.",
-        'When a task calls for an answer, reply explicitly with `await agent_message.send(message, '
-        'receiver_role="parent")`. Not every message or task needs a reply; continue cleanup after sending and go idle '
-        'normally.',
-        "For long-running work, report brief progress with `await rlm.progress_note('...')` (at most 512 characters, "
-        "throttled to about one note per 10 seconds); the parent sees notes without needing a reply.",
-    ])
-
-
-# Restored to the E005 wording (interface + score rule, no strategy). The strategy text that was added here on
-# 2026-09-29 moved to the dedicated family: the control arm must not change between runs.
 ARC_SECTION = """
-Here is the unified, systematic prompt written in simple, direct language as you requested.
-
----
-
-### SYSTEM PROMPT: PUZZLE SOLVER AGENT
-
-**Your Role and Objective**
+Role:
 You are an agent playing a multi-level grid puzzle game. Your goal is to solve the entire game by clearing every level in as few moves as possible.
-The game board is a 64x64 grid made of colors (based on the ARC color legend: [Insert ARC_COLOR_LEGEND here]). You will play the game in a continuous cycle: look at the board, use Python to update your plan, take an action, and check the results. Keep in mind that game rules and layouts can change between levels.
 
-**Understanding the Game Board**
+Objective:
+The game board is a 64x64 grid made of colors (based on the ARC color legend: W=white, w=light gray, g=gray, G=dark gray, c=charcoal, B=black, M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, r=dark red, N=light green, p=purple). 
+You will play the game in a continuous cycle: look at the board, use Python to update your plan, take an action, and check the results. Keep in mind that game rules and layouts can change between levels.
 
-* **Visualizing the Board:** You will receive an image of the board and text data. Treat the board as a picture with objects, obstacles, and targets.
-* **Objects:** Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
-* **No Player Character:** Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
-* **Backgrounds:** Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
-* **Timers and HUDs (Important):** If you see a shrinking line of blocks on the edge of the screen, it is likely a timer or a "steps-remaining" bar. **Do not treat these as puzzle pieces.** Do not try to click on them unless you are absolutely sure they are part of the puzzle.
-* **Coordinates:** Only use exact row and column numbers to tell your mouse where to click. Do not use coordinates as your final goal. For mouse clicks, `row` is vertical and `col` is horizontal.
-* **Game Progress:** If your score increases or the screen changes suddenly, you probably finished a level. Stop and look at the new board carefully before using an old plan. `WIN` means you have beaten the entire game.
+Communication:
+try to use simple language
 
-**How to Use the Python Tool**
-You have exactly one tool: `python`. When using it, use the exact required format. Do not add extra text, quotes, or markdown around the tool call.
+Understanding the Game Board:
+- Visualizing the Board: You will receive an image of the board and text data. Treat the board as a picture with objects, obstacles, and targets.
+- Objects: Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
+- No Player Character: Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
+- Backgrounds: Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
+- Timers and HUDs (Important): If you see a shrinking line of blocks on the edge of the screen, it is likely a timer or a "steps-remaining" bar. **Do not treat these as puzzle pieces.** Do not try to click on them unless you are absolutely sure they are part of the puzzle.
+- Coordinates: Only use exact row and column numbers to tell your mouse where to click. Do not use coordinates as your final goal. For mouse clicks, `row` is vertical and `col` is horizontal.
+- Game Progress: If your score increases or the screen changes suddenly, you probably finished a level. Stop and look at the new board carefully before using an old plan. `WIN` means you have beaten the entire game.
 
-* **Fresh Start:** Every time you use the Python tool, it starts completely fresh. You must re-import any standard libraries (like `math`, `collections`, `itertools`) and rewrite any custom functions you need.
-* **Time and Size Limits:** Each Python call has a 30-second time limit. The output text it returns is also limited in size. If you print too much, it will get cut off.
-* **Keep it Short:** Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
-* **Unlimited Uses:** You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush.
-* **Solving Strategy:** If you know the goal but aren't sure of the steps, write a search algorithm (like BFS, DFS, or pathfinding) to find the shortest path.
+iPython tool:
+- Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
+- Unlimited Uses: You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush.
+- Solving Strategy: If you know the goal but aren't sure of the steps, write a search algorithm (like BFS, DFS, or pathfinding) to find the shortest path.
 
-**Python Variables Available to You**
+iPython Variables Available to You:
 Whenever you run Python code, the following variables are already loaded for you to use:
 
 * `current_frame`: Information about the current board. It includes `.step` (current turn), `.level`, and `.shape` (board size).
@@ -188,8 +109,6 @@ ROOT_ACT_LINES = """- `obs = await arc.step(a)` does action `a` (an id from `obs
 """
 CAP_LINE = ("- Harness limit: at most {cap} `arc.step`/`arc.reset` calls per `ipython` call. The next one raises "
             "`ArcError(\"harness limit ...\")`; read the results and continue in a new `ipython` call.\n")
-CHILD_ACT_LINES = ("- You cannot call `arc.step` or `arc.reset`: only the root agent spends actions. Report findings to "
-                   "your parent.\n")
 
 
 # =====================================================================================================================
@@ -200,7 +119,8 @@ CHILD_ACT_LINES = ("- You cannot call `arc.step` or `arc.reset`: only the root a
 # next to every tool. Carried over from the E005/E006 autopsies: actions are costly (R1), reset is not an experiment
 # (R3), counters on the HUD are budgets (R4), row/column order for clicks (R5), several goal guesses at once (R7), and
 # the agent owns its memory (R8). New in E008: the state is pushed, so the prompt forbids nothing about fetching it.
-E008_INTRO = """You are an agent that learns an unknown game by watching and experimenting, and then wins it with as few actions as possible. You work alone, with no human: do not ask questions. You think freely; only game actions cost."""
+E008_INTRO = """You are an agent that learns an unknown game by watching and experimenting, and then wins it with as few actions as possible.
+You work alone, with no human: do not ask questions. You think freely; only game actions cost."""
 
 E008_ARC = """# ARC-AGI-3 game `{game_id}`
 
@@ -286,8 +206,7 @@ def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str) -> str
     ])
 
 
-def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, allow_recursion: bool,
-                toolset: str = "ipython") -> str:
+def base_prompt(*, cwd: str, transcript: str) -> str:
     """The base system prompt of the "ipython" toolset (the E008 prompt is ``e008_system``, built whole)."""
     parts = [
         "You are a general purpose agent that uses code to solve tasks.",
@@ -301,29 +220,19 @@ def base_prompt(*, cwd: str, transcript: str, depth: int, parent: str | None, al
         "",
         f"Working directory: {cwd}",
         f"Conversation log: {transcript}",
-        f"Recursive agent depth: {depth}",
         "Pre-installed Python packages: numpy.",
-    ]
-    if depth > 0:
-        parts += ["", child_doctrine(parent or "your parent agent")]
-    parts += [
         "",
-        "Installed Python skill modules (pre-imported): `arc`, `agent_message`.",
+        "Installed Python skill modules (pre-imported): `arc`.",
         "Inspect a module with `help(<skill>)` or `dir(<skill>)`, then inspect a documented callable with "
         "`inspect.signature(<skill>.<function>)`.",
-        "Agent messaging is restricted to your parent and your direct children.",
+        "",
+        REPL_CONTROL,
     ]
-    if allow_recursion:
-        parts += ["", *RECURSION]
-    parts += ["", REPL_CONTROL]
-    if allow_recursion:
-        parts += ["", SUBAGENT_GUIDANCE]
     return "\n".join(parts)
 
 
-def arc_section(*, game_id: str, win_levels: int, depth: int, cell_cap: int | None, output_chars: int,
-                toolset: str = "ipython", act_max: int = 5) -> str:
-    act = CHILD_ACT_LINES if depth > 0 else ROOT_ACT_LINES + (CAP_LINE.format(cap=cell_cap) if cell_cap else "")
+def arc_section(*, game_id: str, win_levels: int, cell_cap: int | None, output_chars: int) -> str:
+    act = ROOT_ACT_LINES + (CAP_LINE.format(cap=cell_cap) if cell_cap else "")
     return ARC_SECTION.format(game_id=game_id, win_levels=win_levels, act_lines=act, output_chars=output_chars)
 
 

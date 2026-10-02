@@ -831,15 +831,11 @@ class AgentSession:
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
                                                cwd=str(self.kernel.session_dir))
         if self._system is None:
-            base = prompts.base_prompt(
-                cwd=str(self.kernel.session_dir), transcript=str(self.transcript), depth=self.depth,
-                parent=self.parent.name if self.parent else None,
-                allow_recursion=self.depth < self.cfg["max_depth"], toolset=self.toolset)
+            base = prompts.base_prompt(cwd=str(self.kernel.session_dir), transcript=str(self.transcript))
             if self.arc is not None:  # upstream appendSystemPrompt
                 base += "\n\n" + prompts.arc_section(
-                    game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels, depth=self.depth,
-                    cell_cap=self.arc.max_actions_per_cell, output_chars=self.cfg["tool_output_chars"],
-                    toolset=self.toolset, act_max=int(self.cfg.get("act_max_actions", 5)))
+                    game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
+                    cell_cap=self.arc.max_actions_per_cell, output_chars=self.cfg["tool_output_chars"])
             self._system = base
         return self._system
 

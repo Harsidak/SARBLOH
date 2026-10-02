@@ -55,12 +55,18 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
 
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
-              soft_end: float) -> dict[str, Any]:
+              soft_end: float, scheduler: Any = None) -> dict[str, Any]:
     from harness.game.arc_host import ArcHost
     from harness.agent.agent import AgentSession
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
+    if scheduler is not None:  # E111: this game's LLM calls run only while it holds a scheduler slot
+        from harness.scheduler import ScheduledLLM
+
+        llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
+                           n_levels=game.number_of_levels,
+                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline)
     session_ref: dict[str, Any] = {}
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
@@ -78,6 +84,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     try:
         session.run()
     finally:
+        if scheduler is not None:
+            llm.close()
         game.finish("cancelled" if stop_event.is_set() and not host.finished else None)
     if game.scorecard:  # the SDK's own scorecard for this game (offline: one per game)
         (game_dir / "scorecard.json").write_text(json.dumps(game.scorecard, indent=1), encoding="utf-8")
@@ -114,17 +122,28 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
             started.append(game)
         except Exception as exc:  # noqa: BLE001 - one broken env must not sink the run
             print(f"[start-failed] {game.env_name}: {type(exc).__name__}: {exc}", flush=True)
-    print(f"[runner] started {len(started)}/{len(games)} games, concurrency={cfg['concurrency']}", flush=True)
+    sched_cfg = cfg.get("scheduler") or {}
+    scheduler = None
+    workers = max(1, int(cfg["concurrency"]))
+    if sched_cfg.get("enabled"):  # E111: every game alive at once; the scheduler decides who is on the GPU
+        from harness.scheduler import PriorityScheduler
+
+        scheduler = PriorityScheduler(int(sched_cfg.get("slots", 6)), int(sched_cfg.get("quantum_calls", 4)),
+                                      float(sched_cfg.get("token_scale", 80000.0)),
+                                      log_path=run_dir / "scheduler.jsonl")
+        workers = max(1, len(started))
+    print(f"[runner] started {len(started)}/{len(games)} games, concurrency={workers}"
+          + (f", scheduler slots={scheduler.slots}" if scheduler else ""), flush=True)
     sessions: dict[str, dict[str, Any]] = {}
 
     def job(g: Any) -> None:
         try:
-            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end)
+            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end, scheduler)
         except Exception:  # noqa: BLE001
             sessions[g.game_id] = {"end_reason": "crash", "traceback": traceback.format_exc()[-3000:]}
             g.finish("crashed")
 
-    pool = ThreadPoolExecutor(max_workers=max(1, int(cfg["concurrency"])), thread_name_prefix="game")
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="game")
     futures = [pool.submit(job, g) for g in started]
     last_status = time.time()
     try:
@@ -140,12 +159,18 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
             if time.time() - last_status >= 120:
                 last_status = time.time()
                 _status(started, t0, llm)
+                if scheduler is not None:
+                    print(f"[scheduler] {scheduler.status()}", flush=True)
     finally:
         stop_event.set()
+        if scheduler is not None:
+            scheduler.close()
         for g in started:
             g.finish("cancelled")
         pool.shutdown(wait=False, cancel_futures=True)
     summary = summarize(started, sessions, cfg, llm, time.time() - t0)
+    if scheduler is not None:
+        summary["scheduler"] = scheduler.stats()
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")
