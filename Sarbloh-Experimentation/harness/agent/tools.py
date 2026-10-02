@@ -77,9 +77,9 @@ RECALL_E008 = _fn(
 E008_TOOLS = ("ipython", "act", "recall")
 
 
-def toolset(mode: str, *, depth: int, max_depth: int, act_max: int) -> list[dict]:
+def toolset(mode: str, *, act_max: int) -> list[dict]:
     """The tool list for a session. ``mode`` is the config's ``agent.toolset``: "e008" or "ipython"."""
-    if mode == "e008" and depth == 0:
+    if mode == "e008":
         fn = ACT_E008["function"]
         props = dict(fn["parameters"]["properties"])
         props["actions"] = {**props["actions"], "description": props["actions"]["description"].format(max=act_max)}

@@ -1,14 +1,13 @@
 """Host side of the ``arc`` kernel module: owns one ``harness.game.games.ArcGame``.
 
-The host is the only thing that touches the environment. It validates every action, enforces the action budget,
-keeps the lossless transition record (the frame store the model retrieves from with ``arc.transitions()``), and
-refuses ``arc.step`` from subagents. It also stamps every action with the agent step that spent it (``step_ref``),
-in ``run.history`` and, when the game records, in the ARC SDK recording's ``reasoning`` field.
+The host is the only thing that touches the environment. It validates every action, enforces the action budget and
+keeps the lossless transition record (the frame store the model retrieves from with ``arc.transitions()``). It also
+stamps every action with the agent step that spent it (``step_ref``), in ``run.history`` and, when the game records,
+in the ARC SDK recording's ``reasoning`` field.
 
-E006 (``toolset: "dedicated"``): the root spends actions only through the ``act``/``reset_level`` tools
-(``repl_actions = False`` refuses ``arc.step``/``arc.reset`` from the REPL). Every step gets a state key of the grid
-before it, so a repeated (state, action) pair is flagged, and an object-level change summary; both go to ``on_step``
-(the session's transcript) whatever path spent the action.
+With ``repl_actions = False`` (the E008 toolset) actions come only from the ``act`` tool and the REPL cannot spend
+them. Every step gets a state key of the grid before it, so a repeated (state, action) pair is flagged, plus an
+object-level change summary; both go to ``on_step`` (the session's transcript).
 """
 
 from __future__ import annotations
@@ -127,8 +126,8 @@ class ArcHost:
         }
 
     # --- host requests -----------------------------------------------------------------------------------
-    def handle(self, req: dict[str, Any], depth: int, source: str = "repl") -> dict[str, Any]:
-        """``source`` is "repl" for kernel requests and "tool" for the act/reset_level tools."""
+    def handle(self, req: dict[str, Any], source: str = "repl") -> dict[str, Any]:
+        """``source`` is "repl" for kernel requests and "tool" for the act tool."""
         kind = req.get("type")
         with self._lock:
             if kind == "arc.observe":
@@ -137,11 +136,8 @@ class ArcHost:
                 start = max(0, int(req.get("start", 0)))
                 return {"transitions": self.transitions[start:]}
             if kind in ("arc.step", "arc.reset"):
-                if depth > 0:
-                    raise PermissionError("subagents cannot spend environment actions; report to your parent")
                 if source == "repl" and not self.repl_actions:
-                    raise PermissionError("in this harness the REPL cannot spend actions: use the `act` tool (with "
-                                          "`expect`) for game actions and `reset_level` to restart the level")
+                    raise PermissionError("in this harness the REPL cannot spend actions: use the `act` tool")
                 if kind == "arc.reset":
                     if self._since_reset == 0 and self.game.state.engine_state.name != "GAME_OVER":
                         raise ValueError("arc.reset() refused: the level is already at its start (no action since it "
