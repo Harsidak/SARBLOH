@@ -1,0 +1,21 @@
+# E039 — configuration. The hash of this file goes in the ledger.
+# Overrides on top of Sarbloh-Experimentation/harness/config.py DEFAULT (E008). Arm A = E018 arm B
+# (wrong_rulebook: true, skill_names: use_case) with lessons_reconcile: false.
+experiment: E039_lessons_reconcile
+baseline: E018_wrong_rulebook          # arm B of E018
+
+code: Sarbloh-Experimentation/harness
+games: [ls20, tr87, lp85, su15, tu93]  # the 5 public dev games (smoke signal, not a held-out result)
+
+agent:
+  toolset: e008
+  memory:
+    wrong_rulebook: true               # E018: the store the pass compares against
+    skill_names: use_case              # E018
+    lessons_reconcile: true            # E039: after every level won, drop / rewrite / merge lessons
+    lessons_reconcile_max_tokens: 2048
+    lessons_reconcile_tokens: 2000     # lessons in the input; the wrong rules get half
+
+kaggle:                                # not run (owner's call); notebook EXPERIMENT_OVERRIDES would be:
+  EXPERIMENT: E039_lessons_reconcile
+  EXPERIMENT_OVERRIDES: {agent: {memory: {wrong_rulebook: true, skill_names: use_case, lessons_reconcile: true}}}

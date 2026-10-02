@@ -12,7 +12,7 @@ save the adapter -> reload it into a fresh base and re-evaluate -> write ``resul
 
 Data: JSONL, one conversation per line. Two shapes are accepted:
   * ``{"messages": [...], "tools": [...]}`` in OpenAI chat format, optionally with a system message first.
-  * Prime's ``sft_levels.jsonl`` rows (``Sarbloh-Arc/prime/trace.py``): ``system`` and ``tools`` beside ``messages``.
+  * Prime's ``sft_levels.jsonl`` rows (``Sarbloh/harness/trace.py``): ``system`` and ``tools`` beside ``messages``.
 Assistant messages may carry ``reasoning_content``, ``tool_calls`` (arguments as dict or JSON string) and
 ``"train": false`` to keep a turn as context but out of the loss. Image parts are replaced by a text placeholder
 (``images: "placeholder"``) or rejected (``"error"``); vision training is out of scope.
