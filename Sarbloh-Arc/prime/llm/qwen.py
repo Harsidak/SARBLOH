@@ -13,7 +13,7 @@ The Flash-Next profiles (Keith Tyser's pinned runtime, ``qwen4_exp`` MoE, E007) 
 E007 v4 killed ``qwen_flash_pc_64k`` (KV cache does not fit) and ``qwen_flash_pc`` (8.7% prefix hits), and the Flash-Next
 stress test failed. The bundle licence is MIT in its SOURCE_IDENTITY and "unknown" on Kaggle: UNCONFIRMED.
 The 27B NVFP4 (overseer66, an unsloth mixed quant) is gone: vLLM 0.19 has no ``lm_head.weight_scale`` for its FP8
-lm_head (E007 v3). ``nvidia/Qwen3.8-27B-NVFP4`` is E008 arm D, once it is on Kaggle and a newer vLLM starts it.
+lm_head (E007 v3). ``nvidia/Qwen3.8-27B-NVFP4`` runs on SGLang instead (E112, ``SGLANG_CHAIN`` below).
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from prime.llm import sglang
 from prime.llm.spec import ModelSpec
 
 FLASH = "keithtyser/qwen3-8-flash-next-nvfp4"  # Kaggle model, PyTorch/radixark-modelopt-fp4/1
@@ -96,6 +97,57 @@ PROFILES: dict[str, dict[str, Any]] = {
 PROFILES["qwen_fp8_vision"] = {**PROFILES["qwen_fp8"], "flags": {
     **PROFILES["qwen_fp8"]["flags"], "--limit-mm-per-prompt": '{"image": 1, "video": 0}'}}
 
+# E112 (option B, owner go 2026-10-02): nvidia/Qwen3.8-27B-NVFP4 on SGLang 0.5.19 "Pennyroyal" (the milestone-2
+# reference's RTX Pro 6000 build). The checkpoint is ModelOpt MIXED_PRECISION: MLP + lm_head NVFP4 (group 16),
+# self-attention and Gated-DeltaNet projections FP8, the MTP layer (mtp.*) unquantized, so NEXTN speculation runs on
+# the model's own MTP head. SGLang detects the format from config.json (quant_method "modelopt" -> "modelopt_mixed"),
+# so no --quantization flag. Kaggle: banwait13/qwencoder = the HF snapshot (shard sizes equal our SHA256-verified local
+# download of 2026-10-01). Wheels: banwait13/sglangwheels (flat copy of the Pennyroyal v2.5.3 wheelhouse).
+# Flags follow the reference launcher (CFG in kaggle/reference/arc-agi-3-milestone-2-solution.ipynb, cell 12) minus
+# its Flash-Next-only ones (AutoRound, external draft, PLE offload, MoE runner). E112 measured 1162 tok/s with MTP5
+# (10 streams, thinking on). FR-Spec (--speculative-token-map) is not used: it crashes with the NVFP4 lm_head.
+NVFP4 = "banwait13/qwencoder"
+SGLANG_WHEELS = "banwait13/sglangwheels"
+SGL_NV = {
+    "--load-format": "safetensors", "--model-loader-extra-config": '{"enable_multithread_load":false}',
+    "--weight-loader-prefetch-checkpoints": None,
+    "--tensor-parallel-size": "1", "--dtype": "bfloat16", "--trust-remote-code": None,
+    "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.92", "--context-length": "65536", "--page-size": "64",
+    "--max-running-requests": "10", "--chunked-prefill-size": "8192", "--max-prefill-tokens": "16384",
+    "--cuda-graph-max-bs-decode": "10", "--cuda-graph-bs-decode": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    "--mamba-ssm-dtype": "bfloat16", "--max-mamba-cache-size": "60", "--mamba-radix-cache-strategy": "extra_buffer",
+    "--mamba-track-interval": "64", "--mamba-backend": "flashinfer", "--linear-attn-decode-backend": "flashinfer",
+    "--linear-attn-prefill-backend": "flashinfer",
+    "--mm-feature-transport": "cpu", "--image-processor-backend": "pil",
+    "--reasoning-parser": "qwen3", "--tool-call-parser": "qwen3_coder",
+    "--chat-template": "{model_dir}/chat_template.jinja",
+    "--default-chat-template-kwargs": '{"preserve_thinking": true}',
+    "--watchdog-timeout": "1800", "--schedule-policy": "lpm", "--enable-cache-report": None, "--enable-metrics": None}
+# NEXTN on the built-in MTP layer: linear draft chain (topk 1, required by --gdn-mtp-cache-mode none), strict accept.
+SGL_NV_MTP = {"--speculative-algorithm": "NEXTN", "--speculative-num-steps": "3", "--speculative-eagle-topk": "1",
+              "--speculative-num-draft-tokens": "4", "--gdn-mtp-cache-mode": "none",
+              "--speculative-accept-threshold-single": "1.0", "--speculative-accept-threshold-acc": "1.0"}
+# Five draft steps instead of three: the E112 bench winner.
+SGL_NV_MTP5 = {**SGL_NV_MTP, "--speculative-num-steps": "5", "--speculative-num-draft-tokens": "6"}
+
+
+def _nv(vision: bool, *extra: dict[str, Any]) -> dict[str, Any]:
+    flags: dict[str, Any] = dict(SGL_NV)
+    for e in extra:
+        flags.update(e)
+    return {"model_dataset": NVFP4, "runtime": "sglang", "vision": vision, "env": {}, "flags": flags}
+
+
+PROFILES.update({
+    "sglang_nvfp4_mtp5_vision": _nv(True, SGL_NV_MTP5),
+    "sglang_nvfp4_mtp_vision": _nv(True, SGL_NV_MTP),
+    "sglang_nvfp4_vision": _nv(True),
+    "sglang_nvfp4": _nv(False),
+})
+# E112 chain: NVFP4 + MTP5 + image, then MTP3, then no MTP, then text only, then the measured vLLM FP8 fallback.
+SGLANG_CHAIN = ["sglang_nvfp4_mtp5_vision", "sglang_nvfp4_mtp_vision", "sglang_nvfp4_vision", "sglang_nvfp4",
+                "qwen_fp8_vision", "qwen_fp8"]
+
 SPEC = ModelSpec(
     name="qwen",
     served_model_name="qwen3.8",
@@ -104,5 +156,6 @@ SPEC = ModelSpec(
     profile_chain=["qwen_fp8_vision", "qwen_fp8"],
     llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens
-    runtimes={"flash_next": flash_next_runtime},
+    runtimes={"flash_next": flash_next_runtime,
+              "sglang": sglang.runtime(SGLANG_WHEELS, precache_datasets=(NVFP4,))},
 )

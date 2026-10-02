@@ -1,0 +1,12 @@
+# E112: configuration. The hash of this file goes in the ledger.
+experiment: E112_nvfp4_sglang_serving
+baseline: E109 sglang_fp8_vision (342 tok/s at 8 streams, untuned) and E007 qwen_fp8 vLLM (388 tok/s at 10 streams)
+code: Sarbloh-Arc/prime (working tree embedded at push time; no commit)
+kaggle:
+  notebook: kaggle/experimental/002_prime.ipynb      # banwait13/sarbloh-prime
+  extra_inputs: [banwait13/qwencoder, banwait13/sglangwheels]
+  SERVE_BENCH:
+    profiles: [sglang_nvfp4_mtp_vision, sglang_nvfp4_mtp_frspec_vision, sglang_nvfp4_mtp5_vision, sglang_nvfp4_vision]
+    streams: 10
+    budget_s: 10800
+target: think_10 and decode_10 >= 500 tok/s

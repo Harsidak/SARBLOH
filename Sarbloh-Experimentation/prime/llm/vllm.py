@@ -106,9 +106,11 @@ def parse_metrics(text: str) -> dict[str, float]:
 
 
 def token_counters(m: dict[str, float]) -> tuple[float, float]:
-    """(prompt + generation tokens so far, requests running) from vLLM or SGLang metrics; (0, 0) when absent."""
+    """(prompt + generation tokens so far, requests running) from vLLM or SGLang metrics; (0, 0) when absent.
+    SGLang's ``prompt/generation_tokens_total`` only move when a request finishes, so one long thinking request
+    looked frozen and was killed (E109 ls20); ``sglang:realtime_tokens_total`` moves every decode step."""
     tokens = sum(m.get(f"{p}:{k}", 0.0) for p in ("vllm", "sglang")
-                 for k in ("prompt_tokens_total", "generation_tokens_total"))
+                 for k in ("prompt_tokens_total", "generation_tokens_total", "realtime_tokens_total"))
     running = m.get("vllm:num_requests_running", 0.0) + m.get("sglang:num_running_reqs", 0.0)
     return tokens, running
 
@@ -317,10 +319,10 @@ class VllmServer:
     # --- process -----------------------------------------------------------------------------------------
     def launch(self, profile: str) -> None:
         model_dir = find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
-        rt = self.runtime(profile)
-        serve = rt.get("serve", DEFAULT_SERVE) if rt else DEFAULT_SERVE
-        python = (rt or {}).get("python") or sys.executable
-        self.backend = (rt or {}).get("backend") or "vllm"
+        rt = self.runtime(profile) or {}
+        python = rt.get("python") or sys.executable
+        serve = rt.get("serve", DEFAULT_SERVE)
+        self.backend = rt.get("backend") or "vllm"
         cmd = [python, *serve, str(model_dir), "--served-model-name", self.spec.served_model_name,
                "--host", "127.0.0.1", "--port", str(self.cfg["port"])]
         for flag, value in self.spec.profiles[profile]["flags"].items():

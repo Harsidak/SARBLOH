@@ -60,11 +60,25 @@ def _post(server: VllmServer, body: dict[str, Any], timeout: float = 900) -> tup
     return out, time.time() - t
 
 
-def decode(server: VllmServer, streams: int, max_tokens: int = 512) -> dict[str, Any]:
+PUZZLE = ("[{i}] A 12x12 grid game: a 2x2 player block at (1,1), a key at (9,2), a locked door in the wall at "
+          "(6,0..11) with one gap at (6,{gap}), the exit at (10,10). Actions: up, down, left, right. Work out the "
+          "shortest action sequence step by step, then check it cell by cell.")
+
+
+def decode(server: VllmServer, streams: int, max_tokens: int = 512, thinking: bool = False) -> dict[str, Any]:
+    """``thinking=False``: forced ``max_tokens`` (ignore_eos) of plain text, like for like since E007.
+    ``thinking=True`` (E112): the agent's real decode shape, a reasoning trace on a puzzle with the Duck's sampling
+    (temperature 0.6, top_p 0.95, top_k 20), stopping when the model stops; tok/s = completion tokens / wall."""
     def one(i: int) -> int:
-        out, _ = _post(server, {"temperature": 0.7, "max_tokens": max_tokens, "ignore_eos": True,
-                                "chat_template_kwargs": {"enable_thinking": False},
-                                "messages": [{"role": "user", "content": f"[{i}] Describe a grid puzzle game."}]})
+        if thinking:
+            body = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "max_tokens": max_tokens,
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "messages": [{"role": "user", "content": PUZZLE.format(i=i, gap=i % 10 + 1)}]}
+        else:
+            body = {"temperature": 0.7, "max_tokens": max_tokens, "ignore_eos": True,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "messages": [{"role": "user", "content": f"[{i}] Describe a grid puzzle game."}]}
+        out, _ = _post(server, body)
         return (out.get("usage") or {}).get("completion_tokens", 0)
 
     m0, t = server.metrics(), time.time()
@@ -74,7 +88,9 @@ def decode(server: VllmServer, streams: int, max_tokens: int = 512) -> dict[str,
     return {"streams": streams, "tok_s": round(total / max(1e-6, wall), 1),
             "per_stream_tok_s": round(total / max(1e-6, wall) / streams, 1), "wall_s": round(wall, 1),
             "spec_accept": _ratio(_delta(m0, m1, "vllm:spec_decode_num_accepted_tokens_total"),
-                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total"))}
+                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total")),
+            # E109: SGLang reports the mean accepted draft length (tokens per verify step) as a gauge
+            "spec_accept_length": (m1 or {}).get("sglang:spec_accept_length")}
 
 
 def cold_prefill(server: VllmServer, streams: int, grids: int = 3) -> dict[str, Any]:
@@ -160,7 +176,8 @@ def quick(server: VllmServer, concurrency: int = 8) -> dict[str, Any]:
     """The throughput probe run.py prints before the games (same keys as before E007)."""
     one, many = decode(server, 1), decode(server, concurrency)
     server.bench = {"single_stream_tok_s": one["tok_s"], "aggregate_tok_s": many["tok_s"],
-                    "concurrency": concurrency, "spec_accept": many["spec_accept"]}
+                    "concurrency": concurrency, "spec_accept": many["spec_accept"],
+                    "spec_accept_length": many["spec_accept_length"], "backend": server.backend}
     log(f"throughput: {server.bench}")
     return server.bench
 
@@ -174,6 +191,7 @@ def profile_bench(server: VllmServer, streams: int = 10) -> dict[str, Any]:
                      ("decode_1", lambda: decode(server, 1)),
                      ("decode_8", lambda: decode(server, 8)),  # E006's probe ran 8 streams: like for like
                      (f"decode_{streams}", lambda: decode(server, streams)),
+                     (f"think_{streams}", lambda: decode(server, streams, max_tokens=2048, thinking=True)),  # E112
                      ("cold_prefill", lambda: cold_prefill(server, streams)),
                      ("agent_like", lambda: agent_like(server, streams)),
                      ("agent_like_thinking", lambda: agent_like(server, streams, turns=3, max_tokens=1024,
@@ -302,3 +320,22 @@ def run(model_name: str, profiles: list[str], vllm_cfg: dict[str, Any], llm_cfg:
             server.stop()
         save()
     return rows
+
+
+def print_table(rows: list[dict[str, Any]], streams: int = 10) -> None:
+    """One line per profile: start time, tool mode, decode tok/s at 1 / 8 / ``streams``, thinking-on decode, MTP
+    acceptance length, cold prefill tok/s, agent-like turn time and prefix hit rate, then the error if any."""
+    def field(row: dict[str, Any], workload: str, key: str) -> str:
+        v = row.get(workload)
+        return str(v.get(key) if isinstance(v, dict) else None)
+
+    n = streams
+    print(f"{'profile':32} {'start_s':>7} {'tool':>6} {'d1':>6} {'d8':>7} {f'd{n}':>7} {f'think{n}':>8} "
+          f"{'acc_len':>7} {'prefill':>8} {'turnN':>6} {'hit':>5}")
+    for r in rows:
+        print(f"{r.get('profile', ''):32} {r.get('startup_s')!s:>7} {r.get('tool_mode')!s:>6} "
+              f"{field(r, 'decode_1', 'tok_s'):>6} {field(r, 'decode_8', 'tok_s'):>7} "
+              f"{field(r, f'decode_{n}', 'tok_s'):>7} {field(r, f'think_{n}', 'tok_s'):>8} "
+              f"{field(r, f'decode_{n}', 'spec_accept_length'):>7} {field(r, 'cold_prefill', 'prefill_tok_s'):>8} "
+              f"{field(r, 'agent_like', 'later_turn_mean_s'):>6} {field(r, 'agent_like', 'prefix_hit_rate'):>5}  "
+              f"{str(r.get('error', ''))[:300]}")

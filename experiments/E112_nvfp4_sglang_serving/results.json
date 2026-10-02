@@ -1,0 +1,408 @@
+[
+ {
+  "model": "qwen",
+  "profile": "sglang_nvfp4_mtp_vision",
+  "tool_mode": "native",
+  "flags": {
+   "--load-format": "safetensors",
+   "--model-loader-extra-config": "{\"enable_multithread_load\":false}",
+   "--weight-loader-prefetch-checkpoints": null,
+   "--tensor-parallel-size": "1",
+   "--dtype": "bfloat16",
+   "--trust-remote-code": null,
+   "--kv-cache-dtype": "fp8_e4m3",
+   "--mem-fraction-static": "0.92",
+   "--context-length": "65536",
+   "--page-size": "64",
+   "--max-running-requests": "10",
+   "--chunked-prefill-size": "8192",
+   "--max-prefill-tokens": "16384",
+   "--cuda-graph-max-bs-decode": "10",
+   "--cuda-graph-bs-decode": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10"
+   ],
+   "--mamba-ssm-dtype": "bfloat16",
+   "--max-mamba-cache-size": "60",
+   "--mamba-radix-cache-strategy": "extra_buffer",
+   "--mamba-track-interval": "64",
+   "--mamba-backend": "flashinfer",
+   "--linear-attn-decode-backend": "flashinfer",
+   "--linear-attn-prefill-backend": "flashinfer",
+   "--mm-feature-transport": "cpu",
+   "--image-processor-backend": "pil",
+   "--reasoning-parser": "qwen3",
+   "--tool-call-parser": "qwen3_coder",
+   "--chat-template": "{model_dir}/chat_template.jinja",
+   "--default-chat-template-kwargs": "{\"preserve_thinking\": true}",
+   "--watchdog-timeout": "1800",
+   "--schedule-policy": "lpm",
+   "--enable-cache-report": null,
+   "--enable-metrics": null,
+   "--speculative-algorithm": "NEXTN",
+   "--speculative-num-steps": "3",
+   "--speculative-eagle-topk": "1",
+   "--speculative-num-draft-tokens": "4",
+   "--gdn-mtp-cache-mode": "none",
+   "--speculative-accept-threshold-single": "1.0",
+   "--speculative-accept-threshold-acc": "1.0"
+  },
+  "model_dataset": "banwait13/qwencoder",
+  "startup_s": 175,
+  "tool_check": {
+   "seconds": 0.3,
+   "calls": [
+    "plan"
+   ],
+   "raw_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "fixed_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "repair_needed": false
+  },
+  "decode_1": {
+   "streams": 1,
+   "tok_s": 126.4,
+   "per_stream_tok_s": 126.4,
+   "wall_s": 4.1,
+   "spec_accept": null,
+   "spec_accept_length": 2.575
+  },
+  "decode_8": {
+   "streams": 8,
+   "tok_s": 532.4,
+   "per_stream_tok_s": 66.6,
+   "wall_s": 7.7,
+   "spec_accept": null,
+   "spec_accept_length": 2.803125
+  },
+  "decode_10": {
+   "streams": 10,
+   "tok_s": 1026.7,
+   "per_stream_tok_s": 102.7,
+   "wall_s": 5.0,
+   "spec_accept": null,
+   "spec_accept_length": 2.72
+  },
+  "think_10": {
+   "streams": 10,
+   "tok_s": 1070.2,
+   "per_stream_tok_s": 107.0,
+   "wall_s": 19.1,
+   "spec_accept": null,
+   "spec_accept_length": 2.6977611940298507
+  },
+  "cold_prefill": {
+   "streams": 10,
+   "prompt_tokens_each": 25925,
+   "prefill_tok_s": 10655,
+   "max_latency_s": 24.3,
+   "wall_s": 24.4
+  },
+  "agent_like": {
+   "sessions": 10,
+   "turns": 5,
+   "wall_s": 24.1,
+   "turn1_mean_s": 11.42,
+   "later_turn_mean_s": 1.8,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  },
+  "agent_like_thinking": {
+   "sessions": 10,
+   "turns": 3,
+   "wall_s": 46.2,
+   "turn1_mean_s": 19.93,
+   "later_turn_mean_s": 9.44,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  }
+ },
+ {
+  "model": "qwen",
+  "profile": "sglang_nvfp4_mtp_frspec_vision",
+  "error": "RuntimeError(\"vLLM failed on every profile: [{'profile': 'sglang_nvfp4_mtp_frspec_vision', 'ok': False, 'seconds': 75, 'tool_mode': None, 'error': 'did not become ready'}]\")",
+  "attempts": [
+   {
+    "profile": "sglang_nvfp4_mtp_frspec_vision",
+    "ok": false,
+    "seconds": 75,
+    "tool_mode": null,
+    "error": "did not become ready"
+   }
+  ]
+ },
+ {
+  "model": "qwen",
+  "profile": "sglang_nvfp4_mtp5_vision",
+  "tool_mode": "native",
+  "flags": {
+   "--load-format": "safetensors",
+   "--model-loader-extra-config": "{\"enable_multithread_load\":false}",
+   "--weight-loader-prefetch-checkpoints": null,
+   "--tensor-parallel-size": "1",
+   "--dtype": "bfloat16",
+   "--trust-remote-code": null,
+   "--kv-cache-dtype": "fp8_e4m3",
+   "--mem-fraction-static": "0.92",
+   "--context-length": "65536",
+   "--page-size": "64",
+   "--max-running-requests": "10",
+   "--chunked-prefill-size": "8192",
+   "--max-prefill-tokens": "16384",
+   "--cuda-graph-max-bs-decode": "10",
+   "--cuda-graph-bs-decode": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10"
+   ],
+   "--mamba-ssm-dtype": "bfloat16",
+   "--max-mamba-cache-size": "60",
+   "--mamba-radix-cache-strategy": "extra_buffer",
+   "--mamba-track-interval": "64",
+   "--mamba-backend": "flashinfer",
+   "--linear-attn-decode-backend": "flashinfer",
+   "--linear-attn-prefill-backend": "flashinfer",
+   "--mm-feature-transport": "cpu",
+   "--image-processor-backend": "pil",
+   "--reasoning-parser": "qwen3",
+   "--tool-call-parser": "qwen3_coder",
+   "--chat-template": "{model_dir}/chat_template.jinja",
+   "--default-chat-template-kwargs": "{\"preserve_thinking\": true}",
+   "--watchdog-timeout": "1800",
+   "--schedule-policy": "lpm",
+   "--enable-cache-report": null,
+   "--enable-metrics": null,
+   "--speculative-algorithm": "NEXTN",
+   "--speculative-num-steps": "5",
+   "--speculative-eagle-topk": "1",
+   "--speculative-num-draft-tokens": "6",
+   "--gdn-mtp-cache-mode": "none",
+   "--speculative-accept-threshold-single": "1.0",
+   "--speculative-accept-threshold-acc": "1.0"
+  },
+  "model_dataset": "banwait13/qwencoder",
+  "startup_s": 82,
+  "tool_check": {
+   "seconds": 0.2,
+   "calls": [
+    "plan"
+   ],
+   "raw_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "fixed_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "repair_needed": false
+  },
+  "decode_1": {
+   "streams": 1,
+   "tok_s": 124.7,
+   "per_stream_tok_s": 124.7,
+   "wall_s": 4.1,
+   "spec_accept": null,
+   "spec_accept_length": 2.85
+  },
+  "decode_8": {
+   "streams": 8,
+   "tok_s": 539.1,
+   "per_stream_tok_s": 67.4,
+   "wall_s": 7.6,
+   "spec_accept": null,
+   "spec_accept_length": 2.959375
+  },
+  "decode_10": {
+   "streams": 10,
+   "tok_s": 1030.0,
+   "per_stream_tok_s": 103.0,
+   "wall_s": 5.0,
+   "spec_accept": null,
+   "spec_accept_length": 3.0189274447949526
+  },
+  "think_10": {
+   "streams": 10,
+   "tok_s": 1162.4,
+   "per_stream_tok_s": 116.2,
+   "wall_s": 17.6,
+   "spec_accept": null,
+   "spec_accept_length": 3.205056179775281
+  },
+  "cold_prefill": {
+   "streams": 10,
+   "prompt_tokens_each": 25925,
+   "prefill_tok_s": 10642,
+   "max_latency_s": 24.4,
+   "wall_s": 24.4
+  },
+  "agent_like": {
+   "sessions": 10,
+   "turns": 5,
+   "wall_s": 25.0,
+   "turn1_mean_s": 10.9,
+   "later_turn_mean_s": 1.67,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  },
+  "agent_like_thinking": {
+   "sessions": 10,
+   "turns": 3,
+   "wall_s": 42.6,
+   "turn1_mean_s": 18.83,
+   "later_turn_mean_s": 8.54,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  }
+ },
+ {
+  "model": "qwen",
+  "profile": "sglang_nvfp4_vision",
+  "tool_mode": "native",
+  "flags": {
+   "--load-format": "safetensors",
+   "--model-loader-extra-config": "{\"enable_multithread_load\":false}",
+   "--weight-loader-prefetch-checkpoints": null,
+   "--tensor-parallel-size": "1",
+   "--dtype": "bfloat16",
+   "--trust-remote-code": null,
+   "--kv-cache-dtype": "fp8_e4m3",
+   "--mem-fraction-static": "0.92",
+   "--context-length": "65536",
+   "--page-size": "64",
+   "--max-running-requests": "10",
+   "--chunked-prefill-size": "8192",
+   "--max-prefill-tokens": "16384",
+   "--cuda-graph-max-bs-decode": "10",
+   "--cuda-graph-bs-decode": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10"
+   ],
+   "--mamba-ssm-dtype": "bfloat16",
+   "--max-mamba-cache-size": "60",
+   "--mamba-radix-cache-strategy": "extra_buffer",
+   "--mamba-track-interval": "64",
+   "--mamba-backend": "flashinfer",
+   "--linear-attn-decode-backend": "flashinfer",
+   "--linear-attn-prefill-backend": "flashinfer",
+   "--mm-feature-transport": "cpu",
+   "--image-processor-backend": "pil",
+   "--reasoning-parser": "qwen3",
+   "--tool-call-parser": "qwen3_coder",
+   "--chat-template": "{model_dir}/chat_template.jinja",
+   "--default-chat-template-kwargs": "{\"preserve_thinking\": true}",
+   "--watchdog-timeout": "1800",
+   "--schedule-policy": "lpm",
+   "--enable-cache-report": null,
+   "--enable-metrics": null
+  },
+  "model_dataset": "banwait13/qwencoder",
+  "startup_s": 89,
+  "tool_check": {
+   "seconds": 0.6,
+   "calls": [
+    "plan"
+   ],
+   "raw_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "fixed_arguments": [
+    "{\"goal\": \"find the exit\", \"phase\": \"explore\"}"
+   ],
+   "repair_needed": false
+  },
+  "decode_1": {
+   "streams": 1,
+   "tok_s": 68.2,
+   "per_stream_tok_s": 68.2,
+   "wall_s": 7.5,
+   "spec_accept": null,
+   "spec_accept_length": 0.0
+  },
+  "decode_8": {
+   "streams": 8,
+   "tok_s": 366.8,
+   "per_stream_tok_s": 45.9,
+   "wall_s": 11.2,
+   "spec_accept": null,
+   "spec_accept_length": 0.0
+  },
+  "decode_10": {
+   "streams": 10,
+   "tok_s": 595.9,
+   "per_stream_tok_s": 59.6,
+   "wall_s": 8.6,
+   "spec_accept": null,
+   "spec_accept_length": 0.0
+  },
+  "think_10": {
+   "streams": 10,
+   "tok_s": 590.1,
+   "per_stream_tok_s": 59.0,
+   "wall_s": 34.7,
+   "spec_accept": null,
+   "spec_accept_length": 0.0
+  },
+  "cold_prefill": {
+   "streams": 10,
+   "prompt_tokens_each": 25925,
+   "prefill_tok_s": 11109,
+   "max_latency_s": 23.3,
+   "wall_s": 23.4
+  },
+  "agent_like": {
+   "sessions": 10,
+   "turns": 5,
+   "wall_s": 28.4,
+   "turn1_mean_s": 12.06,
+   "later_turn_mean_s": 2.32,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  },
+  "agent_like_thinking": {
+   "sessions": 10,
+   "turns": 3,
+   "wall_s": 83.3,
+   "turn1_mean_s": 28.31,
+   "later_turn_mean_s": 19.59,
+   "prefix_hit_rate": null,
+   "prompt_tokens": null,
+   "gen_tok_s": null,
+   "spec_accept": null
+  }
+ }
+]

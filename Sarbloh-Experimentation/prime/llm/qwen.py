@@ -111,19 +111,24 @@ SGL_BASE = {
     "--schedule-policy": "lpm", "--watchdog-timeout": "1800", "--enable-metrics": None, "--enable-cache-report": None}
 # The reference's tuning for this card: FP8 KV cache, 64-token pages, decode CUDA graphs up to the request cap, the
 # linear-attention (mamba) state cache with prefix reuse, flashinfer kernels for the linear layers, CPU image transport.
+# E109 run 1: without --mamba-ssm-dtype the wheel refuses to start ("--linear-attn-decode-backend flashinfer on SM100+
+# requires --mamba-ssm-dtype bfloat16, got None"); the reference passes bfloat16 and sets SGLANG_MAMBA_CONV_DTYPE too.
 SGL_TUNED = {
     **SGL_BASE, "--kv-cache-dtype": "fp8_e4m3", "--page-size": "64", "--cuda-graph-max-bs-decode": "16",
+    "--mamba-ssm-dtype": "bfloat16",
     "--max-mamba-cache-size": "48", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "64",
     "--mamba-backend": "flashinfer", "--linear-attn-decode-backend": "flashinfer",
     "--linear-attn-prefill-backend": "flashinfer", "--mm-feature-transport": "cpu", "--image-processor-backend": "pil"}
-# MTP speculation with the model's own MTP layer (no external draft): 3 draft tokens per step.
+SGL_TUNED_ENV = {"SGLANG_MAMBA_CONV_DTYPE": "bfloat16"}
+# MTP speculation with the model's own MTP layer (no external draft): 3 draft tokens per step. The reference passes
+# --gdn-mtp-cache-mode none explicitly with MTP on the Gated-DeltaNet layers; we do the same.
 SGL_MTP = {"--speculative-algorithm": "NEXTN", "--speculative-num-steps": "3", "--speculative-eagle-topk": "1",
-           "--speculative-num-draft-tokens": "4"}
+           "--speculative-num-draft-tokens": "4", "--gdn-mtp-cache-mode": "none"}
 PROFILES.update({
     # 1st: tuned + MTP + image. 2nd: SGLang defaults + image (a tuning flag or MTP that fails on the 27B is out).
     # 3rd: SGLang defaults, text only. Each one that fails start or a smoke test hands over to the next.
-    "sglang_fp8_mtp_vision": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": True, "env": {},
-                              "flags": {**SGL_TUNED, **SGL_MTP}},
+    "sglang_fp8_mtp_vision": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": True,
+                              "env": dict(SGL_TUNED_ENV), "flags": {**SGL_TUNED, **SGL_MTP}},
     "sglang_fp8_vision": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": True, "env": {},
                           "flags": dict(SGL_BASE)},
     "sglang_fp8": {"model_dataset": FP8, "runtime": "pennyroyal", "vision": False, "env": {}, "flags": dict(SGL_BASE)},

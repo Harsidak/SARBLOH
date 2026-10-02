@@ -13,6 +13,10 @@ blocked every game for about 30 minutes):
   the watchdog moves to the next profile in the chain with the same tool mode.
 - Every server event is one line in server_events.jsonl.
 - Site-packages live in /tmp, not /kaggle/working (E006: 10+ GB of wheels made the output download hang).
+
+E109: a prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
+The class keeps its name; the watchdog then reads ``sglang:*`` counters, and a /metrics that does not answer counts
+as a failure only when the health endpoint does not answer either.
 """
 
 from __future__ import annotations
@@ -101,6 +105,16 @@ def parse_metrics(text: str) -> dict[str, float]:
     return out
 
 
+def token_counters(m: dict[str, float]) -> tuple[float, float]:
+    """(prompt + generation tokens so far, requests running) from vLLM or SGLang metrics; (0, 0) when absent.
+    SGLang's ``prompt/generation_tokens_total`` only move when a request finishes, so one long thinking request
+    looked frozen and was killed (E109 ls20); ``sglang:realtime_tokens_total`` moves every decode step."""
+    tokens = sum(m.get(f"{p}:{k}", 0.0) for p in ("vllm", "sglang")
+                 for k in ("prompt_tokens_total", "generation_tokens_total", "realtime_tokens_total"))
+    running = m.get("vllm:num_requests_running", 0.0) + m.get("sglang:num_running_reqs", 0.0)
+    return tokens, running
+
+
 def log(msg: str) -> None:
     print(f"[vllm {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -132,6 +146,7 @@ class VllmServer:
         self.freezes: dict[str, int] = {}
         self.startup_s: float | None = None
         self.image_probe: str | None = None  # the model's answer to the image smoke test (vision profiles)
+        self.backend = "vllm"                # E109: "sglang" when the running profile's runtime says so
         self._stop = threading.Event()
         self._lock = threading.RLock()
 
@@ -304,12 +319,23 @@ class VllmServer:
     # --- process -----------------------------------------------------------------------------------------
     def launch(self, profile: str) -> None:
         model_dir = find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
-        rt = self.runtime(profile)
-        serve = rt.get("serve", DEFAULT_SERVE) if rt else DEFAULT_SERVE
-        cmd = [sys.executable, *serve, str(model_dir), "--served-model-name", self.spec.served_model_name,
+        rt = self.runtime(profile) or {}
+        python = rt.get("python") or sys.executable
+        serve = rt.get("serve", DEFAULT_SERVE)
+        self.backend = rt.get("backend") or "vllm"
+        cmd = [python, *serve, str(model_dir), "--served-model-name", self.spec.served_model_name,
                "--host", "127.0.0.1", "--port", str(self.cfg["port"])]
+
+        def fill(v: str) -> str:
+            return v.replace("{model_dir}", str(model_dir))
+
         for flag, value in self.spec.profiles[profile]["flags"].items():
-            cmd += [flag] if value is None else [flag, value.replace("{model_dir}", str(model_dir))]
+            if value is None:
+                cmd += [flag]
+            elif isinstance(value, (list, tuple)):  # nargs flags, e.g. SGLang --cuda-graph-bs-decode 1 2 4 8
+                cmd += [flag, *map(fill, map(str, value))]
+            else:
+                cmd += [flag, fill(value)]
         with self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(f"\n===== profile={profile} {time.ctime()} =====\n{' '.join(cmd)}\n")
         self.profile = profile
@@ -530,12 +556,13 @@ class VllmServer:
         if self.process is None or self.process.poll() is not None:
             return "exited"
         m = self.metrics()
+        if m is None and self.backend != "vllm" and self.healthy(timeout=10):
+            m = {}  # E109: a server without (or with a slow) /metrics is alive if it answers /v1/models
         if m is None:
             state["failures"] = state.get("failures", 0) + 1
             return "unresponsive" if state["failures"] >= self.wd["failures_to_restart"] else None
         state["failures"] = 0
-        tokens = m.get("vllm:prompt_tokens_total", 0.0) + m.get("vllm:generation_tokens_total", 0.0)
-        running = m.get("vllm:num_requests_running", 0.0)
+        tokens, running = token_counters(m)
         now = time.monotonic()
         if running <= 0 or tokens != state.get("tokens"):
             state["tokens"], state["moved_at"] = tokens, now
@@ -551,7 +578,7 @@ class VllmServer:
                     m = self.metrics()
                     if m is not None:
                         logged = True
-                        self.event("metrics_keys", keys=sorted(k for k in m if k.startswith("vllm:"))[:80])
+                        self.event("metrics_keys", keys=sorted(k for k in m if k.startswith(("vllm:", "sglang:")))[:80])
                 reason = self.check(state)
                 if reason and not self._stop.is_set():
                     if not self.recover(reason):
