@@ -1,4 +1,4 @@
-"""vLLM on Kaggle, model-free: offline install, a profile chain, a tool-call smoke test and a watchdog. Everything
+"""The model server on Kaggle (vLLM or SGLang), model-free: offline install, a profile chain, a tool-call smoke test and a watchdog. Everything
 model-specific (weights, flags, parsers, sampling) comes from a ``ModelSpec`` (gemma.py, qwen.py).
 
 Robustness, from E006 (three APIServer freezes; the fixed 2-restart budget ran out, then 900 s x 4 client retries
@@ -6,7 +6,7 @@ blocked every game for about 30 minutes):
 - A freeze counts as a failure even when the process is alive: /metrics must answer, and its token counters must move
   while requests are running.
 - Before a kill, SIGABRT goes to the whole process group with PYTHONFAULTHANDLER=1, so every freeze leaves the Python
-  stacks of the API server and the engine in vllm-server.log.
+  stacks of the API server and the engine in llm-server.log.
 - ``ServerGate`` goes down before the kill, so in-flight requests fail fast on the closed socket and wait for the
   restart without spending retries. After the restart they are admitted a few at a time.
 - Restarts are budgeted by remaining wall clock, not a fixed count. After ``fallback_after`` freezes on one profile,
@@ -15,7 +15,7 @@ blocked every game for about 30 minutes):
 - Site-packages live in /tmp, not /kaggle/working (E006: 10+ GB of wheels made the output download hang).
 
 E109: a prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
-The class keeps its name; the watchdog then reads ``sglang:*`` counters, and a /metrics that does not answer counts
+The watchdog then reads ``sglang:*`` counters, and a /metrics that does not answer counts
 as a failure only when the health endpoint does not answer either.
 """
 
@@ -116,17 +116,17 @@ def token_counters(m: dict[str, float]) -> tuple[float, float]:
 
 
 def log(msg: str) -> None:
-    print(f"[vllm {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    print(f"[server {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-class VllmServer:
+class LlmServer:
     def __init__(self, spec: ModelSpec, cfg: dict[str, Any], working_dir: Path, gate: ServerGate | None = None,
                  deadline: float | None = None) -> None:
         self.spec = spec
         self.cfg = cfg
         self.working_dir = working_dir
         self.site = self._site_dir(cfg, working_dir)
-        self.log_path = working_dir / "vllm-server.log"
+        self.log_path = working_dir / "llm-server.log"
         self.events_path = working_dir / "server_events.jsonl"
         self.root_url = f"http://127.0.0.1:{cfg['port']}"
         self.base_url = f"{self.root_url}/v1"
@@ -500,7 +500,7 @@ class VllmServer:
                 self.gate.up(ramp=False)
                 return
             self.kill("start_failed")
-        raise RuntimeError(f"vLLM failed on every profile: {self.attempts}")
+        raise RuntimeError(f"the model server failed on every profile: {self.attempts}")
 
     # --- watchdog ----------------------------------------------------------------------------------------
     def _fallbacks(self) -> list[str]:
@@ -537,7 +537,7 @@ class VllmServer:
                 ok, why = self._budget_allows_restart()
                 if not ok:
                     self.event("give_up", why=why)
-                    self.gate.fail(f"vLLM gave up after {reason}: {why}")
+                    self.gate.fail(f"the model server gave up after {reason}: {why}")
                     return False
                 self.restarts += 1
                 if candidate != profile:
@@ -547,7 +547,7 @@ class VllmServer:
                     return True
                 self.kill("restart_failed")
             self.event("give_up", why="no profile restarted")
-            self.gate.fail(f"vLLM could not restart after {reason}")
+            self.gate.fail(f"the model server could not restart after {reason}")
             return False
 
     def check(self, state: dict[str, Any]) -> str | None:
@@ -586,4 +586,4 @@ class VllmServer:
                     state = {}
 
         self.event("watchdog_on", **self.wd)
-        threading.Thread(target=loop, name="vllm-watchdog", daemon=True).start()
+        threading.Thread(target=loop, name="server-watchdog", daemon=True).start()

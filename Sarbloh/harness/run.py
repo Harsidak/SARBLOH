@@ -1,6 +1,6 @@
 """Run Prime Agent on ARC-AGI-3 games: one root AgentSession per game, games in parallel, one deadline.
 
-    main(overrides)                       # Kaggle: vLLM up, games (COMPETITION on a rerun, OFFLINE otherwise)
+    main(overrides)                       # Kaggle: model server up, games (COMPETITION on a rerun, OFFLINE otherwise)
     python -m harness.run --local ...       # local: an already running OpenAI-compatible server (llama.cpp)
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
@@ -253,12 +253,12 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     from harness.llm import bench
     from harness.llm.client import LLM
     from harness.llm.spec import get_spec
-    from harness.llm.vllm import VllmServer
+    from harness.llm.server import LlmServer
     from harness.game.games import build_games, make_arcade
 
     spec = get_spec(cfg["model"])
     soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
-    server = VllmServer(spec, cfg["vllm"], working_dir, deadline=soft_end)
+    server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
     summary: dict[str, Any] = {}
     try:
         server.start()
@@ -267,12 +267,12 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         cfg["agent"]["tool_mode"] = server.tool_mode
         cfg["agent"]["vision"] = server.vision  # E008: images only when the served profile passed the image smoke test
         fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
-        if cfg["vllm"]["bench"] and not rerun:
+        if cfg["server"]["bench"] and not rerun:
             try:
                 bench.quick(server)
             except Exception as exc:  # noqa: BLE001
-                print(f"[vllm] throughput probe failed: {exc!r}", flush=True)
-        if cfg["vllm"]["watchdog"]:
+                print(f"[server] throughput probe failed: {exc!r}", flush=True)
+        if cfg["server"]["watchdog"]:
             server.start_watchdog()
         llm = LLM(cfg["llm"], spec=spec, gate=server.gate)
         if rerun:
@@ -287,10 +287,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
         summary = run_games(games, cfg, llm, run_dir, soft_end)
-        summary.update({"vllm_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
+        summary.update({"server_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
                         "image_probe": server.image_probe,
-                        "vllm_attempts": server.attempts, "vllm_restarts": server.restarts,
-                        "vllm_freezes": server.freezes,
+                        "server_attempts": server.attempts, "server_restarts": server.restarts,
+                        "server_freezes": server.freezes,
                         "throughput": server.bench})
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
@@ -301,7 +301,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             pd.DataFrame([["1_0", "1", True, 1]], columns=["row_id", "game_id", "end_of_game", "score"]).to_parquet(
                 working_dir / "submission.parquet", index=False)
     print("LEDGER_ROW " + json.dumps({k: summary.get(k) for k in (
-        "experiment", "config_hash", "git_sha", "model", "toolset", "vllm_profile", "tool_mode", "vision", "throughput",
+        "experiment", "config_hash", "git_sha", "model", "toolset", "server_profile", "tool_mode", "vision", "throughput",
         "games",
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)

@@ -26,7 +26,7 @@ DEFAULT: dict[str, Any] = {
     "scheduler": {"enabled": False, "slots": 6, "quantum_calls": 4, "token_scale": 80000.0},
     # --- agent ---------------------------------------------------------------------------------------------
     "agent": {
-        "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); vLLM start decides
+        "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); server start decides
         # "e008" = ipython (read-only `scene`) + act + recall, with perception pushed after every act and the
         # agent-written memory (harness.agent.tools, harness.memory); "ipython" = upstream's single REPL tool (E003-E005,
         # the control arm). Fenced mode always uses "ipython".
@@ -37,7 +37,7 @@ DEFAULT: dict[str, Any] = {
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
-        "context_window": 131072,      # served context; run.py sets it from the vLLM profile / local server
+        "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
         # Ours (E005): also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
@@ -77,7 +77,7 @@ DEFAULT: dict[str, Any] = {
         "child_limits": {"max_turns": 60, "max_output_tokens": 400_000, "wall_s": 900.0},
     },
     # --- model ---------------------------------------------------------------------------------------------
-    # "gemma" | "qwen". Picks harness/llm/gemma.py or harness/llm/qwen.py: weights, vLLM profiles, parsers, sampling and
+    # "gemma" | "qwen". Picks harness/llm/gemma.py or harness/llm/qwen.py: weights, server profiles, parsers, sampling and
     # thinking policy all come from there (build_config merges them under the overrides below).
     "model": "qwen",
     "llm": {
@@ -85,8 +85,8 @@ DEFAULT: dict[str, Any] = {
         "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included (E007)
         "retries": 4,
     },
-    # --- vLLM on Kaggle ------------------------------------------------------------------------------------
-    "vllm": {
+    # --- model server on Kaggle ----------------------------------------------------------------------------
+    "server": {
         "wheelhouse_dataset": "banwait13/sarbloh-vllm-wheelhouse",  # kaggle/wheels.ipynb, vLLM 0.19.0
         "port": 8000,
         "profile_chain": None,         # None = the model spec's chain
@@ -94,7 +94,7 @@ DEFAULT: dict[str, Any] = {
         "max_inflight": 32,            # requests admitted at once; ramps 2 -> 32 after a watchdog restart
         "bench": True,
         "watchdog": True,
-        "watchdog_cfg": {},            # overrides of harness.llm.vllm.WATCHDOG
+        "watchdog_cfg": {},            # overrides of harness.llm.server.WATCHDOG
     },
 }
 
@@ -110,6 +110,8 @@ def build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     """DEFAULT, then the chosen model's spec defaults (served name, sampling, thinking), then ``overrides``."""
     from harness.llm.spec import get_spec
 
+    if "vllm" in (overrides or {}):  # renamed 2026-10-02; merge() would keep it as a dead key and drop its profile_chain
+        raise ValueError('config key "vllm" was renamed to "server"')
     spec = get_spec((overrides or {}).get("model", DEFAULT["model"]))
     base = merge(DEFAULT, {"llm": {"model": spec.served_model_name, **spec.llm}})
     return merge(base, overrides)

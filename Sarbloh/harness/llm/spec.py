@@ -30,7 +30,7 @@ class ModelSpec:
     fix_tool_arguments: Callable[[dict[str, Any]], dict[str, Any]] = field(default=_no_fix)
     # Sent with the tool-call smoke test (thinking can exhaust max_tokens before the call).
     smoke_template_kwargs: dict[str, Any] = field(default_factory=dict)
-    # Prebuilt vLLM runtimes, for models the shared wheelhouse cannot serve. A profile with "runtime": "<name>" skips the
+    # Prebuilt server runtimes (vLLM or SGLang), for models the shared wheelhouse cannot serve. A profile with "runtime": "<name>" skips the
     # wheelhouse install; runtimes[name](working_dir, find_input) prepares the runtime once per process and returns
     # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}},
     # optionally "python" (the interpreter that runs "serve") and "backend" ("vllm" | "sglang": metric names). E109.

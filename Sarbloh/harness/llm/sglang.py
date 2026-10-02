@@ -7,7 +7,7 @@ in /tmp with the wheelhouse's own ``uv`` (torch 2.13 must not touch the notebook
 wheels becomes ``CUDA_HOME``: flashinfer and SGLang JIT-compile kernels at start and need nvcc, libcudart and the
 driver's libcuda.so.
 
-``harness.llm.vllm.VllmServer`` launches the server with the returned ``python`` and ``serve`` args and reads
+``harness.llm.server.LlmServer`` launches the server with the returned ``python`` and ``serve`` args and reads
 ``sglang:*`` metrics (``backend``). Settings follow the documented Pennyroyal launch of the milestone-2 reference
 notebook (kaggle/reference/, licence UNCONFIRMED): this file is our own code, written from those settings.
 """
