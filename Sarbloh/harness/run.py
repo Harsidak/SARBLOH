@@ -73,9 +73,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
                    max_actions_per_cell=cfg.get("max_actions_per_cell"),
                    stop_after_levels=cfg.get("stop_after_levels"))
     e008 = cfg["agent"].get("toolset") == "e008" and cfg["agent"]["tool_mode"] == "native"
-    task = (prompts.E008_TASK if e008 else prompts.TASK).format(game_id=game.game_id,
-                                                                max_actions=cfg["max_actions_per_game"],
-                                                                minutes=int(max(0, deadline - time.time()) // 60))
+    task = prompts.task_message(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
+                                minutes=int(max(0, deadline - time.time()) // 60), toolset="game" if e008 else "ipython")
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
                            global_harness_dir=run_dir / "global_harness", memory_root=run_dir / "memory")

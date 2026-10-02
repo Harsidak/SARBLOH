@@ -321,9 +321,7 @@ class AgentSession:
 
                 # in case the reply curs off
             if reply.finish_reason == "length":
-                self._append({"role": "user", "content": "Your reply was cut off by the output limit. Be shorter: "
-                                                         + ("think less, then call act." if self.e008 else
-                                                            "put the work in one `ipython` call.")})
+                self._append({"role": "user", "content": prompts.event_message("cut_off", self._toolset)})
                 continue
             # 7) if No tool call: the model ended its turn.
             if self.depth > 0:
@@ -360,7 +358,16 @@ class AgentSession:
             self._append({"role": "user", "content": self._continuation()})
 
     def _continuation(self) -> str:
-        return (prompts.CONTINUATION_E008 if self.e008 else prompts.CONTINUATION).format(status=self._status())
+        return prompts.continuation(status=self._status(), toolset=self._toolset, **self._left())
+
+    @property
+    def _toolset(self) -> str:
+        return "game" if self.e008 else "ipython"
+
+    def _left(self) -> dict[str, int | None]:
+        """Moves and minutes left, for the low-budget and low-time notes."""
+        return {"moves_left": self.arc.budget_left if self.arc is not None else None,
+                "minutes_left": max(0, int(self.deadline - time.time())) // 60}
 
     # --- tool calls --------------------------------------------------------------------------------------
     def _calls(self, reply: Any) -> list[dict[str, Any]]:
@@ -425,8 +432,7 @@ class AgentSession:
         elif call["name"] == "act" and self._acted_in_reply:
             failed = True
             self.stats["tool_errors"] += 1
-            text = ("act refused: one act per reply. Nothing was spent. Read the new state that follows the previous "
-                    "act, then act in your next reply.")
+            text = "act refused: " + prompts.event_message("act_twice")
             self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                              "error": "second act in one reply", "args": call["args"]})
         elif call["name"] != "ipython":
@@ -576,18 +582,23 @@ class AgentSession:
         elif isinstance(raw, int):
             raw = [raw]
         if not isinstance(raw, list) or not raw:
-            raise ValueError('actions must be a non-empty list, e.g. ["1", "4"], ["6 12 40"] or ["reset"]')
+            raise ValueError(prompts.event_message("act_bad_args", problem="`actions` must be a list of 1 or more moves"))
         cap = int(self.cfg.get("act_max_actions", 5))
         if len(raw) > cap:
-            raise ValueError(f"at most {cap} actions per act call, you sent {len(raw)}. Send the first ones, read "
-                             "the result, then continue.")
-        parsed = [self._parse_action(a) for a in raw]   # all or nothing: nothing runs if one item is bad
+            raise ValueError(prompts.event_message("act_too_many", sent=len(raw), act_max=cap))
+        try:
+            parsed = [self._parse_action(a) for a in raw]   # all or nothing: nothing runs if one item is bad
+        except ValueError as exc:
+            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
         legal = [a for a in arc.game.state.available_actions if a != 0]
         bad = [self._label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
         if bad:
-            raise ValueError(f"{', '.join(bad)} not legal now; legal: {legal} (and \"reset\"). Nothing was spent.")
+            raise ValueError(prompts.event_message("act_illegal", bad=", ".join(bad), legal=legal))
         level0 = arc.game.state.levels_completed
-        wrote = mem.write_act(args, turn=turn, level=level0)   # raises on a bad hypothesis before any action
+        try:
+            wrote = mem.write_act(args, turn=turn, level=level0)   # raises on a bad hypothesis before any action
+        except ValueError as exc:
+            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
         self.stats["act_calls"] += 1
         self._log_memory(wrote, call_id, turn)
         start = arc.game.action_count
@@ -648,15 +659,13 @@ class AgentSession:
         self.stats["act_actions"] += done
         s = arc.game.state
         out = [f"act: {done} of {len(parsed)} actions done" + (f"; stopped: {stop}" if stop else ""), *lines]
-        if level_up:
-            out.append(f"LEVEL UP: {s.levels_completed} of {arc.game.number_of_levels} levels done. Your verified "
-                       "hypotheses and findings became lessons; plan, hypotheses and findings were cleared; your goal "
-                       "is kept with a confirmation. The new level is shown in full next.")
-        if s.engine_state.name == "GAME_OVER":
-            out.append("GAME_OVER: the level is lost. Find the cause in the change lines, record it (refute a "
-                       "hypothesis or add a finding), then act [\"reset\"].")
         if s.engine_state.name == "WIN":
-            out.append("WIN: every level is complete.")
+            out.append(prompts.event_message("win"))
+        elif level_up:
+            out.append(prompts.event_message("level_up", levels_done=s.levels_completed,
+                                             win_levels=arc.game.number_of_levels, **self._left()))
+        if s.engine_state.name == "GAME_OVER":
+            out.append(prompts.event_message("game_over", **self._left()))
         mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": wrote["plan"],
                         "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": wrote["plan"],
@@ -827,9 +836,9 @@ class AgentSession:
     # --- context: system prompt, harness digest, compaction ----------------------------------------------
     def _system_prompt(self) -> str:
         if self._system is None and self.e008:
-            self._system = prompts.e008_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
+            self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
-                                               cwd=str(self.kernel.session_dir))
+                                               cwd=str(self.kernel.session_dir), vision=self.vision)
         if self._system is None:
             base = prompts.base_prompt(cwd=str(self.kernel.session_dir), transcript=str(self.transcript))
             if self.arc is not None:  # upstream appendSystemPrompt
@@ -884,7 +893,8 @@ class AgentSession:
         self._summary = summary
         kept = [m for m in self.messages[prep.first_kept:] if m.get("_kind") != compaction.DIGEST_KIND]
         # E008: the memory is pinned outside the conversation, so the head carries the summary only.
-        head = compaction.head_message(summary, "" if self.e008 else refine.digest_block(self._digest()) + "\n\n")
+        head = compaction.head_message(summary, prompts.event_message("compacted", **self._left()) + "\n\n"
+                                       if self.e008 else refine.digest_block(self._digest()) + "\n\n")
         if self.e008 and not any(context._has_image(m) for m in kept):
             kept.append(self._observation_refresh())   # the newest state must survive a compaction
         self.messages = [head, *kept]

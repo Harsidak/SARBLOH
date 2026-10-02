@@ -1,8 +1,68 @@
+"""Prompts for SARBLOH, written as small snippets and assembled per situation.
+
+How the game loop uses prompts (read from ``harness/agent/agent.py`` and ``harness/run.py``):
+
+    run.py      -> start message (game start)            : task_message()
+    agent.py    -> system prompt, fixed for the game    : game_system() / base_prompt() + arc_section()
+    agent.py    -> after every act: change lines + new state (built in code, not here)
+    agent.py    -> the model ends a turn with no tool    : continuation()
+    agent.py    -> level up, GAME_OVER, WIN, refused act, reply cut off, compaction : event_message(kind, ...)
+
+The system prompt never changes during a game (cheap prefix caching). Everything that depends on the moment (a new
+level, a lost level, a refused act, a long silence, low budget) is sent as a short message built by ``event_message``.
+So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else in the builders.
+
+Tools are described twice on purpose: ``TOOLS_BRIEFING`` says what each tool is for and what it costs;
+``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED`` + ``ACT_DETAILED`` + ``RECALL_DETAILED``) gives every argument, limit,
+refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``, ``_tool_recall``) and
+``runtime/skills/scene.py``. If those change, change these.
+
+Style (owner rule, 2026-10-02): simple English in full sentences that flow, written as instructions to a human. Exact
+tool and function names, no stories. The score formula is not shown to the agent on purpose (owner decision
+2026-10-02). ROLE_OBJECTIVE_COMMUNICATION, GAME_INTUITION and IPYTHON_BRIEFING are the owner's wording; edit them only
+when the owner asks. LONG_RUNNING_WORK is upstream text.
+
+Placeholders are filled with ``str.format``: a literal brace in a template is doubled.
+"""
+
 from __future__ import annotations
 
+from typing import Any
+
 # =====================================================================================================================
-# Family 1: "ipython" toolset. Upstream Prime Agent text. Control arm: keep verbatim.
+# 1. The owner's snippets (shared by both toolsets)
 # =====================================================================================================================
+
+ROLE_OBJECTIVE_COMMUNICATION = """Role:
+You are an agent playing a multi-level grid puzzle game. Your goal is to solve the entire game by clearing every level in as few moves as possible.
+
+Objective:
+The game board is a 64x64 grid made of colors. {legend}
+You will play the game in a continuous cycle: look at the board, use Python to check your ideas, take an action, and check the results. Keep in mind that game rules and layouts can change between levels.
+
+Communication:
+Write your thinking and your notes in short, plain sentences."""
+
+# The colour legend in the form each toolset shows the board: letters (``scene``) or numbers (``arc``, ``obs.grid``).
+LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
+                  "B=black, M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, r=dark red, N=green, "
+                  "p=purple.")
+LEGEND_NUMBERS = ("Each color is a number from 0 to 15, and `arc.show` prints it as one hex digit (a=10 to f=15): "
+                  "0=white, 1=light grey, 2=grey, 3=dark grey, 4=charcoal, 5=black, 6=magenta, 7=pink, 8=red, 9=blue, "
+                  "10=sky blue, 11=yellow, 12=orange, 13=dark red, 14=green, 15=purple.")
+
+GAME_INTUITION = """Game Intuition:
+- Visualizing the Board: Treat the board as a picture with objects, obstacles, and targets.
+- Objects: Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
+- No Player Character: Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
+- Backgrounds: Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
+- Timers and HUDs (Important): If you see a strip of blocks on the edge of the screen that changes on every move, it is likely a timer or a "moves-remaining" bar. **Do not treat these as puzzle pieces.** Do not click on them unless you are absolutely sure they are part of the puzzle.
+- Clicks and Goals: A click needs an exact row and column. The row counts down from the top, and the column counts across from the left. Describe your goals with objects (for example, "move the red block onto the green one"), not with coordinates, because positions change from level to level.
+- Game Progress: If the number of finished levels goes up, or the whole board changes at once, you probably finished a level. Stop and look at the new board carefully before you use an old plan. `WIN` means you have beaten the entire game."""
+
+IPYTHON_BRIEFING = """iPython tool:
+- Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
+- Unlimited Uses: You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush."""
 
 LONG_RUNNING_WORK = "\n".join([
     "For slow or independently completing work, use a nonblocking control loop: start the work, record its handle or "
@@ -12,254 +72,315 @@ LONG_RUNNING_WORK = "\n".join([
     "available; otherwise end the turn.",
 ])
 
-SIMPLIFIED_TECHNICAL_ENGLISH = "\n".join([
-    "Use simplified english:",
-    "- Write concise, declarative statements for plans, hypotheses, and findings.",
-    "- Avoid filler and conversational prose; report evidence, coordinates, and state changes directly.",
-    "- Preserve exact symbols, action numbers, object IDs, and hash keys.",
+# =====================================================================================================================
+# 2. System-prompt snippets for the game agent (tools: ipython, act, recall)
+# =====================================================================================================================
+
+GAME_FACTS = """Game:
+You are playing the ARC-AGI-3 game `{game_id}`. It has {win_levels} levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the controls, the rules or the goal. You find them out by looking and by trying moves. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
+You work alone. There is no human to answer questions, so never ask one. Thinking and using Python are free. Only game moves count, so make each move for a reason."""
+
+READING_THE_STATE = """What you see after every move:
+1. The result of your `act` call, with one line per move. For example:
+   `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
+   `#12` is the step number, and you use step numbers as evidence. A line that ends with `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
+2. The new board, in the next message. It has a status line, the objects in the area that changed, and that area drawn as letters{picture_after}.
+At the start of each level you get the whole board as letters and the full list of objects{picture_start}.
+
+How to read it:
+- Positions are written as rows and columns. `r10-12 c20-22` means rows 10 to 12 and columns 20 to 22. Row 0 is the top, and column 0 is the left.
+- An object is one connected area of one color. Its line gives its id, its color letter and its size (`R 3x3` is a full rectangle, `R 7px` is any other shape), where it is, and a `#hash`. The same shape always has the same hash, in any place and on any level. Then come its relations: `in 2` means it is inside object 2, `has 5,6` means it contains objects 5 and 6, and `adj 3` means it touches object 3. `hud` means it sits on the edge of the screen, where it is often a counter, a bar or a number of lives.
+- Object ids stay the same for the whole level. The most common color is the background, and it is not listed as an object."""
+
+TOOLS_BRIEFING = """Tools:
+You have three tools, and only `act` spends moves.
+- `ipython` (free) runs Python, so you can look at the board and compute things. It reads the current board from the object `scene`. It cannot make moves.
+- `act` makes 1 to {act_max} moves, and in the same call you write your memory (plan, hypotheses, findings and goal). Each move costs one move. Use one `act` per reply.
+- `recall` (free) searches your memory: earlier steps, hypotheses, findings, goals, lessons and skills.
+The cycle is: read the new board, check your idea in `ipython`, then `act`. Use `recall` when you need something that is no longer in the conversation."""
+
+IPYTHON_TOOL_DETAILED = """`ipython` in detail:
+- Its argument is `code`, the Python to run. Top-level `await` works, and variables, functions and imports stay between calls.
+- The board is the read-only object `scene`, and it is updated after every `act`. There is no number grid: colors are letters, and positions are (row, column).
+  - `scene.objects` is a list of dicts, one per object, with the keys `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash`, `corners`, `parent`, `children`, `adjacent`, `hud` and `cells`. `cells` is a list of (row, column), or None when the object has more than 256 cells.
+  - `scene.letters` is the board, one string of letters per row. `scene.letters[r][c]` is the color at row r and column c.
+  - `print(scene.ascii(r0, c0, r1, c1))` prints a window of the board with row and column labels.
+  - `scene.find(letter="R")`, `scene.find(hash="...")`, `scene.find(id=4)` and `scene.find(size=9)` return the objects that match.
+  - `scene.history(10)` gives the last 10 steps. Each is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
+  - `scene.step` is the newest step number, `scene.status` the status line, `scene.change` the newest change, `scene.background` the background letter, and `scene.legend` maps each letter to its color name."""
+
+ACT_DETAILED = """`act` in detail:
+Arguments:
+- `actions` (required) is a list of 1 to {act_max} moves, made in order.
+  - "1" is up, "2" down, "3" left, "4" right and "5" space (the game's special action). "7" is often undo, but check that in this game before you rely on it.
+  - "6 r c" clicks the cell at row r and column c, for example "6 12 40". The row comes first, and each click is its own item in the list.
+  - "reset" restarts the current level.
+  For example, ["1", "1", "4"] or ["6 12 40"]. These names are only labels. What a move really does in this game is a guess until you have seen it happen.
+- `plan` (required), `hypotheses`, `findings` and `goal` are your memory. They are explained below under "Your memory".
+Limits:
+- Use one `act` per reply. A second `act` in the same reply is refused and spends nothing.
+- Only the legal moves in the status line work.
+- The whole call is refused before any move, with nothing spent and nothing saved, if there are more than {act_max} moves, if a move cannot be read or is not legal, if `plan` is missing, or if a hypothesis is wrong (an unknown id, a bad status, or no text). Fix it and send the call again.
+- The moves stop early at a level up, at GAME_OVER, or when the game ends.
+- If the game refuses a move, the moves before it still count, and your memory writes are kept.
+What comes back:
+- The first line is `act: 3 of 3 actions done`, plus `; stopped: <reason>` when it stopped early.
+- Then comes one change line per move, for example `#12 A1(up): <what changed>`. A click is written `A6(r12,c40)`. `[repeat: same state and action as #7]` means you made this exact move from this exact board before, and `[GAME_OVER]` marks the move that lost the level.
+- After a level up, a GAME_OVER or a WIN there is a short note that tells you what to do next.
+- The new board follows in the next message."""
+
+RECALL_DETAILED = """`recall` in detail:
+Arguments:
+- `query` (required) can be "#12" (one step), "12-20" (a range of steps), "level 1" (one level), or words such as "red block". An empty query "" gives the latest steps.
+- `scope` (optional, default "all") can be "timeline" (your steps), "hypotheses", "findings", "goal" (your goal and its history), "lessons" (from earlier levels and games), "skills", or "all".
+What comes back is the matches, grouped by scope. Long results are cut, so ask for something narrow."""
+
+TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
+
+MEMORY = """Your memory:
+At the top of every turn there is a [memory] block. It is rebuilt from what you write with `act`, and it stays when old messages are removed. Old messages are not kept, so anything you want to remember must go into your memory. In every `act` you write:
+- `plan` (always): your next steps and the reason, in one or two sentences. It replaces your old plan.
+- `hypotheses` (when they change): a list of rules you think are true. Each one has a `status`, which is "proposed", "verified" (it correctly predicted moves you made after you wrote it) or "refuted" (a move showed it is wrong). A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
+- `findings` (when you learn one): facts about this level, one short sentence each.
+- `goal` (when it changes): what you think wins the level. While you are not sure, keep 2 or 3 different goals and test them against each other.
+When you finish a level, your verified hypotheses and findings are saved as lessons for later levels, and your plan, hypotheses and findings are cleared. Your goal is kept. So mark what you have verified before the level ends."""
+
+LEVEL_METHOD = """How to play a level:
+1. Look (free). Read the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge.
+2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first `act`.
+3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses.
+4. Solve. When the rules you need are verified, write a search in `ipython` (for example a breadth-first search over the moves you verified) to find the shortest path. Then send the path in `act` calls of up to {act_max} moves."""
+
+RULES = """Rules:
+- Do not read, count or copy cells in your head. Ask `ipython` instead, with `scene.find`, a small `scene.ascii` window, distances, or objects with the same hash. One short Python call is faster and more exact than a long thought.
+- Keep your thinking short, then call a tool. A reply that is too long is cut off and lost.
+- "reset" costs a move and throws away your progress in the level. Use it after GAME_OVER, or when the level is clearly stuck. Do not use it to experiment.
+- Every level can be solved. If your search finds no way to the goal, one of your rules is wrong, so test the rule you are least sure about."""
+
+EXAMPLE = """Example from another game:
+The board shows `4 R 3x3 r10-12 c20-22`, `9 N 3x3 r10-12 c41-43` and `17 G 1x30 r63 c0-29 hud`.
+You call `act` with actions ["4"], plan "test if 4 moves object 4 right", hypotheses [{{"text": "4 moves object 4 right", "status": "proposed"}}, {{"text": "object 17 counts the moves left", "status": "proposed"}}] and goal "move object 4 onto object 9".
+The result is `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
+Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You check the path in `ipython`, mark both hypotheses verified with evidence [0], and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
+
+ENVIRONMENT = """Working directory: {cwd}
+Python packages: numpy. `scene` (the current board, read-only) is already imported."""
+
+# =====================================================================================================================
+# 3. System-prompt snippets for the plain ipython toolset (the agent makes moves from Python with `arc`)
+# =====================================================================================================================
+
+BASE_AGENT_IDENTITY = "\n".join([
+    "You are a specialized coding agent that uses code to solve problems.",
+    "You solve problems by breaking them down into sub-tasks, writing and executing code, observing results, and "
+    "iterating one step at a time.",
+    "When you are done, stop calling tools and state your final answer.",
 ])
 
-REPL_CONTROL = "\n".join([
-    "The `ipython` tool is a persistent Python coding tool you should use it as your primary tool for reasoning,"
-    "context management, state, tool orchestration, and recursive subcalls. Top-level `await` works directly. Use it "
-    "to keep intermediate variables, inspect and transform outputs, and write small helper functions.",
-    "",
-    "Python is the orchestration language: use Python for loops, conditionals, parsing, and state. Use `bash()` to "
-    "invoke programs, not to write shell programs — no shell loops or heredocs; do those in Python.",
-    "",
-    "`bash(command)` starts a shell command in the background and returns a handle immediately: `h = bash('ls')`. "
-    "`await h` (or `await bash('cmd')`) returns the completed result with exit_code, output, and duration. Run shell "
-    "commands with `bash()`, not `subprocess`/`os.system`: subprocess calls block the kernel and spawn processes the "
-    "harness cannot see or stop.",
-    "",
-    "Use Python for reading, searching, and editing files — it gives you reusable variables you can slice, filter, and "
-    "act on without re-reading. Always assign read/search results to named variables so you can revisit them later.",
-    "",
-    "Python state in the kernel persists across cells: named variables, helper functions, classes, imports, notes, "
-    "parsed outputs, and helper data structures all remain available in every later turn. Tool calls are themselves "
-    "Python `await` expressions, so their return values can be bound to variables and composed into program logic "
-    "just like any other call.",
-    "",
-    "Continual harness state is available as `rlm.harness` and `rlm.get_harness_state()`. CRUD calls are local to "
-    "this Prime Agent session by "
-    "default: `rlm.harness.create_memory(...)`, `rlm.harness.update_memory(...)`, `rlm.harness.delete_memory(...)`, "
-    "`rlm.harness.create_skill(...)`, `rlm.harness.update_skill(...)`, `rlm.harness.delete_skill(...)`, "
-    "`rlm.harness.create_subagent(...)`, `rlm.harness.update_subagent(...)`, `rlm.harness.delete_subagent(...)`, "
-    "`rlm.harness.create_prompt_note(...)`, `rlm.harness.update_prompt_note(...)`, "
-    "`rlm.harness.delete_prompt_note(...)`, plus `rlm.harness.record_refinement(...)` and `rlm.harness.overview()`. "
-    "Use `global_=True` only for stable cross-session lessons; Python reserves `global`, so literal `global=True` is "
-    "invalid syntax.",
-    "",
-    "Terminology: continual harness names the persisted prompt, memory, skill, and subagent layer; RLM names the "
-    "runtime, Python REPL kernel, and native call interface exposed to the model.",
-    "",
-    "RLM-native call contract: installed Python skills are pre-imported modules. Continual harness skill entries are "
-    "Python REPL skills with an explicit Python `reference` and `arguments` contract. Do not invent non-native "
-    "wrappers such as `call_skill(...)`.",
-])
+IPYTHON_DETAILED = """The `ipython` tool is a Python session that stays alive between calls. Variables, functions and imports you create stay available in every later call, and top-level `await` works.
+Use it to look at the game, keep notes in variables, and write small helper functions you can reuse. Run shell commands with `bash("cmd")`, not with `subprocess` or `os.system`.
 
-ARC_SECTION = """
-Role:
-You are an agent playing a multi-level grid puzzle game. Your goal is to solve the entire game by clearing every level in as few moves as possible.
+The game is the module `arc`, which is already imported. These calls are free:
+- `obs = await arc.observe()` gives the current board. `obs.grid` is a 64x64 numpy array, read as `obs.grid[row, column]`. `obs.state` is "NOT_FINISHED", "WIN" or "GAME_OVER". `obs.levels_completed` tells you how many levels are done, and `obs.available_actions` lists the legal moves.
+- `ts = await arc.transitions()` gives every move so far, oldest first, each with the board before and after. Use it instead of making a move to find out something you have already seen.
+- `print(arc.show(grid, x0, y0, x1, y1))` prints a small window of a board, and `arc.diff(a, b)` lists the cells that changed between two boards.
+Print short summaries, not whole boards.
 
-Objective:
-The game board is a 64x64 grid made of colors (based on the ARC color legend: W=white, w=light gray, g=gray, G=dark gray, c=charcoal, B=black, M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, r=dark red, N=light green, p=purple). 
-You will play the game in a continuous cycle: look at the board, use Python to update your plan, take an action, and check the results. Keep in mind that game rules and layouts can change between levels.
+Long-term notes: `rlm.harness.create_memory(title=..., content=...)` and `rlm.harness.update_memory(id, title, content)` save notes that stay when old messages are removed, and `rlm.harness.overview()` lists them."""
 
-Communication:
-try to use simple language
-
-Understanding the Game Board:
-- Visualizing the Board: You will receive an image of the board and text data. Treat the board as a picture with objects, obstacles, and targets.
-- Objects: Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
-- No Player Character: Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
-- Backgrounds: Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
-- Timers and HUDs (Important): If you see a shrinking line of blocks on the edge of the screen, it is likely a timer or a "steps-remaining" bar. **Do not treat these as puzzle pieces.** Do not try to click on them unless you are absolutely sure they are part of the puzzle.
-- Coordinates: Only use exact row and column numbers to tell your mouse where to click. Do not use coordinates as your final goal. For mouse clicks, `row` is vertical and `col` is horizontal.
-- Game Progress: If your score increases or the screen changes suddenly, you probably finished a level. Stop and look at the new board carefully before using an old plan. `WIN` means you have beaten the entire game.
-
-iPython tool:
-- Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
-- Unlimited Uses: You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush.
-- Solving Strategy: If you know the goal but aren't sure of the steps, write a search algorithm (like BFS, DFS, or pathfinding) to find the shortest path.
-
-iPython Variables Available to You:
-Whenever you run Python code, the following variables are already loaded for you to use:
-
-* `current_frame`: Information about the current board. It includes `.step` (current turn), `.level`, and `.shape` (board size).
-* `current_frame.segmentation`: **Use this as your main way to view the board.** It groups blocks into objects. For each object, it gives you an `id`, `color`, exact size/location (`pixels`, `boundary`), and a `hash`. (If two objects have the same `hash`, they are the exact same shape and color). It also includes an `adjacency_list` to tell you which objects are touching.
-* `current_frame.ascii`: A text layout of the board. **Only use this to look at very small, specific areas.** Do not scan the whole board with this.
-* `history`: A list of past actions and what the board looked like after them. `history[-1].frame` is the same as `current_frame`.
-* `previous_frame` / `last_transition`: Use these to compare what the board looked like *before* your last action to what it looks like *now*.
-* `valid_actions`: A list of moves you are allowed to make right now.
-* `last_action_result`: Tells you the results of your last move (e.g., `board_changed`, `done`, `level_completed`, `game_over`).
-
-**Taking Actions**
-
-* To make a move in the game, call `action(actions)` directly inside your Python code.
-* You can pass a single action, like `action(['LEFT'])`, or a mouse click, like `action([{'action': 'MOUSE', 'row': 4, 'col': 7}])`.
-* You can also pass a list of multiple actions at once to do a combo.
-* After `action(...)` finishes, all your variables (like `current_frame` and `history`) are automatically updated.
-* Always check if your action actually changed the puzzle pieces, or if it just changed the timer bar.
-* If a move results in `game_over`, `run_complete`, `level_completed`, or `done`, **stop making moves immediately** and wait for the next turn to look at the new board.
+ROOT_ACT_LINES = """- `obs = await arc.step(a)` makes move `a`, which must be an id from `obs.available_actions`. Move 6 is a click and needs a cell: `await arc.step(6, x=column, y=row)`. Each call costs one move, and `obs.level_up` is True when the move finished a level.
+- `obs = await arc.reset()` restarts the current level. It costs one move, the progress in the level is lost, and the moves you already made still count. You need it after GAME_OVER, and it is refused when the level is already at its start.
+- When you know the rules but not the steps, write a search in Python (for example a breadth-first search) to find the shortest path before you make the moves.
 """
 
-ROOT_ACT_LINES = """- `obs = await arc.step(a)` does action `a` (an id from `obs.available_actions`). Action 6 needs a pixel: `await arc.step(6, x=column, y=row)`. Costs 1 action. `obs.level_up` is True when the step completed a level.
-- `obs = await arc.reset()` restarts the current level (`arc.step(0)` raises). Costs 1 action, and the actions already spent in the level still count toward its score. The level's state is lost; your variables, `rlm.harness` memories and `arc.transitions()` are kept. Needed after `obs.state == "GAME_OVER"`. Refused when the level is already at its start.
-"""
-CAP_LINE = ("- Harness limit: at most {cap} `arc.step`/`arc.reset` calls per `ipython` call. The next one raises "
-            "`ArcError(\"harness limit ...\")`; read the results and continue in a new `ipython` call.\n")
+CAP_LINE = ("- At most {cap} `arc.step` or `arc.reset` calls fit in one `ipython` call. After that you get an error, so "
+            "read the results and continue in a new `ipython` call.\n")
+
+# =====================================================================================================================
+# 4. Situation messages (user turns or notes sent by the harness at a given moment)
+# =====================================================================================================================
+
+TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. You have at most {max_actions} moves and about {minutes} minutes for the whole game.
+The first board is shown below. This is level 1, so nothing is known yet. Do this first:
+1. Look at the board and the object list. Use `ipython` (`scene.objects`, `scene.find`) to check what you think you see.
+2. In one `act` call, write your first plan, 2 to 4 hypotheses and a goal guess, and make 1 or 2 test moves."""
+
+TASK_IPYTHON = ("Play the ARC-AGI-3 game `{game_id}` and win it. You have at most {max_actions} moves and about {minutes} "
+                "minutes. There is no human, so do not ask questions. Start with "
+                "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`.")
+
+CONTINUE_GAME = """You ended your turn without calling a tool. Nobody else will reply, so keep playing until the game is won or you run out of moves or time.
+Where you are now: {status}.
+Next, read your [memory] block and the newest board. If you were waiting for an answer, make the most likely guess yourself and test it. Then call `ipython` to check an idea, or `act` to make your next move."""
+
+CONTINUE_IPYTHON = """You ended your turn without calling a tool. Nobody else will reply, so keep playing until the game is won or you run out of moves or time.
+Where you are now: {status}.
+Next, look at `await arc.transitions()` to see what your last moves did, make the most likely guess yourself, and continue in `ipython`."""
+
+LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. Well played. A new level starts now, and it is shown in full below.
+Your memory changed: your verified hypotheses and findings are now lessons, your plan, hypotheses and findings are empty, and your goal is kept and marked as won.
+On the new level:
+1. Look at the new board before you move. Find what is the same as before (the same colors, the same `#hash`) and what is new.
+2. Keep the rules you verified, and do not test them again.
+3. New objects usually bring a new rule, so test them first with 1 or 2 moves.
+4. Check that your goal still makes sense on this board before you follow it."""
+
+GAME_OVER = """GAME_OVER: this level is lost. Before you do anything else:
+1. Find the step that caused it in the change lines. Use `recall` with the step numbers if you need to.
+2. Write it into your memory in your next `act`. Refute the hypothesis that led there, or add a finding such as "touching the red block ends the level".
+3. Send "reset" in that same `act` to restart the level. Your memory is kept."""
+
+WIN = "WIN: every level is done, and the game is complete."
+
+CUT_OFF = "Your last reply was too long, so it was cut off and lost. Think less this time and call a tool soon."
+
+COMPACTED = """Older messages were shortened to save space. Your [memory] block is complete, and the newest board is shown below. Use `recall` if you need an earlier step."""
+
+ACT_TWICE = ("Your second `act` in the same reply was not run, and no move was spent. Read the new board that came "
+             "after your first `act`, then act in your next reply.")
+
+ACT_TOO_MANY = ("You sent {sent} moves, but one `act` takes at most {act_max}. Nothing was run and no move was spent. "
+                "Send the first {act_max}, read the result, then send the rest.")
+
+ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal} (and "
+               "\"reset\"). Check the status line before you act.")
+
+ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like actions [\"1\", \"4\"] or "
+                "[\"6 12 40\"] with a plan, for example plan \"test if 1 moves object 4 up\". The full rules are in your "
+                "instructions under \"`act` in detail\".")
+
+LOW_BUDGET = ("Note: only {left} moves are left for this game. Do not spend them on tests you can do in `ipython`. "
+              "Send only moves that your verified rules say will help.")
+
+LOW_TIME = ("Note: only about {minutes} minutes are left. Stop long tests, and use what you have verified to finish the "
+            "level you are on.")
+
+# =====================================================================================================================
+# 5. Assembly tables: which snippets go in for which situation
+# =====================================================================================================================
+
+SNIPPETS: dict[str, str] = {
+    "ROLE_OBJECTIVE_COMMUNICATION": ROLE_OBJECTIVE_COMMUNICATION,
+    "GAME_INTUITION": GAME_INTUITION,
+    "IPYTHON_BRIEFING": IPYTHON_BRIEFING,
+    "LONG_RUNNING_WORK": LONG_RUNNING_WORK,
+    "GAME_FACTS": GAME_FACTS,
+    "READING_THE_STATE": READING_THE_STATE,
+    "TOOLS_BRIEFING": TOOLS_BRIEFING,
+    "TOOLS_DETAILED": TOOLS_DETAILED,
+    "MEMORY": MEMORY,
+    "LEVEL_METHOD": LEVEL_METHOD,
+    "RULES": RULES,
+    "EXAMPLE": EXAMPLE,
+    "ENVIRONMENT": ENVIRONMENT,
+    "BASE_AGENT_IDENTITY": BASE_AGENT_IDENTITY,
+    "IPYTHON_DETAILED": IPYTHON_DETAILED,
+}
+
+# The system prompt per toolset. Order matters: who you are, the game, how to see, how to act, how to remember, how
+# to play, the rules, one example.
+SYSTEM_PLAN: dict[str, list[str]] = {
+    "game": ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "GAME_INTUITION", "READING_THE_STATE", "TOOLS_BRIEFING",
+             "IPYTHON_BRIEFING", "TOOLS_DETAILED", "MEMORY", "LEVEL_METHOD", "RULES", "EXAMPLE", "ENVIRONMENT"],
+    "ipython": ["BASE_AGENT_IDENTITY", "LONG_RUNNING_WORK", "IPYTHON_DETAILED"],
+    "ipython_arc": ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_INTUITION", "IPYTHON_BRIEFING"],
+}
+
+# The message per situation, for each toolset.
+EVENT_SNIPPETS: dict[str, dict[str, str]] = {
+    "game": {"start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER,
+             "win": WIN, "cut_off": CUT_OFF, "compacted": COMPACTED, "act_twice": ACT_TWICE,
+             "act_too_many": ACT_TOO_MANY, "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS,
+             "low_budget": LOW_BUDGET, "low_time": LOW_TIME},
+    "ipython": {"start": TASK_IPYTHON, "continue": CONTINUE_IPYTHON, "win": WIN, "cut_off": CUT_OFF,
+                "low_budget": LOW_BUDGET, "low_time": LOW_TIME},
+}
+
+# The config still calls the game toolset by its old name; both names select the same prompts.
+TOOLSET_NAMES = {"e008": "game"}
+
+LOW_BUDGET_MOVES = 20     # add the low-budget note when this many moves or fewer are left
+LOW_TIME_MINUTES = 5      # add the low-time note when this many minutes or fewer are left
+
+
+def _fill(text: str, ctx: dict[str, Any]) -> str:
+    try:
+        return text.format(**ctx)
+    except KeyError as exc:
+        raise KeyError(f"prompt needs {exc} (given: {sorted(ctx)})") from None
+
+
+def assemble_system(toolset: str, **ctx: Any) -> str:
+    """The system prompt for ``toolset``, built from ``SYSTEM_PLAN``. Snippets with placeholders are filled from
+    ``ctx``."""
+    toolset = TOOLSET_NAMES.get(toolset, toolset)
+    if toolset not in SYSTEM_PLAN:
+        raise ValueError(f"unknown toolset {toolset!r}; known: {sorted(SYSTEM_PLAN)}")
+    return "\n\n".join(_fill(SNIPPETS[k], ctx) for k in SYSTEM_PLAN[toolset])
+
+
+def event_message(kind: str, toolset: str = "game", *, moves_left: int | None = None,
+                  minutes_left: int | None = None, **ctx: Any) -> str:
+    """The message for a situation. ``kind`` is one of the keys of ``EVENT_SNIPPETS[toolset]``.
+    When ``moves_left`` or ``minutes_left`` is low, a short note is added to continue, level_up, game_over and
+    compacted messages."""
+    table = EVENT_SNIPPETS.get(TOOLSET_NAMES.get(toolset, toolset))
+    if table is None:
+        raise ValueError(f"unknown toolset {toolset!r}")
+    if kind not in table:
+        raise ValueError(f"no {kind!r} message for toolset {toolset!r}; known: {sorted(table)}")
+    parts = [_fill(table[kind], ctx)]
+    if kind in ("continue", "level_up", "game_over", "compacted"):
+        if moves_left is not None and moves_left <= LOW_BUDGET_MOVES:
+            parts.append(_fill(table["low_budget"], {"left": moves_left}))
+        if minutes_left is not None and minutes_left <= LOW_TIME_MINUTES:
+            parts.append(_fill(table["low_time"], {"minutes": minutes_left}))
+    return "\n\n".join(parts)
 
 
 # =====================================================================================================================
-# Family 2: "e008" toolset. Ours. (E006's "dedicated" family was removed on 2026-10-01; git history, commit f117ca4.)
+# 6. Interface used by agent.py and run.py
 # =====================================================================================================================
 
-# The system prompt, written for a mid-size open model (Qwen3.8-27B): short sentences, one procedure, costs stated
-# next to every tool. Carried over from the E005/E006 autopsies: actions are costly (R1), reset is not an experiment
-# (R3), counters on the HUD are budgets (R4), row/column order for clicks (R5), several goal guesses at once (R7), and
-# the agent owns its memory (R8). New in E008: the state is pushed, so the prompt forbids nothing about fetching it.
-E008_INTRO = """You are an agent that learns an unknown game by watching and experimenting, and then wins it with as few actions as possible.
-You work alone, with no human: do not ask questions. You think freely; only game actions cost."""
-
-E008_ARC = """# ARC-AGI-3 game `{game_id}`
-
-A turn-based, deterministic game with {win_levels} levels on a grid of up to 64 x 64 cells, 16 colours. Nobody tells you the controls, the rules or the goal: you find them out. Early levels teach one mechanic each; later levels combine them. The game is won when every level is complete.
-
-## Score
-Each level scores (human actions / your actions)^2. If a human needs 20 actions and you need 40, you get 0.25, not 0.5. Thinking, ipython and recall are free. Only actions cost. Act when you know what you expect to see.
-
-## What you see (pushed to you; there is nothing to fetch)
-After every act you get two things, in this order:
-1. The act result: one change line per action, e.g. `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells, now r61-62 c16-54 (hud) (8 cells changed)`. `#12` is the step number. A line marked `[repeat]` means you already did this action in this exact state.
-2. The new state, as the next message: a status line, the objects in the changed region, the changed region as letters, and an image of the whole screen (only the newest image is kept).
-At the start of each level you get the whole board as letters, every object, and the image.
-
-Reading the state:
-- Colours are letters: W white, w light grey, g grey, G dark grey, c charcoal, B black, M magenta, P pink, R red, b blue, S sky blue, Y yellow, O orange, r dark red, N green, p purple. The legend repeats the ones on screen.
-- Positions are (row, column): `r10-12 c20-22` means rows 10 to 12, columns 20 to 22. Row 0 is the top, column 0 the left.
-- An object is one connected region of one colour. Its line: id, colour and size (`R 3x3` a filled rectangle, `R 7px` any other shape), where, `#hash` (the same shape has the same hash anywhere, in any level), corners (4 for a rectangle), `hud` (it lies on the screen edge: often a counter, a bar or lives), and relations: `in 2` (inside object 2), `has 5,6` (contains them), `adj 3` (touches object 3).
-- Object ids stay the same while a level lasts. The most common colour is the background and is not an object.
-
-## Tools
-| tool | cost | use |
-|---|---|---|
-| `ipython` | free | think and compute. `scene` holds the current state: `scene.objects`, `scene.letters`, `print(scene.ascii(r0, c0, r1, c1))`, `scene.find(letter="R")`, `scene.history(10)`. Variables persist. It cannot act. |
-| `act` | 1 per action | do 1 to {act_max} actions, and write your memory in the same call |
-| `recall` | free | search your memory: steps ("#12", "12-20", "level 1", words), earlier hypotheses and findings, goals, lessons from other levels and games, skills |
-
-Actions in `act`: "1" up, "2" down, "3" left, "4" right, "5" space (the game's special action), "6 r c" click the cell at row r, column c, "7" undo, "reset" restart the level. Only the legal ones (in the status line) work. These names are conventions: what each action really does in this game is a hypothesis until you have seen it.
-One act per reply. Read the new state before the next one.
-
-## Your memory
-At the top of every turn there is a [memory] block, rebuilt from what you write. It survives the trimming of old messages; old turns do not. You write it with `act`:
-- `plan` (every act): your next steps and why. It replaces the old plan.
-- `hypotheses`: rules you believe, each with a status you set: proposed, verified (it predicted steps it was not built from) or refuted (a step contradicted it). Change a status by its id (`{{"id": "h2", "status": "refuted", "evidence": [14]}}`). Cite step numbers as evidence.
-- `findings`: facts you established in this level.
-- `goal`: what wins the level, as you believe it now. Write a guess early and change it when you learn more.
-Nobody checks these for you: be honest with yourself. At a level-up, your verified hypotheses and findings become lessons for later levels and games, and plan, hypotheses and findings are cleared (the goal stays, with "confirmed: won level N"). So mark what you have verified before you win the level. The block also shows skills (background knowledge), lessons that match the shapes on screen, and open questions from a reviewer of your last steps: answer them with your next experiments.
-
-## How to play a level
-1. Look (free). Read the board and the image. Name the objects: what might you control, walls, targets, the HUD. Note any counter.
-2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first act.
-3. Probe (cheap). Test one hypothesis per act with 1 or 2 actions. Choose the action whose result tells your guesses apart. Read the change lines and update the statuses.
-4. Execute. When the rules you need are verified, plan the shortest path to the goal and act in batches of up to {act_max}.
-5. After a level-up: the layout is new. Read the lessons in your memory, find what is new, then continue.
-
-## Rules
-- Do not repeat an action in a state where you already tried it unless you expect something different.
-- A counter or bar on the edge that changes on every step is usually a budget: steps, moves, lives or time.
-- Keep several goal guesses. Act to tell them apart, not to confirm your favourite.
-- "reset" costs 1 action and loses the level's progress. Use it after GAME_OVER or when the level is provably stuck, not as an experiment.
-- After a GAME_OVER, find in the change lines which step caused it and record it (refute a hypothesis or add a finding) before you reset.
-- Use ipython for anything you would count or compare by eye: distances, paths, which objects share a hash.
-
-## Example (another game, short)
-State: `4 R 3x3 r10-12 c20-22`, `9 N 3x3 r10-12 c40-42`, `17 G 1x30 r63 c0-29 hud`.
-act ["4"], plan "test whether 4 moves obj 4 right", hypotheses [{{"text": "4 moves obj 4 right", "status": "proposed"}}, {{"text": "obj 17 counts steps left", "status": "proposed"}}], goal "move obj 4 onto obj 9" -> `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
-act ["4", "4", "4"], plan "4 moves 3 cells: 5 more moves reach obj 9", hypotheses [{{"id": "h1", "status": "verified", "evidence": [0, 1, 2, 3]}}, {{"id": "h2", "status": "verified", "evidence": [0, 1]}}] -> three moves right, each 3 cells.
-act ["4", "4", "4", "4", "4"] -> the level is won."""
-
-E008_TASK = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about {minutes} "
-             "minutes. The first state follows. Look at it, then write your first hypotheses and goal guess in your "
-             "first act.")
-
-CONTINUATION_E008 = (
-    "[autonomous-continuation]\n\n"
-    "No human input is available. Continue until the game is won or the budget is spent ({status}). If you were "
-    "asking a question, make a reasonable assumption and test it with an act. If you believe you are stuck, check "
-    "your memory and `recall`, pick the cheapest experiment that can change your mind, and act. Do not end the "
-    "session yourself."
-)
+def game_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, vision: bool = True, **_: Any) -> str:
+    """System prompt of the game agent (tools ipython, act, recall). ``vision`` says whether pictures are sent."""
+    pictures = {"picture_after": ", and a picture of the whole board (only the newest picture is kept)",
+                "picture_start": ", and a picture"} if vision else {"picture_after": "", "picture_start": ""}
+    return assemble_system("game", legend=LEGEND_LETTERS, game_id=game_id, win_levels=win_levels, act_max=act_max,
+                           cwd=cwd, **pictures)
 
 
-def e008_system(*, game_id: str, win_levels: int, act_max: int, cwd: str) -> str:
-    return "\n".join([
-        E008_INTRO,
-        "",
-        SIMPLIFIED_TECHNICAL_ENGLISH,
-        "",
-        f"Working directory: {cwd}",
-        "Pre-installed Python packages: numpy. Pre-imported module: `scene` (the current game state, read-only).",
-        "",
-        E008_ARC.format(game_id=game_id, win_levels=win_levels, act_max=act_max),
-    ])
+def base_prompt(*, cwd: str, transcript: str, **_: Any) -> str:
+    """System prompt of the plain ipython toolset."""
+    env = (f"Working directory: {cwd}\nConversation log: {transcript}\nPython packages: numpy. `arc` is already "
+           "imported. Inspect a module with `help(arc)`.")
+    return assemble_system("ipython") + "\n\n" + env
 
 
-def base_prompt(*, cwd: str, transcript: str) -> str:
-    """The base system prompt of the "ipython" toolset (the E008 prompt is ``e008_system``, built whole)."""
-    parts = [
-        "You are a general purpose agent that uses code to solve tasks.",
-        "You solve tasks by breaking down problems into sub-tasks, writing and executing code, observing results, and "
-        "iterating one step at a time.",
-        "When you are done, stop calling tools and state your final answer.",
-        "",
-        LONG_RUNNING_WORK,
-        "",
-        SIMPLIFIED_TECHNICAL_ENGLISH,
-        "",
-        f"Working directory: {cwd}",
-        f"Conversation log: {transcript}",
-        "Pre-installed Python packages: numpy.",
-        "",
-        "Installed Python skill modules (pre-imported): `arc`.",
-        "Inspect a module with `help(<skill>)` or `dir(<skill>)`, then inspect a documented callable with "
-        "`inspect.signature(<skill>.<function>)`.",
-        "",
-        REPL_CONTROL,
-    ]
-    return "\n".join(parts)
+def arc_section(*, game_id: str, win_levels: int, cell_cap: int | None, output_chars: int, **_: Any) -> str:
+    """The game part appended to ``base_prompt`` for the plain ipython toolset."""
+    facts = (f"You are playing the ARC-AGI-3 game `{game_id}`. It has {win_levels} levels. Tool output longer than "
+             f"{output_chars} characters is cut in the middle, so print short summaries.")
+    moves = "Making moves (each one costs a move):\n" + ROOT_ACT_LINES + (CAP_LINE.format(cap=cell_cap) if cell_cap else "")
+    return "\n\n".join([assemble_system("ipython_arc", legend=LEGEND_NUMBERS), facts, moves.strip()])
 
 
-def arc_section(*, game_id: str, win_levels: int, cell_cap: int | None, output_chars: int) -> str:
-    act = ROOT_ACT_LINES + (CAP_LINE.format(cap=cell_cap) if cell_cap else "")
-    return ARC_SECTION.format(game_id=game_id, win_levels=win_levels, act_lines=act, output_chars=output_chars)
+def task_message(*, game_id: str, max_actions: int, minutes: int, toolset: str = "game") -> str:
+    return event_message("start", toolset, game_id=game_id, max_actions=max_actions, minutes=minutes)
 
 
-# =====================================================================================================================
-# User-turn messages
-# =====================================================================================================================
+def continuation(*, status: str, toolset: str = "game", moves_left: int | None = None,
+                 minutes_left: int | None = None) -> str:
+    return event_message("continue", toolset, status=status, moves_left=moves_left, minutes_left=minutes_left)
 
-TASK = ("Play the ARC-AGI-3 game `{game_id}` and win it. Budget: at most {max_actions} actions and about {minutes} "
-        "minutes of wall clock. There is no human: do not ask questions. Start with "
-        "`obs = await arc.observe(); print(obs); print(arc.show(obs.grid))`.")
 
-# The "ipython" family's continuation (E008 has CONTINUATION_E008 above).
-CONTINUATION = (
-    "[autonomous-continuation]\n\n"
-    "No human input is available in autonomous mode. Continue working until the game is won or the budget is spent "
-    "({status}). If you were asking a question, make a reasonable assumption and verify it. If you believe you are "
-    "blocked, prove it with evidence from the recorded transitions (`await arc.transitions()`), and keep looking for "
-    "safe progress while budget remains. Do not end the session yourself."
-)
-
-# E004 host-forced reflection ("ipython" family only; off by default; not upstream).
+# Forced reflection (ipython toolset only, off by default).
 REFLECT = """[reflection checkpoint: {reason}] ({status})
-`arc.step` and `arc.reset` are blocked until you write to the continual harness. In one `ipython` call:
-1. Check what the recent steps showed with `await arc.transitions()`. Do not act.
-2. Save each verified fact with `rlm.harness.create_memory(title=..., content=...)`, or fix a wrong one with `rlm.harness.update_memory(id, title, content)`. Save disproved ideas too.
-3. If you repeated a procedure, save the helper as a skill with `rlm.harness.create_skill(...)`.
-Then print `rlm.harness.overview()` and state your next plan in one sentence."""
+`arc.step` and `arc.reset` are blocked until you save what you learned. In one `ipython` call:
+1. Look at what your recent moves did with `await arc.transitions()`. Do not make a move.
+2. Save each fact you have checked with `rlm.harness.create_memory(title=..., content=...)`, or fix a wrong one with `rlm.harness.update_memory(id, title, content)`. Save the ideas that turned out wrong too.
+3. If you repeated a procedure, save the helper with `rlm.harness.create_skill(...)`.
+Then print `rlm.harness.overview()` and write your next plan in one sentence."""
 
-REFLECT_AGAIN = ("The harness file did not change, so `arc.step` is still blocked. Call `rlm.harness.create_memory(...)` "
-                 "or `rlm.harness.update_memory(...)` now, in an `ipython` call.")
+REFLECT_AGAIN = ("Nothing was saved yet, so `arc.step` is still blocked. Call `rlm.harness.create_memory(...)` or "
+                 "`rlm.harness.update_memory(...)` now, in an `ipython` call.")
