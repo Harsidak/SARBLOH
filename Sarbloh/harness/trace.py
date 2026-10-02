@@ -377,7 +377,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "act_batch_mean": round(sum(a.get("done", 0) for a in acts) / len(acts), 2) if acts else None,
            "wm_events": [{k: v for k, v in e.items() if k not in ("event",)} for e in wm_events],
            "wm_checks": stats.get("wm_checks"), "wm_mispredictions": stats.get("wm_mispredictions"),
-           "children": stats.get("children"), "plan_versions": len(plans),
+           "plan_versions": len(plans),
            # E008
            "act_arg_errors": stats.get("act_arg_errors"), "recalls": len(recalls),
            "recall_scopes": dict(Counter(str(r.get("scope")) for r in recalls)),
@@ -468,11 +468,10 @@ def render_report(a: dict[str, Any]) -> str:
             f"- experiment `{c.get('experiment')}`, config hash `{c.get('config_hash')}`, git `{c.get('git_sha')}`, "
             f"model `{c.get('model')}`, toolset `{c.get('toolset')}`",
             f"- end reason {c.get('end_reason')}, wall {c.get('wall_s')} s, turns {c.get('turns')}, output tokens "
-            f"{c.get('output_tokens')}, all tokens (with children) {c.get('tokens_total')}, last prompt "
+            f"{c.get('output_tokens')}, all tokens {c.get('tokens_total')}, last prompt "
             f"{c.get('prompt_tokens_last')}",
             f"- tool calls {json.dumps(c.get('tool_counts'))}, tool errors {c.get('tool_errors')}, act calls "
-            f"{c.get('act_calls')} (mean batch {c.get('act_batch_mean')}), plan versions {c.get('plan_versions')}, "
-            f"children {c.get('children')}",
+            f"{c.get('act_calls')} (mean batch {c.get('act_batch_mean')}), plan versions {c.get('plan_versions')}",
             f"- world model: {c.get('wm_checks')} act steps checked, {c.get('wm_mispredictions')} wrong; events: "
             + (", ".join(f"{e.get('kind')} {e.get('name', '')} v{e.get('version', '')}"
                          + (f" {e.get('passed')}/{e.get('tested')}" if e.get('kind') == 'check' else "")
@@ -502,7 +501,7 @@ def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], se
     out = [f"# {game_id}: step map", "",
            f"level {run.get('levels_completed')}/{run.get('number_of_levels')} | {len(rows)} actions | "
            f"score {run.get('final_score')} | end {session.get('end_reason')} | turns {session.get('turns')} | "
-           f"compactions {session.get('compactions')} | children {session.get('children')}",
+           f"compactions {session.get('compactions')}",
            f"actions per level {run.get('actions_per_level')} vs baseline {run.get('baseline_actions')}", ""]
     events = _jsonl(game_dir / "transcript.jsonl") if (game_dir / "transcript.jsonl").exists() else []
     t0 = events[0]["t"] if events else 0.0

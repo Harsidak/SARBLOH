@@ -31,7 +31,7 @@ _HEX = "0123456789abcdef"
 
 
 class ArcError(RuntimeError):
-    """The host refused a request: illegal action, budget spent, game over, a subagent calling step, or a
+    """The host refused a request: illegal action, budget spent, game over, or a
     "harness limit" (a rule of this harness, not of the game)."""
 
 

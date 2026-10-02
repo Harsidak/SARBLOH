@@ -3,7 +3,7 @@
 What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
 - L1 active context  -> ``self.messages``. Compaction (``harness.agent.compaction``) replaces the older prefix with a
                         summary and keeps the newest messages verbatim.
-- L2 REPL/subagents  -> one persistent ``rlm.repl`` kernel per session (``Kernel``); ``rlm.spawn`` children.
+- L2 REPL            -> one persistent ``rlm.repl`` kernel per session (``Kernel``).
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives compaction) and the Continual Harness files
                         (local per game, global per run). Their digest is delivered as a ``[harness-digest]``
                         message on the first turn and on every compaction head; auto /refine edits are announced
@@ -11,12 +11,13 @@ What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
 - Autonomous mode    -> when the root stops calling tools before the game ends, an ``[autonomous-continuation]``
                         message is sent, bounded by turn, token and wall-clock budgets; the end-condition test is
                         "game won". A threshold compaction is followed by a continuation too, like upstream.
-- Accounting         -> tokens, turns, tool calls and child usage are recorded per session.
+- Accounting         -> tokens, turns and tool calls are recorded per session.
 
 The system prompt is fixed for the whole session (upstream keeps it stable for the prefix cache): the base prompt
 plus the ARC section (``prompts``). Not ported (no use offline on one GPU): the daemon/worker/TUI split, goals,
 heartbeats/cron, create_session, MCP, model switching, session recovery after a crash, ``bash()`` completion
-follow-ups, the agent-callable ``refine.run()``.
+follow-ups, the agent-callable ``refine.run()``, ``rlm.spawn`` subagents and agent messages (E008 never enabled them;
+git history before this change has them).
 Ours, not upstream: the game status line after each tool result, the "reply was cut off" nudge, the E004
 host-forced reflection checkpoint (off by default), and scaling upstream's chars/4 token estimate by the measured
 prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars, so chars/4 alone never triggered compaction).
@@ -35,13 +36,11 @@ was removed for E008 (git history: commit f117ca4).
 from __future__ import annotations
 
 import json
-import queue
 import re
 import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -66,47 +65,10 @@ def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return context.merge_users(messages)
 
 
-@dataclass
-class Child:
-    child_id: str
-    name: str
-    session: AgentSession
-    thread: threading.Thread
-    started: float = field(default_factory=time.time)
-    status: str = "running"          # running | completed | error | cancelled
-    answer: str | None = None
-    error: str | None = None
-    progress: str | None = None
-    replied: bool = False
-    ended: float | None = None
-
-    def row(self) -> dict[str, Any]:
-        s = self.session
-        return {
-            "rlm_child_id": self.child_id, "active_session_id": self.child_id, "session_id": self.child_id,
-            "session_name": self.name, "session_dir": str(s.session_dir),
-            "status": "running" if self.status == "running" else ("completed" if self.status == "completed" else "error"),
-            "tool_use_count": s.stats["tool_calls"],
-            "duration_ms": int(((self.ended or time.time()) - self.started) * 1000),
-            "answer_preview": (self.answer or "")[:500] or None,
-            "replied_since_task": self.replied, "progress_note": self.progress,
-        }
-
-    def result(self) -> dict[str, Any]:
-        status = {"running": "running", "completed": "done", "error": "error", "cancelled": "cancelled"}[self.status]
-        return {
-            "rlm_child_id": self.child_id, "session_name": self.name, "session_dir": str(self.session.session_dir),
-            "status": status, "settled": self.status != "running",
-            "answer_preview": (self.answer or "")[:2000] or None, "error": self.error,
-            "duration_ms": int(((self.ended or time.time()) - self.started) * 1000),
-            "tool_use_count": self.session.stats["tool_calls"], "replied_since_task": self.replied,
-        }
-
-
 class AgentSession:
     def __init__(self, *, cfg: dict[str, Any], llm: LLM, name: str, session_dir: Path, task: str,
                  arc: ArcHost | None, deadline: float, stop_event: threading.Event, global_harness_dir: Path,
-                 depth: int = 0, parent: AgentSession | None = None, memory_root: Path | None = None) -> None:
+                 memory_root: Path | None = None) -> None:
         self.cfg = cfg
         self.llm = llm
         self.name = name
@@ -117,17 +79,12 @@ class AgentSession:
         self.session_dir = session_dir = session_dir.resolve()  # the kernel runs in work/: relative paths break
         self.global_harness_dir = global_harness_dir = global_harness_dir.resolve()
         self.local_harness_dir = session_dir / "harness"
-        self.depth = depth
-        self.parent = parent
-        self.inbox: queue.Queue[str] = queue.Queue()
-        self.children: dict[str, Child] = {}
         self.messages: list[dict[str, Any]] = []
         self.transcript = session_dir / "transcript.jsonl"
-        self.final_answer: str | None = None
         self.end_reason = ""
         self.stats = {"turns": 0, "tool_calls": 0, "output_tokens": 0, "prompt_tokens_last": 0, "compactions": 0,
                       "compaction_failures": 0, "continuations": 0, "llm_failures": 0, "cell_errors": 0,
-                      "native_calls": 0, "fenced_calls": 0, "children": 0, "reflections": 0,
+                      "native_calls": 0, "fenced_calls": 0, "reflections": 0,
                       "reflection_skipped": 0, "refine_reviews": 0, "refines": 0, "refine_edits_applied": 0,
                       "refine_errors": 0, "tool_counts": {}, "tool_errors": 0, "act_actions": 0, "act_calls": 0,
                       "act_arg_errors": 0, "recalls": 0, "hypothesis_events": 0, "promotions": 0,
@@ -150,9 +107,9 @@ class AgentSession:
         self._turns_since_refine = 0
         self._last_refine_at = 0.0
         self._compact_refine_pending = False
-        # Fenced mode has no native tools, so it keeps the one-tool REPL interface; E008 needs a game and the root.
+        # Fenced mode has no native tools, so it keeps the one-tool REPL interface; E008 needs a game.
         self.toolset = cfg.get("toolset", "ipython") if cfg["tool_mode"] == "native" else "ipython"
-        if self.toolset == "e008" and (depth > 0 or arc is None):
+        if self.toolset == "e008" and arc is None:
             self.toolset = "ipython"
         self.e008 = self.toolset == "e008"
         self.kernel = Kernel(session_dir / "work", self._host, env={
@@ -160,8 +117,7 @@ class AgentSession:
             "RLM_GLOBAL_HARNESS_STATE_DIR": str(global_harness_dir),
             "PRIME_TOOLSET": self.toolset,
         })
-        self.tools = toolset(self.toolset, depth=depth, max_depth=cfg["max_depth"],
-                             act_max=int(cfg.get("act_max_actions", 5))) if cfg["tool_mode"] == "native" else None
+        self.tools = toolset(self.toolset, act_max=int(cfg.get("act_max_actions", 5))) if cfg["tool_mode"] == "native" else None
         self._acted_in_reply = False
         # E008: perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
@@ -178,27 +134,25 @@ class AgentSession:
         if self.e008:
             self.memory = GameMemory(memory_root or (session_dir / "memory"), arc.game.game_id,
                                      cfg.get("memory") or {})
-        if depth == 0 and arc is not None:
+        if arc is not None:
             arc.on_step = lambda ev: self._log_event(ev)
             if self.e008:
                 arc.repl_actions = False
 
     # --- budget ------------------------------------------------------------------------------------------
     def tokens_spent(self) -> int:
-        # calculates the total cumulative output tokens generated across
-        # this agent session and all of its descendants (subagents) recursively.
-        return self.stats["output_tokens"] + sum(c.session.tokens_spent() for c in self.children.values())
+        return self.stats["output_tokens"]
 
     def should_stop(self) -> str | None:
         if self.stop_event.is_set():
             return "stopped"
         if time.time() >= self.deadline:
             return "wall_clock"
-        if self.depth == 0 and self.arc is not None and self.arc.finished:
+        if self.arc is not None and self.arc.finished:
             return "game_finished"
-        if self.depth == 0 and self.arc is not None and self.arc.budget_left == 0:
+        if self.arc is not None and self.arc.budget_left == 0:
             return "action_budget"
-        lim = self.cfg["limits"] if self.depth == 0 else self.cfg["child_limits"]
+        lim = self.cfg["limits"]
         if self.stats["turns"] >= lim["max_turns"]:
             return "max_turns"
         if self.stats["output_tokens"] >= lim["max_output_tokens"]:
@@ -229,10 +183,6 @@ class AgentSession:
             self.end_reason = f"crash: {type(exc).__name__}: {exc}"
             self._log_event({"event": "crash", "traceback": traceback.format_exc()})
         finally:
-            for child in list(self.children.values()):
-                child.session.stop_event.set()
-            for child in list(self.children.values()):
-                child.thread.join(timeout=30)
             self.kernel.close()
             if self.arc is not None:
                 self.stats["cell_cap_hits"] = self.arc.cell_cap_hits
@@ -252,10 +202,7 @@ class AgentSession:
                 self.end_reason = reason
                 return
 
-            # 2) get the messages from the sub agents
-            self._drain_inbox() # adding messages from subagents
-
-            # 3) Compaction (if needed)
+            # 2) Compaction (if needed)
             window, reserve, _ = self._context_limits()
             tokens = self._context_tokens()
             if compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens")) and (
@@ -269,7 +216,7 @@ class AgentSession:
             else:
                 msgs = [{"role": "system", "content": self._system_prompt()}, *_wire(self.messages)]
 
-            # 4) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
+            # 3) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
             try:
                 reply = self.llm.chat(msgs, tools=tools, max_tokens=self.cfg["max_tokens_per_turn"],
                                       timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())))
@@ -292,7 +239,7 @@ class AgentSession:
             self.stats["prompt_tokens_last"] = reply.prompt_tokens
             self._turns_since_refine += 1
 
-            # 5) Parse reply for tool calls
+            # 4) Parse reply for tool calls
             calls = self._calls(reply)
             assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
             if calls and calls[0]["native"]:
@@ -306,7 +253,7 @@ class AgentSession:
             self._usage_tokens = reply.prompt_tokens + reply.completion_tokens
             self._usage_at = len(self.messages)
 
-            # 6) If tool calls: execute each, run reflection tick, maybe auto-refine
+            # 5) If tool calls: execute each, run reflection tick, maybe auto-refine
             if calls:
                 self._acted_in_reply = False   # one act per reply: the model must read each result first
                 for call in calls:
@@ -319,41 +266,15 @@ class AgentSession:
                 self._maybe_auto_refine()
                 continue
 
-                # in case the reply curs off
+            # 6) the reply was cut off
             if reply.finish_reason == "length":
                 self._append({"role": "user", "content": prompts.event_message("cut_off", self._toolset)})
                 continue
             # 7) if No tool call: the model ended its turn.
-            if self.depth > 0:
-                self.final_answer = reply.content.strip()
-                self.end_reason = "answered"
-                return
             if self.arc is None or self.arc.finished:
                 self.end_reason = "answered"
                 return
             self._maybe_auto_refine()
-            if self._running_children():
-                # Hold the timer-driven continuation while children work; their messages are the wake-up. Polled, so
-                # a child that replied and then exited (no exit notice follows a reply) does not hold the root for
-                # the whole keep-alive.
-                msg, until = None, time.time() + self.cfg["subagent_keepalive_s"]
-                while msg is None and time.time() < until and self._running_children() and not self.should_stop():
-                    try:
-                        msg = self.inbox.get(timeout=1.0)
-                    except queue.Empty:
-                        pass
-                if msg is not None:
-                    self._append({"role": "user", "content": msg})
-                    continue
-                if self._running_children() and not self.should_stop():
-                    self.stats["continuations"] += 1
-                    minutes = max(1, int(self.cfg["subagent_keepalive_s"] // 60))
-                    self._append({"role": "user", "content": (
-                        "[autonomous-continuation: subagent-keep-alive]\n\nSubagents have been running for at least "
-                        f"{minutes} minute{'s' if minutes != 1 else ''} without a reply or exit being delivered. Check "
-                        "their status (for example rlm.list_subagents) and cancel or unblock any that are hung; then "
-                        "continue working.")})
-                    continue
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": self._continuation()})
 
@@ -452,8 +373,7 @@ class AgentSession:
                 if self.arc is None or self.arc.game.action_count == before:
                     self._acted_in_reply = False   # a refused act spent nothing: a corrected retry may follow
         else:
-            # Only the root spends actions: it owns the cell counter and the step ref stamped on each action.
-            arc = self.arc if self.depth == 0 else None
+            arc = self.arc
             start = arc.game.action_count if arc is not None else 0
             ref = {"session": self.name, "turn": turn, "call": call_id}
             if arc is not None:
@@ -474,7 +394,7 @@ class AgentSession:
                              **({"actions": [start, start + spent]} if spent else {})})
             if spent:
                 print(f"[{self.name} t{turn}] +{spent} {arc.actions_line(start)} | {arc.status_line()}", flush=True)
-        if self.depth == 0 and self.arc is not None:
+        if self.arc is not None:
             text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:
             msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
@@ -608,9 +528,9 @@ class AgentSession:
             label = self._label(a, r, c)
             try:
                 if a == 0:
-                    obs = arc.handle({"type": "arc.reset"}, 0, source="tool")
+                    obs = arc.handle({"type": "arc.reset"}, source="tool")
                 else:
-                    obs = arc.handle({"type": "arc.step", "action": a, **({"x": c, "y": r} if a == 6 else {})}, 0,
+                    obs = arc.handle({"type": "arc.step", "action": a, **({"x": c, "y": r} if a == 6 else {})},
                                      source="tool")
             except Exception as exc:  # noqa: BLE001
                 stop = f"action {n + 1} ({label}) refused: {exc}"
@@ -718,7 +638,7 @@ class AgentSession:
             self._maybe_curate()
             return
         ar = self.cfg.get("auto_refine") or {}
-        if self.depth > 0 or not ar.get("enabled"):
+        if not ar.get("enabled"):
             return
         if self._compact_refine_pending and ar.get("compact", True):
             reason = "compact"
@@ -783,7 +703,7 @@ class AgentSession:
     def _reflection_tick(self) -> None:
         """Host-driven L3: at checkpoints, refuse arc.step until the model writes to the Continual Harness."""
         every = self.cfg.get("reflect_every_actions")
-        if self.depth > 0 or self.arc is None or not every:
+        if self.arc is None or not every:
             return
         arc = self.arc
         if arc.reflection_due:
@@ -828,7 +748,7 @@ class AgentSession:
                 continue
             try:
                 st = HarnessState(path, scope=scope)
-                out[scope] = {k: [f"{e.title} v{e.version}" for e in st.list(k)] for k in ("memory", "skill", "prompt", "subagent")}
+                out[scope] = {k: [f"{e.title} v{e.version}" for e in st.list(k)] for k in ("memory", "skill", "prompt")}
             except Exception as exc:  # noqa: BLE001
                 out[scope] = f"unreadable: {exc}"
         return out
@@ -910,7 +830,7 @@ class AgentSession:
                          "action_count": self.arc.game.action_count if self.arc is not None else None,
                          "duration_s": round(time.time() - t0, 1)})
         self._log_event({"event": "message", **head})
-        if self.depth == 0 and self.arc is not None and (not kept or kept[-1]["role"] != "user"):
+        if self.arc is not None and (not kept or kept[-1]["role"] != "user"):
             # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode.
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": self._continuation()})
@@ -921,7 +841,7 @@ class AgentSession:
         self._log_event({"event": "message", **context.loggable(msg)})
         return msg
 
-    # --- subagents and messages (host requests) ----------------------------------------------------------
+    # --- host requests from the REPL ----------------------------------------------------------------------
     def _host(self, req: dict[str, Any]) -> dict[str, Any]:
         kind = str(req.get("type", ""))
         if kind.startswith("arc."):
@@ -931,114 +851,8 @@ class AgentSession:
                 raise PermissionError("in this harness the game state is pushed to you after every act; read it in "
                                       "`scene` (scene.objects, scene.ascii(...), scene.history(n)) and act with the "
                                       "act tool")
-            return self.arc.handle(req, self.depth)
-        if kind == "rlm.run":
-            return self._spawn(req)
-        if kind == "rlm.list_subagents":
-            return {"subagents": [c.row() for c in self.children.values()]}
-        if kind == "rlm.collect":
-            return self._collect(req)
-        if kind == "rlm.progress.note":
-            if self.parent is not None:
-                for c in self.parent.children.values():
-                    if c.session is self:
-                        c.progress = str(req.get("message", ""))[:512]
-            return {"accepted": True}
-        if kind == "rlm.delete_subagent":
-            child = self._find_child(str(req.get("target", "")))
-            child.session.stop_event.set()
-            row = child.row()
-            self.children.pop(child.name, None)
-            return {"subagent": row}
-        if kind == "agent_message.send":
-            return self._send_message(req)
+            return self.arc.handle(req)
         raise RuntimeError(f"host request {kind!r} is not supported by this harness")
-
-    def _spawn(self, req: dict[str, Any]) -> dict[str, Any]:
-        if self.depth >= self.cfg["max_depth"]:
-            raise RuntimeError("maximum recursion depth reached; do the work yourself")
-        prompt = str(req.get("prompt", ""))
-        name = str((req.get("kwargs") or {}).get("name", "")).strip()
-        if not prompt.strip() or not re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", name or ""):
-            raise ValueError("rlm.spawn needs a prompt and a name of letters, digits, '_', '-' or '.'")
-        if name in self.children:
-            raise ValueError(f"a child named {name!r} already exists; pick another name or delete it")
-        if len(self._running_children()) >= self.cfg["max_running_children"]:
-            raise RuntimeError(f"at most {self.cfg['max_running_children']} children may run at once")
-        child_id = f"{self.name}.{name}"
-        lim = self.cfg["child_limits"]
-        session = AgentSession(
-            cfg=self.cfg, llm=self.llm, name=child_id, session_dir=self.session_dir / "children" / name,
-            task=f"[task from parent]\n\n{prompt}", arc=self.arc,
-            deadline=min(self.deadline, time.time() + lim["wall_s"]), stop_event=threading.Event(),
-            global_harness_dir=self.global_harness_dir, depth=self.depth + 1, parent=self)
-        thread = threading.Thread(target=self._run_child, args=(name,), daemon=True, name=f"child-{child_id}")
-        self.children[name] = Child(child_id=child_id, name=name, session=session, thread=thread)
-        self.stats["children"] += 1
-        thread.start()
-        self._log_event({"event": "spawn", "child": name, "prompt": prompt[:2000]})
-        return {"rlm_child_id": child_id, "name": name, "session_dir": str(session.session_dir),
-                "model": self.llm.model}
-
-    def _run_child(self, name: str) -> None:
-        child = self.children[name]
-        if self.stop_event.is_set():
-            child.session.stop_event.set()
-        child.session.run()
-        child.ended = time.time()
-        child.answer = child.session.final_answer
-        if child.session.stop_event.is_set():
-            child.status = "cancelled"
-            notice = f"[child-exited: cancelled child:{name}]"
-        elif child.session.end_reason.startswith("crash"):
-            child.status, child.error = "error", child.session.end_reason
-            notice = f"[child-failed child:{name}]\n\n{child.error}"
-        else:
-            child.status = "completed"
-            # Upstream sends an exit notice only when the child never replied; a reply was already delivered.
-            notice = None if child.replied else (f"[child-exited: no-reply child:{name}]"
-                                                 + (f"\n\nLast assistant text: {child.answer[:2000]}"
-                                                    if child.answer else ""))
-        if notice and name in self.children:
-            self.inbox.put(notice)
-
-    def _collect(self, req: dict[str, Any]) -> dict[str, Any]:
-        targets = [self._find_child(t) for t in (req.get("targets") or [])] or list(self.children.values())
-        deadline = time.time() + max(0, int(req.get("timeout_ms", 0))) / 1000
-        while time.time() < deadline and any(c.status == "running" for c in targets):
-            time.sleep(0.5)
-        return {"results": [c.result() for c in targets]}
-
-    def _send_message(self, req: dict[str, Any]) -> dict[str, Any]:
-        message = str(req.get("message", ""))
-        if req.get("receiver_role") == "parent":
-            if self.parent is None:
-                raise RuntimeError("this is the root agent; it has no parent")
-            for c in self.parent.children.values():
-                if c.session is self:
-                    c.replied = True
-            self.parent.inbox.put(f"[agent-message from child:{self.name.rsplit('.', 1)[-1]}]\n\n{message}")
-            return {"delivered": True}
-        child = self._find_child(str(req.get("receiver_name", "")))
-        child.session.inbox.put(f"[agent-message from parent:{self.name}]\n\n{message}")
-        return {"delivered": True}
-
-    def _find_child(self, selector: str) -> Child:
-        for c in self.children.values():
-            if selector in (c.name, c.child_id):
-                return c
-        raise KeyError(f"no child {selector!r}; children: {sorted(self.children)}")
-
-    def _running_children(self) -> list[Child]:
-        return [c for c in self.children.values() if c.status == "running"]
-
-    def _drain_inbox(self) -> None:
-        while True:
-            try:
-                msg = self.inbox.get_nowait()
-            except queue.Empty:
-                return
-            self._append({"role": "user", "content": msg})
 
     # --- bookkeeping -------------------------------------------------------------------------------------
     def _time_left(self) -> str:

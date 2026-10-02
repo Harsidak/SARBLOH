@@ -35,7 +35,6 @@ import os, sys, json, math, re, itertools, collections, functools, random
 from pathlib import Path
 from rlm import rlm, bash
 import rlm as _rlm_module
-import agent_message
 try:
     import numpy as np
 except Exception:

@@ -210,7 +210,7 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
                         for k in sorted({str(s.get("end_reason")) for s in sessions.values()})},
         "turns": agg("turns"), "tool_calls": agg("tool_calls"), "cell_errors": agg("cell_errors"),
         "native_calls": agg("native_calls"), "fenced_calls": agg("fenced_calls"), "compactions": agg("compactions"),
-        "continuations": agg("continuations"), "children": agg("children"),
+        "continuations": agg("continuations"),
         # E008: memory and perception use
         "act_calls": agg("act_calls"), "act_arg_errors": agg("act_arg_errors"), "recalls": agg("recalls"),
         "hypothesis_events": agg("hypothesis_events"), "promotions": agg("promotions"),
