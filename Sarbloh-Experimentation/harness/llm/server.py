@@ -241,6 +241,9 @@ class LlmServer:
                     "VLLM_NO_USAGE_STATS": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
                     "PYTHONFAULTHANDLER": "1"})
         if profile:
+            # One compile cache per profile: the text-only fallback reused the image profile's compiled graph and
+            # crashed in its first forward ("'NoneType' object has no attribute 'size'").
+            env["VLLM_CACHE_ROOT"] = str(self.site.parent / "vllm-cache" / profile)
             env.update(self.spec.profiles[profile].get("env") or {})
         return env
 

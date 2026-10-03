@@ -15,9 +15,10 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 
 IPYTHON = _fn(
-    "ipython",
-    "Run Python in a persistent REPL, to think and compute. Free. Variables, functions and imports persist for the "
-    "whole game, across levels: write code once as functions, change them when the game shows something new, and "
+    "ipython this is your primary tool to reason and you can use code to reason and come to take an optimal action",
+    "Run Python in a persistent REPL, to perform resoning you can write code snippets to verify your hypotheses or plans.",
+    " Variables, functions and imports persist for the",
+    "whole game, across levels: write code and also edit the existing one when the game shows something new, and "
     "reuse them. `obs = observe()` gives the current state, read-only, and the full state (briefing, objects, board "
     "and picture) is shown to you in the next message, once per state. For your code: `obs.board[r][c]` (the colour "
     "letter at row r, column c), `obs.objects` (list of dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, "
@@ -39,8 +40,7 @@ ACT = _fn(
                                 "\"reset\" restart the level. Only the legal ones work; the meaning of each is yours "
                                 "to verify. Example: [\"1\", \"1\", \"4\"] or [\"6 12 40\"]."},
      "plan": {"type": "string",
-              "description": "Optional. Your next steps and why, in one or two sentences. Replaces the previous plan; "
-                             "leave it out to keep the previous one."},
+              "description": "Optional. Your next steps and to win the game (by clearing all levels in minimum steps)"},
      "hypotheses": {"type": "array", "description": "New hypotheses, or status changes of old ones (by id). You "
                                                     "decide the status: proposed, verified (it predicted steps it did "
                                                     "not come from) or refuted (a step contradicted it).",
@@ -58,7 +58,7 @@ ACT = _fn(
 
 RECALL = _fn(
     "recall",
-    "Search your memory. Free. Finds steps (\"#12\", \"12-20\", \"level 1\", or words), hypotheses and findings of "
+    "Search your memory. it is completely free to use by you. Use it to recall steps (\"#12\", \"12-20\", \"level 1\", or words),hypotheses and findings of "
     "earlier levels, your goal history, lessons from other levels and games, and skills.",
     {"query": {"type": "string", "description": "A step, a range, \"level N\", or words; \"\" for the latest."},
      "scope": {"type": "string", "enum": ["all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills"],
