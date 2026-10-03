@@ -1,5 +1,6 @@
-"""What a model brings to the shared serving layer. ``gemma.py`` and ``qwen.py`` each define one ``SPEC``; config key
-``model`` ("gemma" | "qwen") picks it. Nothing outside those two files may name a model, parser or sampling value."""
+"""What a model brings to the shared serving layer. ``gemma.py``, ``qwen.py`` and ``qwen_flash_next.py`` each define one
+``SPEC``; config key ``model`` ("gemma" | "qwen" | "qwen_flash_next") picks it. Nothing outside those files may name a
+model, parser or sampling value."""
 
 from __future__ import annotations
 
@@ -74,7 +75,7 @@ class ModelSpec:
         return out
 
 
-MODELS = ("gemma", "qwen")
+MODELS = ("gemma", "qwen", "qwen_flash_next")
 
 
 def get_spec(name: str) -> ModelSpec:
