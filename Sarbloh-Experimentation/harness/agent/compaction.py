@@ -7,12 +7,15 @@ Kept from upstream:
   message, never at a tool result. Only the older prefix is summarized.
 - The summarizer is a separate call with its own system prompt. The conversation is serialized as text, so the
   model summarizes it instead of continuing it. Tool results are cut to 2000 characters for the summarizer.
-- A later compaction updates the previous summary (``<previous-summary>``) instead of re-summarizing it.
 - A cut inside a turn adds a second "turn prefix" summary. The newest kept assistant text is passed as a recency
   anchor, so the summary cannot lag behind the kept messages.
 - The summary enters the context as a user message with the ``[compaction-summary]`` header; the harness digest
   is attached to it mechanically, never through the summarizer.
 Not ported (not used here): file-operation lists, branch summaries, auxiliary-model routing.
+Changed: the summary is a short game handover note (at most ``summary_tokens``, about 2k) that replaces the previous
+one (passed as ``<previous-summary>``) instead of preserving all of it. The plan, hypotheses and findings are in the
+agent's memory block and the kernel's names are listed by the host in code, so the note leaves them out. The token
+estimate counts the stored thinking, so the cut point sees what is big.
 Added: if the summarizer request itself overflows, the oldest part of the serialized conversation is dropped and
 the call is retried (upstream routes to a larger model instead).
 """
@@ -25,102 +28,31 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-SUMMARIZATION_SYSTEM_PROMPT = """You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
+SUMMARIZATION_SYSTEM_PROMPT = """You write short handover notes. You read part of a conversation in which an agent plays a grid puzzle game: it thinks, runs Python in a kernel, and makes moves with the act tool. Your note lets the agent carry on where it left off. Do not continue the conversation and do not answer anything in it. Write only the note."""
 
-Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary."""
+# One note at a time: a later compaction writes a new note that replaces the old one (the old note is input, not
+# something to keep whole). The plan, hypotheses and findings live in the agent's memory block, and the kernel's names
+# are listed by the host, so the note holds only what neither has.
+SUMMARIZATION_PROMPT = """The conversation above is older work that is about to be removed from the agent's context. Write a handover note of at most {words} words to take its place.{previous}
 
-SUMMARIZATION_PROMPT = """The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+The agent keeps its memory block (goal, plan, hypotheses, findings, lessons), so do not copy any of that into the note. Its Python kernel keeps running too, and the host lists the names defined there, so do not list them either. Write only what the memory block does not hold, under these three headings:
 
-Use this EXACT format:
+## Recent moves
+What the agent did on the board most recently and what happened, with step numbers.
 
-## Goal
-[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
+## Tests and results
+The experiments it ran in Python or on the board and what each one showed, with exact numbers, positions and colours where they matter. Leave out ideas that the memory block already marks as refuted.
 
-## Constraints & Preferences
-- [Any constraints, preferences, or requirements mentioned by user]
-- [Or "(none)" if none were mentioned]
+## Where it stopped
+What it was doing at the end and what it meant to do next.
 
-## Progress
-### Done
-- [x] [Completed tasks/changes]
+Use plain sentences and short bullets. Keep step numbers, coordinates and error messages exact. If a heading has nothing new, write "(nothing)"."""
 
-### In Progress
-- [ ] [Current work]
+PREVIOUS_SUMMARY_RULE = """
 
-### Blocked
-- [Issues preventing progress, if any]
+The note in <previous-summary> was written at the last compaction. Your note replaces it: keep from it only what still matters now, and drop what is finished, out of date or already in the memory block."""
 
-## Key Decisions
-- **[Decision]**: [Brief rationale]
-
-## Next Steps
-1. [Ordered list of what should happen next]
-
-## Critical Context
-- [Any data, examples, or references needed to continue]
-- [Or "(none)" if not applicable]
-
-Keep each section concise. Preserve exact file paths, function names, and error messages."""
-
-KERNEL_PERSIST_SUMMARY_NOTE = (
-    "Note: the Python kernel keeps running after this summary — every Python variable, import, and helper you "
-    "defined stays available. The cells that defined them won't appear above, so record in the summary any names "
-    "worth remembering so you reuse them instead of redefining them."
-)
-
-UPDATE_SUMMARIZATION_PROMPT = """The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
-
-Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
-- ADD new progress, decisions, and context from the new messages
-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
-- UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
-
-Use this EXACT format:
-
-## Goal
-[Preserve existing goals, add new ones if the task expanded]
-
-## Constraints & Preferences
-- [Preserve existing, add new ones discovered]
-
-## Progress
-### Done
-- [x] [Include previously done items AND newly completed items]
-
-### In Progress
-- [ ] [Current work - update based on progress]
-
-### Blocked
-- [Current blockers - remove if resolved]
-
-## Key Decisions
-- **[Decision]**: [Brief rationale] (preserve all previous, add new)
-
-## Next Steps
-1. [Update based on current state]
-
-## Critical Context
-- [Preserve important context, add new if needed]
-
-Keep each section concise. Preserve exact file paths, function names, and error messages."""
-
-TURN_PREFIX_SUMMARIZATION_PROMPT = """This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
-
-Summarize the prefix to provide context for the retained suffix:
-
-## Original Request
-[What did the user ask for in this turn?]
-
-## Early Progress
-- [Key decisions and work done in the prefix]
-
-## Context for Suffix
-- [Information needed to understand the retained recent work]
-
-Be concise. Focus on what's needed to understand the kept suffix."""
+TURN_PREFIX_SUMMARIZATION_PROMPT = """This is the start of the agent's current turn. The turn was too long to keep whole, so only its end stays in the context. In at most {words} words, say what the turn started from and what it found so far, so that the kept end makes sense. Keep step numbers, coordinates and error messages exact."""
 
 COMPACTION_SUMMARY_PREFIX = """[compaction-summary]
 
@@ -156,9 +88,10 @@ def _text(msg: dict[str, Any]) -> str:
     return str(content)
 
 
-def estimate_tokens(msg: dict[str, Any]) -> int:
-    """chars/4, like upstream (conservative)."""
-    chars = len(_text(msg))
+def estimate_tokens(msg: dict[str, Any], reasoning: bool = True) -> int:
+    """chars/4, like upstream (conservative). The stored thinking counts too, so the cut point sees what is big;
+    ``reasoning=False`` leaves it out (the context estimate adds only the thinking that is actually sent)."""
+    chars = len(_text(msg)) + (len(msg.get("_reasoning") or "") if reasoning else 0)
     for tc in msg.get("tool_calls") or []:
         fn = tc.get("function") or {}
         chars += len(fn.get("name") or "") + len(fn.get("arguments") or "")
@@ -253,12 +186,13 @@ def recent_state_anchor(kept: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _summarization_prompt(previous_summary: str | None) -> str:
-    base = UPDATE_SUMMARIZATION_PROMPT if previous_summary else SUMMARIZATION_PROMPT
-    return f"{base}\n\n{KERNEL_PERSIST_SUMMARY_NOTE}"
+def _words(tokens: int) -> int:
+    """A word limit that fits ``tokens``: half a word per token, because digits and coordinates are a token each."""
+    return max(50, tokens // 2 // 50 * 50)
 
 
-def history_summary_prompt(conversation: str, previous_summary: str | None, anchor: str | None) -> str:
+def history_summary_prompt(conversation: str, previous_summary: str | None, anchor: str | None,
+                           summary_tokens: int = 2048) -> str:
     text = f"<conversation>\n{conversation}\n</conversation>\n\n"
     if previous_summary:
         text += f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
@@ -267,11 +201,13 @@ def history_summary_prompt(conversation: str, previous_summary: str | None, anch
                  "conversation to summarize is older than this anchor; the retained messages below are authoritative, "
                  "so treat this anchor, not the conversation above, as the current state.\n\n"
                  f"{anchor}\n</recent-state-anchor>\n\n")
-    return text + _summarization_prompt(previous_summary)
+    return text + SUMMARIZATION_PROMPT.format(words=_words(summary_tokens),
+                                              previous=PREVIOUS_SUMMARY_RULE if previous_summary else "")
 
 
-def turn_prefix_prompt(conversation: str) -> str:
-    return f"<conversation>\n{conversation}\n</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
+def turn_prefix_prompt(conversation: str, summary_tokens: int = 512) -> str:
+    return (f"<conversation>\n{conversation}\n</conversation>\n\n"
+            + TURN_PREFIX_SUMMARIZATION_PROMPT.format(words=_words(summary_tokens)))
 
 
 @dataclass
@@ -323,18 +259,21 @@ def _complete(llm: Any, prompt_for: Any, conversation: str, max_tokens: int, ove
     raise RuntimeError("the summarizer request does not fit the context window")
 
 
-def summarize(llm: Any, prep: Preparation, reserve_tokens: int, overflow: type[Exception]) -> str:
-    """Upstream compact(): the history summary, plus a turn-prefix summary for a split turn."""
-    history_budget = int(0.8 * reserve_tokens)
-    if prep.is_split and prep.turn_prefix:
-        history = (_complete(llm, lambda c: history_summary_prompt(c, prep.previous_summary, prep.anchor),
-                             serialize_conversation(prep.to_summarize), history_budget, overflow)
-                   if prep.to_summarize else "No prior history.")
-        prefix = _complete(llm, turn_prefix_prompt, serialize_conversation(prep.turn_prefix),
-                           int(0.5 * reserve_tokens), overflow)
-        return f"{history}\n\n---\n\n**Turn Context (split turn):**\n\n{prefix}"
-    return _complete(llm, lambda c: history_summary_prompt(c, prep.previous_summary, prep.anchor),
-                     serialize_conversation(prep.to_summarize), history_budget, overflow)
+def summarize(llm: Any, prep: Preparation, summary_tokens: int, overflow: type[Exception]) -> str:
+    """Upstream compact(): the history note, plus a turn-prefix note for a split turn, at most ``summary_tokens`` in
+    all (a quarter of it for the turn prefix). With nothing new to summarize, the previous note stays as it is."""
+    prefix_budget = summary_tokens // 4 if prep.is_split and prep.turn_prefix else 0
+    budget = summary_tokens - prefix_budget
+    if prep.to_summarize:
+        history = _complete(llm, lambda c: history_summary_prompt(c, prep.previous_summary, prep.anchor, budget),
+                            serialize_conversation(prep.to_summarize), budget, overflow)
+    else:
+        history = prep.previous_summary or "No prior history."
+    if not prefix_budget:
+        return history
+    prefix = _complete(llm, lambda c: turn_prefix_prompt(c, prefix_budget), serialize_conversation(prep.turn_prefix),
+                       prefix_budget, overflow)
+    return f"{history}\n\n---\n\n**Turn Context (split turn):**\n\n{prefix}"
 
 
 def head_message(summary: str, digest_block: str) -> dict[str, Any]:

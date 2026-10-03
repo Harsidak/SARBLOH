@@ -39,7 +39,13 @@ DEFAULT: dict[str, Any] = {
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
         # Ours: also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
-        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 60000},
+        # After a compaction the first prompt's size is the floor: no new compaction until the context passes
+        # floor + floor_gap_tokens. The summary is at most summary_tokens long and replaces the previous one.
+        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 100000,
+                       "floor_gap_tokens": 8192, "summary_tokens": 2048},
+        # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
+        # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
+        "chain_reasoning_tokens": 16000,
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test

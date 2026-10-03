@@ -113,7 +113,7 @@ SGL_NV = {
     "--load-format": "safetensors", "--model-loader-extra-config": '{"enable_multithread_load":false}',
     "--weight-loader-prefetch-checkpoints": None,
     "--tensor-parallel-size": "1", "--dtype": "bfloat16", "--trust-remote-code": None,
-    "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.92", "--context-length": "65536", "--page-size": "64",
+    "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.92", "--context-length": "131072", "--page-size": "64",
     "--max-running-requests": "10", "--chunked-prefill-size": "8192", "--max-prefill-tokens": "16384",
     "--cuda-graph-max-bs-decode": "10", "--cuda-graph-bs-decode": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
     "--mamba-ssm-dtype": "bfloat16", "--max-mamba-cache-size": "60", "--mamba-radix-cache-strategy": "extra_buffer",

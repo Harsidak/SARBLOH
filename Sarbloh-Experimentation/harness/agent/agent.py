@@ -2,7 +2,12 @@
 
 What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
 - L1 active context  -> ``self.messages``. Compaction (``harness.agent.compaction``) replaces the older prefix with a
-                        summary and keeps the newest messages verbatim.
+                        short summary and keeps the newest messages verbatim; the kernel's names are listed in code.
+                        After a compaction the first prompt's size is the floor, and the next compaction waits until
+                        the context passes it by ``floor_gap_tokens``. An overflow never ends the game: the first one
+                        compacts, the second trims in code (back to the newest full state, thinking only on the newest
+                        reply, old tool outputs as one-line placeholders), a third resets to the newest state. Every
+                        level-up resets the context in code: the level-up message and the new level's full state.
 - L2 REPL            -> one persistent ``rlm.repl`` kernel per session (``Kernel``).
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives compaction) and the game's memory
                         (``harness.memory``), rendered once per user message and joined to the newest one.
@@ -83,7 +88,8 @@ class AgentSession:
                       "act_calls": 0, "act_arg_errors": 0, "recalls": 0, "hypothesis_events": 0, "promotions": 0,
                       "curator_runs": 0, "curator_errors": 0, "skills_written": 0, "observations": 0, "images_sent": 0,
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
-                      "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0}
+                      "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
+                      "context_overflows": 0, "context_trims": 0, "context_resets": 0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -91,7 +97,12 @@ class AgentSession:
         # tokenizers give every digit its own token, so a printed grid is ~4x the estimate (measured in a smoke run).
         self._token_scale = 1.0
         self._compact_failed_at: int | None = None
-        self._overflow_retry = False
+        # The prompt size right after the last compaction; no new compaction until the context passes it by
+        # compaction.floor_gap_tokens. Pending until the first request after the compaction measures it.
+        self._compact_floor: int | None = None
+        self._floor_pending = False
+        self._overflows = 0                  # context overflows in a row: compact, then trim in code, then reset
+        self._level_up_text: str | None = None   # set by a level-up act: the context is reset after its reply
         self._system: str | None = None
         self._turns_since_curate = 0
         self._effort_sent: str | None = None    # the reasoning effort of the last request (logged when it changes)
@@ -170,32 +181,28 @@ class AgentSession:
                 return
 
             # 2) Compaction (if needed)
-            window, reserve, _ = self._context_limits()
             tokens = self._context_tokens()
-            if compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens")) and (
-                    self._compact_failed_at is None or tokens > self._compact_failed_at + 1024):
+            if self._wants_compaction(tokens):
                 self._compact("threshold")
             pinned = self._memory_message()
-            msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision)
+            msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
+                                 reasoning_budget=self._reasoning_budget())
 
             # 3) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
             try:
                 reply = self.llm.chat(msgs, tools=tools, max_tokens=self.cfg["max_tokens_per_turn"],
                                       timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())),
                                       template_kwargs=self._effort())
-            except ContextOverflow:
-                if self._overflow_retry:  # upstream: one compact-and-retry per overflow
-                    self.end_reason = "context_overflow"
-                    return
-                self._overflow_retry = True
-                self._compact("overflow")
+            except ContextOverflow as exc:
+                self._on_overflow(exc, tokens)
                 continue
             except Exception as exc:  # noqa: BLE001
                 self.stats["llm_failures"] += 1
                 self._log_event({"event": "llm_error", "error": repr(exc)})
                 time.sleep(10)
                 continue
-            self._overflow_retry = False
+            self._overflows = 0
+            self._record_floor(reply.prompt_tokens)
             self.stats["llm_failures"] = 0
             self.stats["turns"] += 1
             self.stats["output_tokens"] += reply.completion_tokens
@@ -210,7 +217,8 @@ class AgentSession:
                 if reply.reasoning:
                     assistant["_reasoning"] = reply.reasoning   # sent back until the next user message
             estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
-                sum(compaction.estimate_tokens(m) for m in self.messages) + self._chain_reasoning_tokens(0)
+                sum(compaction.estimate_tokens(m, reasoning=False) for m in self.messages) + \
+                self._chain_reasoning_tokens(0)
             if reply.prompt_tokens > 0 and estimate > 0:
                 self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
@@ -229,6 +237,7 @@ class AgentSession:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._append(self._pending_obs)
                     self._pending_obs = None
+                self._reset_if_level_up()
                 self._maybe_curate()
                 continue
 
@@ -635,6 +644,8 @@ class AgentSession:
         if lines:
             self._last_change = lines[-1]
         self._pending_obs = self._observation()
+        if level_up:
+            self._level_up_text = "\n".join(out)
         return "\n".join(out)
 
     def _publish_history(self, steps: list[dict[str, Any]]) -> None:
@@ -715,17 +726,65 @@ class AgentSession:
 
     def _context_tokens(self) -> int:
         """Upstream estimateContextTokens: last usage + estimate of the messages after it (chars/4, scaled)."""
-        est = lambda ms: int(self._token_scale * sum(compaction.estimate_tokens(m) for m in ms))
+        est = lambda ms: int(self._token_scale * sum(compaction.estimate_tokens(m, reasoning=False) for m in ms))
         if self._usage_tokens is None:
             return est(self.messages) + int(self._token_scale * self._chain_reasoning_tokens(0))
         return self._usage_tokens + est(self.messages[self._usage_at:]) + \
             int(self._token_scale * self._chain_reasoning_tokens(self._usage_at))
 
+    def _wants_compaction(self, tokens: int) -> bool:
+        """Above the trigger (``compaction.should_compact``), not right after a failed try, and well above the size the
+        last compaction left: the floor plus ``floor_gap_tokens``, once the first request after it has measured it."""
+        window, reserve, _ = self._context_limits()
+        c = self.cfg["compaction"]
+        if not compaction.should_compact(tokens, window, reserve, c.get("trigger_tokens")):
+            return False
+        if self._compact_failed_at is not None and tokens <= self._compact_failed_at + 1024:
+            return False
+        if self._floor_pending:
+            return False
+        return self._compact_floor is None or tokens > self._compact_floor + int(c.get("floor_gap_tokens", 8192))
+
+    def _record_floor(self, prompt_tokens: int) -> None:
+        """The first request after a compaction measures the floor."""
+        if self._floor_pending:
+            self._compact_floor = prompt_tokens or self._context_tokens()
+            self._floor_pending = False
+            self._log_event({"event": "compaction_floor", "tokens": self._compact_floor})
+
+    def _on_overflow(self, exc: Exception, tokens: int) -> None:
+        """An overflow never ends the game: the first in a row compacts, the second trims in code, any later one resets
+        the context to the newest state. Past the third, each also counts as an LLM failure, so a context that cannot
+        fit even then ends at ``max_consecutive_llm_failures`` instead of looping for ever."""
+        self._overflows += 1
+        self.stats["context_overflows"] += 1
+        self._log_event({"event": "context_overflow", "count": self._overflows, "tokens": tokens,
+                         "error": str(exc)[:300]})
+        if self._overflows == 1:
+            self._compact("overflow")
+        elif self._overflows == 2:
+            self._trim_context()
+        else:
+            if self._overflows > 3:
+                self.stats["llm_failures"] += 1
+            self._reset_context("overflow", prompts.event_message("compacted", level=self._level(), **self._left()))
+
+    def _reset_if_level_up(self) -> None:
+        """After a reply whose act won a level: the new level starts from a clean context."""
+        if self._level_up_text is None:
+            return
+        text, self._level_up_text = self._level_up_text, None
+        if not self.arc.finished:
+            self._reset_context("level_up", text)
+
+    def _reasoning_budget(self) -> int:
+        return int(self.cfg.get("chain_reasoning_tokens", context.REASONING_BUDGET_TOKENS))
+
     def _chain_reasoning_tokens(self, start: int) -> int:
-        """chars/4 of the thinking that is still sent (context.reasoning), in the messages from ``start`` on."""
-        first = max(start, context.chain_start(self.messages))
-        return sum(-(-len(m["_reasoning"]) // 4) for m in self.messages[first:]
-                   if m.get("_reasoning") and m.get("tool_calls"))
+        """chars/4 of the thinking that is still sent, in the messages from ``start`` on: the same rule as the request
+        (``context.reasoning_sent``: the current chain, newest first, within the thinking budget)."""
+        return sum(context.reasoning_tokens(self.messages[i])
+                   for i in context.reasoning_sent(self.messages, self._reasoning_budget()) if i >= start)
 
     def _compact(self, reason: str) -> None:
         _, reserve, keep = self._context_limits()
@@ -737,7 +796,8 @@ class AgentSession:
             return
         t0 = time.time()
         try:
-            summary = compaction.summarize(self.llm, prep, reserve, ContextOverflow)
+            summary = compaction.summarize(self.llm, prep, int(self.cfg["compaction"].get("summary_tokens", 2048)),
+                                           ContextOverflow)
         except Exception as exc:  # noqa: BLE001
             self.stats["compaction_failures"] += 1
             self._log_event({"event": "compaction_error", "reason": reason, "error": f"{type(exc).__name__}: {exc}"})
@@ -749,12 +809,15 @@ class AgentSession:
         self._summary = summary
         kept = self.messages[prep.first_kept:]
         # The memory is not part of the conversation, so the head carries the summary only.
+        names = self._kernel_names()
         head = compaction.head_message(summary, prompts.event_message("compacted", level=self._level(),
-                                                                      **self._left()) + "\n\n")
+                                                                      **self._left()) + "\n\n" +
+                                       (names + "\n\n" if names else ""))
         self._refresh_after_compaction(kept)
         self.messages = [head, *kept]
         self._pinned = None   # the memory is built again for the new prompt
         self._usage_tokens = None
+        self._floor_pending, self._compact_floor = True, None
         self.stats["compactions"] += 1
         self._curate_pending = self._curate_pending or "compact"
         self._log_event({"event": "compaction", "reason": reason, "tokens_before": tokens_before,
@@ -791,6 +854,65 @@ class AgentSession:
         msg = self._observation(full=True)
         self._log_event({"event": "message", **context.loggable(msg)})
         return msg
+
+    def _trim_context(self) -> None:
+        """The second overflow in a row: trim in code, with no model call. The history goes back to the newest full
+        state (the compaction head stays), every reply but the newest loses its thinking, and every tool output but the
+        newest reply's becomes a one-line placeholder. The full view of the current step is put back if it is missing."""
+        before = self._context_tokens()
+        msgs = self.messages
+        head = [msgs[0]] if msgs and msgs[0].get("_kind") == compaction.COMPACTION_KIND else []
+        full = next((i for i in range(len(msgs) - 1, len(head) - 1, -1)
+                     if msgs[i].get("_kind") == "observation" and msgs[i].get("_full")), None)
+        kept = list(msgs[full:] if full is not None else msgs[max(context.chain_start(msgs) - 1, len(head)):])
+        last = max((i for i, m in enumerate(kept) if m["role"] == "assistant"), default=len(kept))
+        for i, m in enumerate(kept):
+            if m["role"] == "assistant" and i != last and m.get("_reasoning"):
+                kept[i] = {k: v for k, v in m.items() if k != "_reasoning"}
+            elif m["role"] == "tool" and i < last:
+                first = next((ln.strip() for ln in compaction._text(m).splitlines() if ln.strip()), "")
+                kept[i] = {**m, "content": f"[output removed to fit the context; it began: {first[:120]}]"}
+        self._refresh_after_compaction(kept)
+        self.messages = head + kept
+        self._pinned, self._usage_tokens, self._usage_at = None, None, 0
+        self._floor_pending, self._compact_floor = True, None
+        self.stats["context_trims"] += 1
+        self._log_event({"event": "context_trim", "tokens_before": before, "tokens_after": self._context_tokens(),
+                         "messages_before": len(msgs), "messages_after": len(self.messages),
+                         "action_count": self.arc.game.action_count})
+
+    def _reset_context(self, reason: str, text: str) -> None:
+        """A clean context in code, with no model call: ``text`` (the level-up message, or the compaction note when even
+        a trimmed context overflows), the kernel's names, and the newest full state. The system prompt and the memory
+        go with every request anyway. Used at every level-up: a new level starts from its own context."""
+        obs = next((m for m in reversed(self.messages) if m.get("_kind") == "observation"), None)
+        if obs is None or not obs.get("_full") or obs.get("_step") != self._last_step:
+            obs = self._observation_refresh()
+        names = self._kernel_names()
+        dropped = len(self.messages)
+        self.messages = []
+        self._append({"role": "user", "_kind": "reset", "content": text + (f"\n\n{names}" if names else "")})
+        self.messages.append(obs)   # logged when it was made
+        self._summary, self._pinned, self._usage_tokens, self._usage_at = None, None, None, 0
+        self._compact_floor, self._floor_pending, self._compact_failed_at = None, False, None
+        self.stats["context_resets"] += 1
+        self._log_event({"event": "context_reset", "reason": reason, "messages_dropped": dropped,
+                         "tokens_after": self._context_tokens(), "action_count": self.arc.game.action_count})
+
+    def _kernel_names(self) -> str:
+        """One line naming what the agent defined in its kernel, read from the REPL globals (not from a summarizer)."""
+        try:
+            names = self.kernel.user_names()
+        except Exception as exc:  # noqa: BLE001 - the list is a help, never a failure
+            self._log_event({"event": "kernel_names_error", "error": repr(exc)[:300]})
+            return ""
+        parts = [f"{key}: {', '.join(names[key])}" for key in ("functions", "classes", "values", "modules")
+                 if names and names.get(key)]
+        if not parts:
+            return ""
+        text = "Your Python kernel still holds what you defined there; reuse it instead of writing it again. " + \
+            "; ".join(parts)
+        return text if len(text) <= 2000 else text[:1990] + " ..."
 
     # --- host requests from the REPL ----------------------------------------------------------------------
     def _host(self, req: dict[str, Any]) -> dict[str, Any]:

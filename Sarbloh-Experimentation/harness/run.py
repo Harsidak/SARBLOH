@@ -42,7 +42,7 @@ def is_competition_rerun() -> bool:
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
     """Scale the compaction settings to the served window. At 128k they stay as configured (16384 reserve, 16000
-    kept, compact above 60000); smaller windows get at most a quarter each, and a turn's output never exceeds the
+    kept, compact above 100000); smaller windows get at most a quarter each, and a turn's output never exceeds the
     reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]

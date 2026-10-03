@@ -45,6 +45,42 @@ class _NoArc:
         raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
                            "and act with the act tool.")
 arc = _NoArc()
+_BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
+"""
+
+# Lists what the agent defined after boot (functions with their signatures, classes, modules, other values with their
+# type), as one JSON line. Read by the host after a compaction and at a level-up, never shown to a summarizer.
+NAMES_CODE = """
+import inspect as _inspect
+_names = {"functions": [], "classes": [], "values": [], "modules": []}
+for _k, _v in list(globals().items()):
+    if _k.startswith("_") or _k in _BOOT_NAMES:
+        continue
+    if _inspect.ismodule(_v):
+        _names["modules"].append(_k)
+    elif _inspect.isclass(_v):
+        _names["classes"].append(_k)
+    elif callable(_v):
+        try:
+            _sig = str(_inspect.signature(_v))
+        except (TypeError, ValueError):
+            _sig = "(...)"
+        _names["functions"].append(_k + (_sig if len(_sig) <= 80 else _sig[:77] + "...)"))
+    else:
+        _t = type(_v).__name__
+        _shape = getattr(_v, "shape", None)
+        if _shape is not None:
+            _t += str(tuple(_shape))
+        elif hasattr(_v, "__len__"):
+            try:
+                _t += f"[{len(_v)}]"
+            except Exception:
+                pass
+        _names["values"].append(f"{_k}: {_t}")
+print(json.dumps(_names))
+for _n in ("_names", "_k", "_v", "_sig", "_t", "_shape", "_inspect"):
+    globals().pop(_n, None)
+del _n
 """
 
 
@@ -211,6 +247,17 @@ class Kernel:
         res.stdout = "".join(out)
         res.duration_s = time.monotonic() - t0
         return res
+
+    def user_names(self, timeout_s: float = 30.0) -> dict[str, list[str]] | None:
+        """The names the agent defined in the kernel since boot, by kind; None when the kernel cannot tell."""
+        if not self.alive():
+            return None
+        res = self.execute(NAMES_CODE, timeout_s=timeout_s)
+        try:
+            names = json.loads(res.stdout.strip().splitlines()[-1]) if res.status == "ok" else None
+        except (ValueError, IndexError):
+            return None
+        return names if isinstance(names, dict) else None
 
     # --- protocol plumbing -------------------------------------------------------------------------------
     def _send(self, proc: subprocess.Popen, obj: dict[str, Any]) -> None:

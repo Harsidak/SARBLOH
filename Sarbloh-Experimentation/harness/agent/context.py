@@ -12,7 +12,8 @@ text, picture) is not part of the memory: it is pushed as a user message right a
 state is always the last thing the agent reads. Only the newest image is kept; older image parts become a one-line
 text stub (the server allows one image per prompt). Consecutive user messages are joined (some chat templates need
 alternating roles).
-The agent's thinking is sent back only within the current tool-call chain, up to the next user message.
+The agent's thinking is sent back only within the current tool-call chain, up to the next user message, newest reply
+first and up to about 16k tokens in all; older replies in the chain keep their tool calls and outputs without it.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 PINNED_KIND = "pinned"
+REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
 ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
 TITLES = {
     "goal": "Goal (you write it; kept across levels)",
@@ -97,19 +99,42 @@ def chain_start(messages: list[dict[str, Any]]) -> int:
     return next((i + 1 for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), 0)
 
 
-def reasoning(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The agent's thinking goes back with its tool calls in the current chain (what Gemma's chat template expects).
-    Once a new user message arrives (an observation after an act), the older thinking is no longer sent."""
-    start = chain_start(messages)
-    return [({**m, "reasoning": m["_reasoning"], "reasoning_content": m["_reasoning"]}
-             if i >= start and m.get("_reasoning") and m.get("tool_calls") else m) for i, m in enumerate(messages)]
+def reasoning_tokens(m: dict[str, Any]) -> int:
+    """chars/4 of a reply's thinking."""
+    return -(-len(m.get("_reasoning") or "") // 4)
+
+
+def reasoning_sent(messages: list[dict[str, Any]], budget_tokens: int = REASONING_BUDGET_TOKENS) -> list[int]:
+    """Indices of the replies whose thinking is sent: replies with tool calls in the current chain, newest first, while
+    their thinking adds up to at most ``budget_tokens`` (chars/4). The newest reply's thinking always goes. Older
+    replies keep their tool calls and outputs but lose their thinking. The agent's token estimate uses this same rule."""
+    out, total = [], 0
+    for i in range(len(messages) - 1, chain_start(messages) - 1, -1):
+        m = messages[i]
+        if not (m.get("_reasoning") and m.get("tool_calls")):
+            continue
+        t = reasoning_tokens(m)
+        if out and total + t > budget_tokens:
+            break
+        out.append(i)
+        total += t
+    return out
+
+
+def reasoning(messages: list[dict[str, Any]], budget_tokens: int = REASONING_BUDGET_TOKENS) -> list[dict[str, Any]]:
+    """The agent's thinking goes back with its tool calls in the current chain (what the chat templates expect), up to
+    the thinking budget (``reasoning_sent``). Once a new user message arrives (an observation after an act), the older
+    thinking is no longer sent."""
+    sent = set(reasoning_sent(messages, budget_tokens))
+    return [({**m, "reasoning": m["_reasoning"], "reasoning_content": m["_reasoning"]} if i in sent else m)
+            for i, m in enumerate(messages)]
 
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
-          vision: bool = True) -> list[dict[str, Any]]:
+          vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS) -> list[dict[str, Any]]:
     """The request: the system prompt, the conversation, and the memory joined to the front of the newest user
     message, so everything before that message is the same as in the last request."""
-    msgs = images(reasoning(messages), vision)
+    msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)
         msgs = msgs[:at] + [pinned] + msgs[at:]
