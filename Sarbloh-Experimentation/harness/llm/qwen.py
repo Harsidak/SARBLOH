@@ -77,7 +77,8 @@ TOOLS = {"--enable-auto-tool-choice": None, "--tool-call-parser": "qwen3_coder",
 ENV = {"OMP_NUM_THREADS": "1"}
 
 PROFILES: dict[str, dict[str, Any]] = {
-    # Prefix caching plus the 65k window our agent's compaction needs (trigger 40k, reserve 16k).
+    # Prefix caching plus the 65k window our agent's compaction needs (reserve 16k; the 60k trigger is capped at
+    # window - reserve, so 49k here).
     "qwen_flash_pc_64k": {"model_dataset": FLASH, "runtime": "flash_next", "env": {},
                           "flags": {**FLASH_PC, "--max-model-len": "65536"}},
     # Prefix caching: the agent's prompts are long and append-only (bench v3: 2.0 s vs 8.1 s per later turn).

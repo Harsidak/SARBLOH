@@ -24,7 +24,7 @@ FAST = {**BASE, **TOOLS, **TEXT_ONLY, "--max-model-len": "131072", "--kv-cache-d
 
 PROFILES: dict[str, dict[str, Any]] = {
     # Speed arm: prompt-lookup (n-gram) speculative decoding, since the agent copies grids and code from its own
-    # context, plus bigger prefill chunks for the ~40k-token prompts. UNCONFIRMED until benched.
+    # context, plus bigger prefill chunks for the prompts of up to ~60k tokens. UNCONFIRMED until benched.
     "gemma_turbo": {"model_dataset": WEIGHTS, "env": {"OMP_NUM_THREADS": "1"}, "flags": {
         **FAST, "--max-num-batched-tokens": "16384",
         "--speculative-config": '{"method": "ngram", "num_speculative_tokens": 4, "prompt_lookup_max": 4, '

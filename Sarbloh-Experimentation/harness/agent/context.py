@@ -7,6 +7,7 @@ summarised by compaction: it is the agent's memory, not its conversation. The ob
 picture) is not pinned here: it is pushed as a user message right after each act result, so the newest state is always
 the last thing the agent reads. Only the newest image is kept; older image parts become a one-line text stub (the
 server allows one image per prompt). Consecutive user messages are joined (some chat templates need alternating roles).
+The agent's thinking is sent back only within the current tool-call chain, up to the next user message.
 """
 
 from __future__ import annotations
@@ -86,14 +87,29 @@ def merge_users(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def chain_start(messages: list[dict[str, Any]]) -> int:
+    """Index just after the newest user message: the replies from here on are the current tool-call chain."""
+    return next((i + 1 for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), 0)
+
+
+def reasoning(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The agent's thinking goes back with its tool calls in the current chain (what Gemma's chat template expects).
+    Once a new user message arrives (an observation after an act), the older thinking is no longer sent."""
+    start = chain_start(messages)
+    return [({**m, "reasoning": m["_reasoning"], "reasoning_content": m["_reasoning"]}
+             if i >= start and m.get("_reasoning") and m.get("tool_calls") else m) for i, m in enumerate(messages)]
+
+
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
           vision: bool = True) -> list[dict[str, Any]]:
     head = [{"role": "system", "content": system}] + ([pinned] if pinned else [])
-    return merge_users(head + images(messages, vision))
+    return merge_users(head + images(reasoning(messages), vision))
 
 
 def loggable(msg: dict[str, Any]) -> dict[str, Any]:
-    """A message for the transcript: image data replaced by a marker (the recording keeps every frame)."""
+    """A message for the transcript: image data replaced by a marker (the recording keeps every frame); the thinking
+    is logged once, as the event's ``reasoning``."""
+    msg = {k: v for k, v in msg.items() if k != "_reasoning"}
     if not _has_image(msg):
         return msg
     return {**msg, "content": [p if p.get("type") != "image_url" else

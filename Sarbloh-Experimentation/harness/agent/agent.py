@@ -83,7 +83,7 @@ class AgentSession:
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
-        self._usage_tokens: int | None = None  # prompt tokens of the last call (reasoning is never resent)
+        self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
         # tokenizers give every digit its own token, so a printed grid is ~4x the estimate (measured in a smoke run).
@@ -203,14 +203,16 @@ class AgentSession:
             assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
             if calls and calls[0]["native"]:
                 assistant["tool_calls"] = [c["raw"] for c in calls]
+                if reply.reasoning:
+                    assistant["_reasoning"] = reply.reasoning   # sent back until the next user message
             estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
-                sum(compaction.estimate_tokens(m) for m in self.messages)
+                sum(compaction.estimate_tokens(m) for m in self.messages) + self._chain_reasoning_tokens(0)
             if reply.prompt_tokens > 0 and estimate > 0:
                 self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason, turn=self.stats["turns"])
-            # Reasoning is never sent back, so completion_tokens would overcount: anchor on the prompt and estimate
-            # the stored reply (content + tool calls) like any newer message.
+            # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
+            # while it is still sent (until the next user message), so completion_tokens would overcount.
             self._usage_tokens = reply.prompt_tokens
             self._usage_at = len(self.messages) - 1
 
@@ -687,8 +689,15 @@ class AgentSession:
         """Upstream estimateContextTokens: last usage + estimate of the messages after it (chars/4, scaled)."""
         est = lambda ms: int(self._token_scale * sum(compaction.estimate_tokens(m) for m in ms))
         if self._usage_tokens is None:
-            return est(self.messages)
-        return self._usage_tokens + est(self.messages[self._usage_at:])
+            return est(self.messages) + int(self._token_scale * self._chain_reasoning_tokens(0))
+        return self._usage_tokens + est(self.messages[self._usage_at:]) + \
+            int(self._token_scale * self._chain_reasoning_tokens(self._usage_at))
+
+    def _chain_reasoning_tokens(self, start: int) -> int:
+        """chars/4 of the thinking that is still sent (context.reasoning), in the messages from ``start`` on."""
+        first = max(start, context.chain_start(self.messages))
+        return sum(-(-len(m["_reasoning"]) // 4) for m in self.messages[first:]
+                   if m.get("_reasoning") and m.get("tool_calls"))
 
     def _compact(self, reason: str) -> None:
         _, reserve, keep = self._context_limits()

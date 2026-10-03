@@ -35,7 +35,7 @@ DEFAULT: dict[str, Any] = {
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
         # Ours: also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
-        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 40000},
+        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 60000},
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test
