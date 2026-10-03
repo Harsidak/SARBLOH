@@ -15,7 +15,7 @@ So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else 
 Tools are described twice on purpose: ``TOOLS_BRIEFING`` says what each tool is for and what it costs;
 ``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED`` + ``ACT_DETAILED`` + ``RECALL_DETAILED``) gives every argument, limit,
 refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``, ``_tool_recall``),
-``runtime/skills/observation.py`` and ``agent/perception.py`` (E116). If those change, change these.
+``runtime/skills/observation.py`` and ``agent/perception.py``. If those change, change these.
 
 Style (owner rule, 2026-10-02): simple English in full sentences that flow, written as instructions to a human. Exact
 tool and function names, no stories. The score formula is not shown to the agent on purpose (owner decision
@@ -156,8 +156,8 @@ When you finish a level, your verified hypotheses and findings are saved as less
 LEVEL_METHOD = """How to play a level:
 1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start, but each one needs its test.
 2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first `act`.
-3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses.
-4. Solve. When the rules you need are verified, write a search in `ipython` (for example a breadth-first search over the moves you verified) to find the shortest path. Then send the path in `act` calls of up to {act_max} moves."""
+3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses. A move toward the goal is a test too: say in `plan` what you expect it to do, and if the change lines show something else, stop and rethink before the next move.
+4. Solve. When you know enough to reach the goal, move toward it in `act` calls of up to {act_max} moves. Write a search in `ipython` (for example a breadth-first search over the moves you have seen work) only when the path is long or not obvious."""
 
 RULES = """Rules:
 - Do not read, count or copy cells in your head. Ask `ipython` instead: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute distances and find objects with the same hash. One short Python call is faster and more exact than a long thought.
@@ -169,7 +169,7 @@ EXAMPLE = """Example from another game:
 The board shows `4 R 3x3 r10-12 c20-22`, `9 N 3x3 r10-12 c41-43` and `17 G 1x30 r63 c0-29 hud`.
 You call `act` with actions ["4"], plan "test if 4 moves object 4 right", hypotheses [{{"text": "4 moves object 4 right", "status": "proposed"}}, {{"text": "object 17 counts the moves left", "status": "proposed"}}] and goal "move object 4 onto object 9".
 The result is `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
-Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You check the path in `ipython`, mark both hypotheses verified with evidence [0], and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
+Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You mark both hypotheses verified with evidence [0] and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
 
 ENVIRONMENT = """Working directory: {cwd}
 Python packages: numpy. `observe` (the current state, read-only) is already imported."""

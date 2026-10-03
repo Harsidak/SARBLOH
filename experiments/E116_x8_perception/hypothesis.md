@@ -67,3 +67,8 @@ Kill if, on the dev run, any of these holds:
   because the gauge in the status box adds off-grid edges; ka59 lost its 3x3 grid whenever the self touched another
   thing). Status boxes are now left out of the test and the level's previous grid is kept while it still fits: 0
   flips on the 225 frames.
+- Found 2026-10-03 on tr87: "X is directly above Y" facts filled 27 of the 30 briefing lines shown (68 in all;
+  bp35 had 792). A cap of 12 per frame was tried and removed the same day: it deleted facts from
+  `observe().briefing` too. Now every alignment fact is kept, those touching the guessed self and goal come first,
+  and `Briefing.lines()` shares the shown lines between the fact kinds, so one kind cannot fill them. The rest are
+  counted as "(+N more facts: `observe().briefing` in ipython)".

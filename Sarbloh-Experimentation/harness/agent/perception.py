@@ -906,7 +906,7 @@ def _enclosures(lay: Layout) -> list[str]:
         inside = owner[t.r0 + 1:t.r1, t.c0 + 1:t.c1]
         empty = not ((inside >= 0) & (inside != k)).any()
         fits = [q.ref for q in lay.things if q is not t and q.kind == "object" and q.h == ih and q.w == iw]
-        facts.append(f"{t.ref} encloses a {'EMPTY ' if empty else ''}{ih}x{iw} space"
+        facts.append(f"{t.ref} encloses {'an EMPTY' if empty else 'a'} {ih}x{iw} space"
                      + (f" -- exactly the size of: {', '.join(fits)}" if fits else ""))
     return facts
 
