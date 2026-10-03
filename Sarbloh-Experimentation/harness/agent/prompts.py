@@ -175,9 +175,7 @@ The first board is shown below. This is level 1, so nothing is known yet. Do thi
 1. Read the briefing, the board and the object list. Use `ipython` (`obs = observe()`, then `obs.objects`) to check what you think you see.
 2. In one `act` call, write your first plan, 2 to 4 hypotheses and a goal guess, and make 1 or 2 test moves."""
 
-CONTINUE_GAME = """You ended your turn without calling a tool. Nobody else will reply, so keep playing until the game is won or you run out of moves or time.
-Where you are now: {status}.
-Next, read your [memory] block and the newest board. If you were waiting for an answer, make the most likely guess yourself and test it. Then call `ipython` to check an idea, or `act` to make your next move."""
+CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. Well played. A new level starts now, and it is shown in full below.
 Your memory changed: your verified hypotheses and findings are now lessons, your plan, hypotheses and findings are empty, and your goal is kept and marked as won.
@@ -325,5 +323,5 @@ def task_message(*, game_id: str, max_actions: int, minutes: int) -> str:
     return event_message("start", game_id=game_id, max_actions=max_actions, minutes=minutes, level=1)
 
 
-def continuation(*, status: str, moves_left: int | None = None, minutes_left: int | None = None) -> str:
-    return event_message("continue", status=status, moves_left=moves_left, minutes_left=minutes_left)
+def continuation(*, moves_left: int | None = None, minutes_left: int | None = None) -> str:
+    return event_message("continue", moves_left=moves_left, minutes_left=minutes_left)

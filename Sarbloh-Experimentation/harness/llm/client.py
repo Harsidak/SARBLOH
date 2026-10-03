@@ -130,8 +130,10 @@ class LLM:
         self.usage = Usage()
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-             max_tokens: int | None = None, timeout_s: float | None = None, thinking: bool | None = None) -> Reply:
+             max_tokens: int | None = None, timeout_s: float | None = None, thinking: bool | None = None,
+             template_kwargs: dict[str, Any] | None = None) -> Reply:
         """``thinking=False`` turns the chat template's thinking off for this call (compaction summaries).
+        ``template_kwargs`` are added to the chat template's arguments for this call (the reasoning effort).
 
         ``timeout_s`` is the whole budget for this call, retries and waiting for a restarting server included."""
         cfg = self.cfg
@@ -149,6 +151,8 @@ class LLM:
             body["tool_choice"] = "auto"
         if cfg.get("chat_template_kwargs"):
             body["chat_template_kwargs"] = dict(cfg["chat_template_kwargs"])
+        if template_kwargs:
+            body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), **template_kwargs}
         if thinking is not None:
             body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), "enable_thinking": thinking}
         deadline = time.monotonic() + float(timeout_s or cfg.get("request_timeout_s", 900))

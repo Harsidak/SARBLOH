@@ -8,7 +8,8 @@ What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
                         (``harness.memory``), rendered once per user message and joined to the newest one.
 - Autonomous mode    -> when the root stops calling tools before the game ends, a continuation message is sent,
                         bounded by turn, token and wall-clock budgets; the end-condition test is "game won". A
-                        threshold compaction is followed by a continuation too, like upstream.
+                        compaction is followed by a continuation only when the kept messages end on a reply with
+                        no tool call; after a tool result the agent goes on with its chain.
 - Accounting         -> tokens, turns and tool calls are recorded per session.
 
 The system prompt is fixed for the whole session (upstream keeps it stable for the prefix cache). Not ported (no use
@@ -93,6 +94,7 @@ class AgentSession:
         self._overflow_retry = False
         self._system: str | None = None
         self._turns_since_curate = 0
+        self._effort_sent: str | None = None    # the reasoning effort of the last request (logged when it changes)
         self.kernel = Kernel(session_dir / "work", self._host)
         self.tools = game_tools(act_max=int(cfg.get("act_max_actions", 5)))
         self._acted_in_reply = False
@@ -179,7 +181,8 @@ class AgentSession:
             # 3) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
             try:
                 reply = self.llm.chat(msgs, tools=tools, max_tokens=self.cfg["max_tokens_per_turn"],
-                                      timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())))
+                                      timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())),
+                                      template_kwargs=self._effort())
             except ContextOverflow:
                 if self._overflow_retry:  # upstream: one compact-and-retry per overflow
                     self.end_reason = "context_overflow"
@@ -253,8 +256,20 @@ class AgentSession:
             self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
         return self._pinned
 
+    def _effort(self) -> dict[str, str] | None:
+        """The chat template's reasoning effort for the level the agent is on (config ``reasoning_effort``). A change
+        alters the first line of the system prompt, so the whole prompt is prefilled again once."""
+        eff = self.cfg.get("reasoning_effort") or {}
+        value = eff.get("early") if self._level() <= prompts.REASON_EARLY_LEVELS else eff.get("later")
+        if value not in (None, "xhigh", "medium", "low"):
+            raise ValueError(f"reasoning_effort {value!r}: the chat template takes xhigh, medium or low")
+        if value != self._effort_sent:
+            self._effort_sent = value
+            self._log_event({"event": "reasoning_effort", "level": self._level(), "value": value})
+        return {"reasoning_effort": value} if value else None
+
     def _continuation(self) -> str:
-        return prompts.continuation(status=self._status(), **self._left())
+        return prompts.continuation(**self._left())
 
     def _left(self) -> dict[str, int | None]:
         """Moves and minutes left, for the low-budget and low-time notes."""
@@ -736,8 +751,7 @@ class AgentSession:
         # The memory is not part of the conversation, so the head carries the summary only.
         head = compaction.head_message(summary, prompts.event_message("compacted", level=self._level(),
                                                                       **self._left()) + "\n\n")
-        if not any(context._has_image(m) for m in kept):
-            kept.append(self._observation_refresh())   # the newest state must survive a compaction
+        self._refresh_after_compaction(kept)
         self.messages = [head, *kept]
         self._pinned = None   # the memory is built again for the new prompt
         self._usage_tokens = None
@@ -749,10 +763,27 @@ class AgentSession:
                          "kept_messages": len(kept), "split_turn": prep.is_split, "summary_chars": len(summary),
                          "action_count": self.arc.game.action_count, "duration_s": round(time.time() - t0, 1)})
         self._log_event({"event": "message", **head})
-        if not kept or kept[-1]["role"] != "user":
-            # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode.
+        if kept[-1]["role"] == "assistant":
+            # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode. After a tool
+            # result nothing is added: the agent goes on with its tool-call chain and keeps its thinking.
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": self._continuation()})
+
+    def _refresh_after_compaction(self, kept: list[dict[str, Any]]) -> None:
+        """The newest state in full must survive a compaction. Nothing is added when the newest kept observation is
+        already the full view of the current step. Otherwise the full view goes where the newest user message is: it
+        replaces that message when it is the short view of the current step, else it goes just after it. Either way it
+        stays before the current tool-call chain, so the chain keeps its thinking."""
+        start = context.chain_start(kept)
+        newest = next((m for m in reversed(kept) if m.get("_kind") == "observation"), None)
+        if newest is not None and newest.get("_full") and newest.get("_step") == self._last_step:
+            return
+        last_user = kept[start - 1] if start else None
+        if last_user is not None and last_user.get("_kind") == "observation" and \
+                last_user.get("_step") == self._last_step:
+            kept[start - 1] = self._observation_refresh()
+        else:
+            kept.insert(start, self._observation_refresh())
 
     def _observation_refresh(self) -> dict[str, Any]:
         """The current state in full (briefing, objects, board, picture), e.g. after a compaction cut the last one
@@ -772,9 +803,6 @@ class AgentSession:
     # --- bookkeeping -------------------------------------------------------------------------------------
     def _time_left(self) -> str:
         return f"{max(0, int(self.deadline - time.time())) // 60} min left"
-
-    def _status(self) -> str:
-        return f"{self.arc.status_line()}, {self._time_left()}"
 
     def _append(self, msg: dict[str, Any], **extra: Any) -> None:
         self.messages.append(msg)

@@ -28,6 +28,10 @@ DEFAULT: dict[str, Any] = {
         "act_max_actions": 5,          # actions per act call
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
         "max_tokens_per_turn": 16384,
+        # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
+        # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
+        # (prompts.REASON_EARLY_LEVELS), "later" after. None sends nothing (the template's default).
+        "reasoning_effort": {"early": "xhigh", "later": "medium"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
