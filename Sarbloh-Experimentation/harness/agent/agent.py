@@ -83,7 +83,7 @@ class AgentSession:
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0}
         self._summary: str | None = None     # the latest compaction summary (updated, not re-summarized, next time)
-        self._usage_tokens: int | None = None  # prompt + completion tokens of the last call (upstream usage)
+        self._usage_tokens: int | None = None  # prompt tokens of the last call (reasoning is never resent)
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
         # tokenizers give every digit its own token, so a printed grid is ~4x the estimate (measured in a smoke run).
@@ -209,8 +209,10 @@ class AgentSession:
                 self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason, turn=self.stats["turns"])
-            self._usage_tokens = reply.prompt_tokens + reply.completion_tokens
-            self._usage_at = len(self.messages)
+            # Reasoning is never sent back, so completion_tokens would overcount: anchor on the prompt and estimate
+            # the stored reply (content + tool calls) like any newer message.
+            self._usage_tokens = reply.prompt_tokens
+            self._usage_at = len(self.messages) - 1
 
             # 5) If tool calls: execute each, then maybe run the curator
             if calls:

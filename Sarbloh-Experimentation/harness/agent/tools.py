@@ -15,10 +15,10 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 
 IPYTHON = _fn(
-    "ipython this is your primary tool to reason and you can use code to reason and come to take an optimal action",
-    "Run Python in a persistent REPL, to perform resoning you can write code snippets to verify your hypotheses or plans.",
-    " Variables, functions and imports persist for the",
-    "whole game, across levels: write code and also edit the existing one when the game shows something new, and "
+    "ipython",
+    "This is your primary tool to reason: you can use code to reason and come to take an optimal action. Run Python "
+    "in a persistent REPL; to perform reasoning you can write code snippets to verify your hypotheses or plans. "
+    "Variables, functions and imports persist for the whole game, across levels: write code and also edit the existing one when the game shows something new, and "
     "reuse them. `obs = observe()` gives the current state, read-only, and the full state (briefing, objects, board "
     "and picture) is shown to you in the next message, once per state. For your code: `obs.board[r][c]` (the colour "
     "letter at row r, column c), `obs.objects` (list of dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, "
