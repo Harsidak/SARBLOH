@@ -1,12 +1,11 @@
-"""Host side of the ``arc`` kernel module: owns one ``harness.game.games.ArcGame``.
+"""The game host: owns one ``harness.game.games.ArcGame``.
 
-The host is the only thing that touches the environment. It validates every action, enforces the action budget and
-keeps the lossless transition record (the frame store the model retrieves from with ``arc.transitions()``). It also
-stamps every action with the agent step that spent it (``step_ref``), in ``run.history`` and, when the game records,
-in the ARC SDK recording's ``reasoning`` field.
+The host is the only thing that touches the environment. Actions come only from the agent's ``act`` tool (the REPL
+cannot reach the host). It validates every action, enforces the action budget and keeps the lossless transition
+record. It also stamps every action with the agent step that spent it (``step_ref``), in ``run.history`` and, when the
+game records, in the ARC SDK recording's ``reasoning`` field.
 
-With ``repl_actions = False`` (the E008 toolset) actions come only from the ``act`` tool and the REPL cannot spend
-them. Every step gets a state key of the grid before it, so a repeated (state, action) pair is flagged, plus an
+Every step gets a state key of the grid before it, so a repeated (state, action) pair is flagged, plus an
 object-level change summary; both go to ``on_step`` (the session's transcript).
 """
 
@@ -52,11 +51,9 @@ def _frames(state: GameState) -> list[list[list[int]]]:
 
 class ArcHost:
     def __init__(self, game: ArcGame, max_actions: int | None, should_stop: Callable[[], bool],
-                 tokens_spent: Callable[[], int], max_actions_per_cell: int | None = None,
-                 stop_after_levels: int | None = None) -> None:
+                 tokens_spent: Callable[[], int], stop_after_levels: int | None = None) -> None:
         self.game = game
         self.stop_after_levels = stop_after_levels   # end the game early after this many levels (local tests)
-        self.repl_actions = True                     # False: the root acts only through the act/reset_level tools
         self.on_step: Callable[[dict[str, Any]], None] | None = None
         self._seen: dict[tuple, int] = {}            # (state key, action, x, y) -> first transition index
         self.last_step: dict[str, Any] | None = None  # the step event of the latest action
@@ -70,12 +67,9 @@ class ArcHost:
         # zeroes; a RESET at 0 changes nothing (ONLY_RESET_LEVELS) or restarts the whole game from level 1 (without it).
         self._since_reset = 0
         self._token_mark = 0
-        self.max_actions_per_cell = max_actions_per_cell
-        self.cell_actions = 0          # reset by the session before each cell
-        self.cell_cap_hits = 0
-        self.reflection_due: str | None = None   # set by the session; arc.step is refused while set
-        # Set by the root session before each cell: session, turn and tool-call id, plus the model's thought, text
-        # and code. Every action gets the ref; the cell's first action also carries the context in the recording.
+        self.cell_actions = 0          # actions in the current act call, reset by the session before each act
+        # Set by the session before each act: session, turn and tool-call id, plus the model's thought, text and the
+        # act's arguments. Every action gets the ref; the act's first action also carries the context in the recording.
         self.step_ref: dict[str, Any] | None = None
 
     # --- status ------------------------------------------------------------------------------------------
@@ -115,8 +109,8 @@ class ArcHost:
             "state": s.engine_state.name,
             "levels_completed": s.levels_completed,
             "win_levels": self.game.number_of_levels,
-            # RESET (id 0) is left out: it is only `arc.reset()`. In the E005 smoke `for a in range(5): step(a)` spent
-            # 100 of 150 actions on silent resets.
+            # RESET (id 0) is left out: it is only an explicit reset. A loop over `range(5)` once spent 100 of 150
+            # actions on silent resets.
             "available_actions": [a for a in s.available_actions if a != 0],
             "action_count": self.game.action_count,
             "level_action_count": self.game.action_count - self._level_start,
@@ -126,8 +120,8 @@ class ArcHost:
         }
 
     # --- host requests -----------------------------------------------------------------------------------
-    def handle(self, req: dict[str, Any], source: str = "repl") -> dict[str, Any]:
-        """``source`` is "repl" for kernel requests and "tool" for the act tool."""
+    def handle(self, req: dict[str, Any], source: str = "tool") -> dict[str, Any]:
+        """``source`` is recorded on each step ("tool" for the act tool)."""
         kind = req.get("type")
         with self._lock:
             if kind == "arc.observe":
@@ -136,38 +130,26 @@ class ArcHost:
                 start = max(0, int(req.get("start", 0)))
                 return {"transitions": self.transitions[start:]}
             if kind in ("arc.step", "arc.reset"):
-                if source == "repl" and not self.repl_actions:
-                    raise PermissionError("in this harness the REPL cannot spend actions: use the `act` tool")
                 if kind == "arc.reset":
                     if self._since_reset == 0 and self.game.state.engine_state.name != "GAME_OVER":
-                        raise ValueError("arc.reset() refused: the level is already at its start (no action since it "
+                        raise ValueError("reset refused: the level is already at its start (no action since it "
                                          "began or was last reset), so a reset would cost an action and change nothing.")
                     return self._step({"action": 0}, source)
                 if int(req.get("action", -1)) == 0:
-                    raise ValueError("arc.step(0) is RESET, which restarts the level and loses its progress. Call "
-                                     "`await arc.reset()` if you mean that; game actions are the ids in "
-                                     "obs.available_actions.")
+                    raise ValueError("action 0 is RESET, which restarts the level and loses its progress. Send "
+                                     "\"reset\" if you mean that; game actions are the legal ids in the status line.")
                 return self._step(req, source)
         raise ValueError(f"unknown arc request {kind!r}")
 
-    def _step(self, req: dict[str, Any], source: str = "repl") -> dict[str, Any]:
+    def _step(self, req: dict[str, Any], source: str = "tool") -> dict[str, Any]:
         if self.finished:
             raise RuntimeError(f"the game is over ({self.status_line()})")
         if self.should_stop():
             raise RuntimeError("the run is stopping (time budget spent); no more actions")
         if self.budget_left == 0:
             raise RuntimeError(f"action budget exhausted ({self.max_actions})")
-        if self.reflection_due:
-            raise RuntimeError(f"harness limit: reflection checkpoint pending ({self.reflection_due}). Write or update "
-                               "a memory with rlm.harness before the next arc.step. This is a harness rule, not a "
-                               "game rule.")
-        if self.max_actions_per_cell and self.cell_actions >= self.max_actions_per_cell:
-            self.cell_cap_hits += 1
-            raise RuntimeError(f"harness limit: at most {self.max_actions_per_cell} arc.step/arc.reset calls per "
-                               "ipython call, and this call has used them. Read the results, then act in a new "
-                               "ipython call. This is a harness rule, not a game rule.")
         action_id = int(req["action"])
-        legal = [a for a in self.game.state.available_actions if a != 0]  # as in observation(): RESET is arc.reset()
+        legal = [a for a in self.game.state.available_actions if a != 0]  # as in observation(): RESET is only "reset"
         try:
             ga = arcengine.GameAction.from_id(action_id)  # GameAction(int) raises: the enum values are not plain
         except (ValueError, KeyError):
@@ -183,7 +165,7 @@ class ArcHost:
         self.cell_actions += 1
         tokens = self.tokens_spent()
         ref = {k: v for k, v in (self.step_ref or {}).items() if k in _REF_KEYS}
-        ref["k"] = self.cell_actions  # 1-based index of this action within its cell
+        ref["k"] = self.cell_actions  # 1-based index of this action within its act call
         reasoning = _reasoning(ref, self.step_ref if self.cell_actions == 1 else None) if self.game.record else None
         new = self.game.execute_action(arcengine.ActionInput(id=ga, data=data),
                                        generated_tokens=max(0, tokens - self._token_mark), reasoning=reasoning,

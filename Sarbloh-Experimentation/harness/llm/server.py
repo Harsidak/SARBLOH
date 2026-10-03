@@ -1,7 +1,7 @@
 """The model server on Kaggle (vLLM or SGLang), model-free: offline install, a profile chain, a tool-call smoke test and a watchdog. Everything
 model-specific (weights, flags, parsers, sampling) comes from a ``ModelSpec`` (gemma.py, qwen.py).
 
-Robustness, from E006 (three APIServer freezes; the fixed 2-restart budget ran out, then 900 s x 4 client retries
+Robustness, from a past run (three APIServer freezes; the fixed 2-restart budget ran out, then 900 s x 4 client retries
 blocked every game for about 30 minutes):
 - A freeze counts as a failure even when the process is alive: /metrics must answer, and its token counters must move
   while requests are running.
@@ -12,9 +12,9 @@ blocked every game for about 30 minutes):
 - Restarts are budgeted by remaining wall clock, not a fixed count. After ``fallback_after`` freezes on one profile,
   the watchdog moves to the next profile in the chain with the same tool mode.
 - Every server event is one line in server_events.jsonl.
-- Site-packages live in /tmp, not /kaggle/working (E006: 10+ GB of wheels made the output download hang).
+- Site-packages live in /tmp, not /kaggle/working (10+ GB of wheels once made the output download hang).
 
-E109: a prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
+A prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
 The watchdog then reads ``sglang:*`` counters, and a /metrics that does not answer counts
 as a failure only when the health endpoint does not answer either.
 """
@@ -108,7 +108,7 @@ def parse_metrics(text: str) -> dict[str, float]:
 def token_counters(m: dict[str, float]) -> tuple[float, float]:
     """(prompt + generation tokens so far, requests running) from vLLM or SGLang metrics; (0, 0) when absent.
     SGLang's ``prompt/generation_tokens_total`` only move when a request finishes, so one long thinking request
-    looked frozen and was killed (E109 ls20); ``sglang:realtime_tokens_total`` moves every decode step."""
+    looked frozen and was killed (an ls20 run); ``sglang:realtime_tokens_total`` moves every decode step."""
     tokens = sum(m.get(f"{p}:{k}", 0.0) for p in ("vllm", "sglang")
                  for k in ("prompt_tokens_total", "generation_tokens_total", "realtime_tokens_total"))
     running = m.get("vllm:num_requests_running", 0.0) + m.get("sglang:num_running_reqs", 0.0)
@@ -146,7 +146,7 @@ class LlmServer:
         self.freezes: dict[str, int] = {}
         self.startup_s: float | None = None
         self.image_probe: str | None = None  # the model's answer to the image smoke test (vision profiles)
-        self.backend = "vllm"                # E109: "sglang" when the running profile's runtime says so
+        self.backend = "vllm"                # "sglang" when the running profile's runtime says so
         self._stop = threading.Event()
         self._lock = threading.RLock()
 
@@ -184,7 +184,7 @@ class LlmServer:
     # --- install -----------------------------------------------------------------------------------------
     def libcuda_link_dir(self) -> Path | None:
         """FlashInfer JIT-links its sm120 NVFP4 GEMM with ``-lcuda``. The Kaggle image ships only the driver's
-        ``libcuda.so.1`` (no unversioned ``libcuda.so``, no CUDA stub), so ld fails (E003 v1: "cannot find -lcuda").
+        ``libcuda.so.1`` (no unversioned ``libcuda.so``, no CUDA stub), so ld fails (seen in the first run: "cannot find -lcuda").
         Give ld a ``libcuda.so`` symlink via LIBRARY_PATH."""
         if Path("/usr/local/cuda/lib64/stubs/libcuda.so").exists():
             return None
@@ -297,7 +297,7 @@ class LlmServer:
 
     def failure_excerpt(self, lines: int = 40) -> str:
         """The engine's own error lines from the last profile section. The plain tail is only the APIServer
-        traceback ("See root cause above"), which hid the real cause in E003 v1."""
+        traceback ("See root cause above"), which hid the real cause in the first run."""
         if not self.log_path.exists():
             return ""
         text = self.log_path.read_text(encoding="utf-8", errors="replace")
@@ -557,7 +557,7 @@ class LlmServer:
             return "exited"
         m = self.metrics()
         if m is None and self.backend != "vllm" and self.healthy(timeout=10):
-            m = {}  # E109: a server without (or with a slow) /metrics is alive if it answers /v1/models
+            m = {}  # a server without (or with a slow) /metrics is alive if it answers /v1/models
         if m is None:
             state["failures"] = state.get("failures", 0) + 1
             return "unresponsive" if state["failures"] >= self.wd["failures_to_restart"] else None

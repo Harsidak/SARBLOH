@@ -1,4 +1,4 @@
-"""E111: priority scheduler. Every game is alive from the start; only ``slots`` of them hold the GPU at a time.
+"""Priority scheduler. Every game is alive from the start; only ``slots`` of them hold the GPU at a time.
 
 A game must hold a slot to call the LLM. ``ScheduledLLM`` wraps the shared client for one game: its first ``chat``
 waits for a slot, the game keeps the slot for ``quantum_calls`` LLM calls (its tool runs in between take
@@ -10,7 +10,7 @@ Priority of a game playing level L+1 of n (L levels won), ``t`` output tokens sp
     gain x hope,   gain = (L + 1) / (n (n + 1) / 2),   hope = 0.5 ** ((t / token_scale) ** 2)
 
 ``gain`` is the weight the next level has in the game's RHAE (levels are weighted by index). ``hope`` falls with the
-tokens a level has eaten without a win: with token_scale 80k (E111, from the 2026-10-01 run: 6 of 9 level-1 wins came
+tokens a level has eaten without a win: with token_scale 80k (from the 2026-10-01 run: 6 of 9 level-1 wins came
 before 52k tokens, the 8 games that never won burned ~150k) it is 0.76 at 50k and 0.09 at 150k. A game that just won a
 level is deeper and fresh again, so it goes to the top; a game stuck for long sinks below the games not yet helped.
 

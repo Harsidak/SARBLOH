@@ -1,4 +1,4 @@
-"""E008 context builder: what is sent to the server on every turn.
+"""Context builder: what is sent to the server on every turn.
 
     [system] -> [memory: game status, goal, plan, skills, hypotheses, findings, lessons, open questions] -> recent turns
 

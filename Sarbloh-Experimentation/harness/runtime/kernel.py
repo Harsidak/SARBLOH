@@ -39,17 +39,12 @@ try:
     import numpy as np
 except Exception:
     np = None
-try:
-    import arc
-except Exception as _arc_exc:
-    arc = None
-if os.environ.get("PRIME_TOOLSET") == "e008":
-    from observation import observe   # E116: the state, read-only; the REPL cannot fetch the game or act
-    class _NoArc:
-        def __getattr__(self, name):
-            raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
-                               "and act with the act tool.")
-    arc = _NoArc()
+from observation import observe   # the state, read-only; the REPL cannot fetch the game or act
+class _NoArc:
+    def __getattr__(self, name):
+        raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
+                           "and act with the act tool.")
+arc = _NoArc()
 """
 
 

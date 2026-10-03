@@ -3,8 +3,8 @@
     uv run python Sarbloh/harness/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
 
 Sources in <run_dir>: ``results.json`` and, per game, ``games/<game_id>/transcript.jsonl`` (every message of the
-root session with the model's reasoning, every cell, and, since E006, one structured event per step, act, reset,
-plan, memory write, recall, delegation, message and world-model check), plus the ARC SDK recording
+root session with the model's reasoning, every cell, and one structured event per step, act, memory write,
+recall and curator pass; older transcripts also have reset, plan, delegation, message and world-model events), plus the ARC SDK recording
 ``recordings/<scorecard>/<game_id>-<guid>.jsonl`` (one line per environment step). Without a recording the actions
 come from ``run.history``.
 
@@ -191,11 +191,11 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     remembers = [e for e in events if e.get("event") == "remember"]
     plans = [e for e in events if e.get("event") == "plan"]
     wm_events = [e for e in events if e.get("event") == "wm"]
-    hyps = [e for e in events if e.get("event") == "hypothesis"]          # E008
-    goal_events = [e for e in events if e.get("event") == "goal"]         # E008
-    level_ups = [e for e in events if e.get("event") == "level_up"]       # E008
-    curations = [e for e in events if e.get("event") == "curator"]        # E008
-    recalls = [e for e in events if e.get("event") == "recall"]           # E008
+    hyps = [e for e in events if e.get("event") == "hypothesis"]
+    goal_events = [e for e in events if e.get("event") == "goal"]
+    level_ups = [e for e in events if e.get("event") == "level_up"]
+    curations = [e for e in events if e.get("event") == "curator"]
+    recalls = [e for e in events if e.get("event") == "recall"]
 
     # 1. actions and their causes ------------------------------------------------------------------------
     act_by_call = {str(a.get("call")): a for a in acts}
@@ -222,7 +222,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
                 "level_up": s.get("level_up"), "wm_match": wm_of.get(s.get("i")),
                 "self_verdict": next_verdict.get(call) if act else None, "repeat_of": s.get("repeat_of"),
                 "t": round(s.get("t", t0) - t0, 1)})
-    else:  # E005 and earlier: no step events; the recording has the action, the call and the level
+    else:  # old transcripts without step events: the recording has the action, the call and the level
         prev_level = 0
         for r in rows:
             actions.append({"i": r["i"], "turn": r.get("turn"), "call": r.get("call"), "tool": "ipython",
@@ -261,7 +261,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
             beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
                             "first_level": None, "kinds": ["refine"], "versions": 1, "refuted_at": None,
                             "evidence": [], "content": _one(json.dumps(e.get("applied"), default=str), 300)}
-    for h in hyps:   # E008: the agent's hypotheses, with the statuses it set
+    for h in hyps:   # the agent's hypotheses, with the statuses it set
         bid = f"{h.get('level')}:{h.get('id')}"
         b = beliefs.setdefault(bid, {"id": bid, "title": None, "first_turn": h.get("turn"),
                                      "first_action": h.get("action_count"), "first_level": h.get("level"),
@@ -368,8 +368,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     end = next((e for e in reversed(events) if e.get("event") == "end"), {})
     stats = end.get("stats") or {}
     tool_counts = stats.get("tool_counts") or dict(Counter(tool_of_call.values()))
-    ran = next((e.get("toolset") for e in events if e.get("event") == "system_prompt" and e.get("toolset")), None)
-    ctx = {**context, **({"toolset": ran} if ran else {}), "end_reason": session.get("end_reason") or end.get("reason"),
+    ctx = {**context, "end_reason": session.get("end_reason") or end.get("reason"),
            "wall_s": session.get("wall_s"), "tokens_total": session.get("tokens_total"),
            "output_tokens": stats.get("output_tokens"), "prompt_tokens_last": stats.get("prompt_tokens_last"),
            "turns": stats.get("turns"), "compactions": comps, "tool_counts": tool_counts,
@@ -378,7 +377,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "wm_events": [{k: v for k, v in e.items() if k not in ("event",)} for e in wm_events],
            "wm_checks": stats.get("wm_checks"), "wm_mispredictions": stats.get("wm_mispredictions"),
            "plan_versions": len(plans),
-           # E008
+           # memory and curator
            "act_arg_errors": stats.get("act_arg_errors"), "recalls": len(recalls),
            "recall_scopes": dict(Counter(str(r.get("scope")) for r in recalls)),
            "hypotheses": len({(h.get("level"), h.get("id")) for h in hyps}),
@@ -404,10 +403,11 @@ def render_report(a: dict[str, Any]) -> str:
     c = a["context"]
     out = [f"# {a['game_id']}: trace report", "",
            f"level {a['levels_completed']}/{a['number_of_levels']} | score {a['score']} | {len(a['actions'])} actions "
-           f"| end {c.get('end_reason')} | toolset {c.get('toolset')}", ""]
+           f"| end {c.get('end_reason')}", ""]
     # 1
     out += ["## 1. Actions and their causes", "",
-            "`expect / plan` = E006's prediction or E008's plan for the act; `wm` / `self` = E006 only; `repeat` = "
+            "`expect / plan` = the plan written with the act (a prediction in old transcripts); `wm` / `self` = "
+            "old transcripts only; `repeat` = "
             "same state and action as an earlier step.", "",
             "| # | turn | call | tool | action | expect / plan | what happened | wm | self | repeat |",
             "|---|---|---|---|---|---|---|---|---|---|"]
@@ -466,7 +466,7 @@ def render_report(a: dict[str, Any]) -> str:
     # 5
     out += ["", "## 5. Run context", "",
             f"- experiment `{c.get('experiment')}`, config hash `{c.get('config_hash')}`, git `{c.get('git_sha')}`, "
-            f"model `{c.get('model')}`, toolset `{c.get('toolset')}`",
+            f"model `{c.get('model')}`",
             f"- end reason {c.get('end_reason')}, wall {c.get('wall_s')} s, turns {c.get('turns')}, output tokens "
             f"{c.get('output_tokens')}, all tokens {c.get('tokens_total')}, last prompt "
             f"{c.get('prompt_tokens_last')}",
@@ -476,7 +476,7 @@ def render_report(a: dict[str, Any]) -> str:
             + (", ".join(f"{e.get('kind')} {e.get('name', '')} v{e.get('version', '')}"
                          + (f" {e.get('passed')}/{e.get('tested')}" if e.get('kind') == 'check' else "")
                          for e in c.get("wm_events") or []) or "none"),
-            f"- E008: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
+            f"- memory: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
             f"{json.dumps(c.get('recall_scopes'))}, hypotheses {c.get('hypotheses')} "
             f"{json.dumps(c.get('hypothesis_statuses'))}, levels without a hypothesis "
             f"{c.get('levels_without_hypothesis')}, promotions {c.get('promotions')}, curator runs "
@@ -576,7 +576,7 @@ def _merge_users(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             a, b = out[-1]["content"], m["content"]
             if isinstance(a, str) and isinstance(b, str):
                 out[-1] = {**out[-1], "content": f"{a}\n\n{b}"}
-            else:   # E008 observations are lists of parts (text + image marker)
+            else:   # observations are lists of parts (text + image marker)
                 out[-1] = {**out[-1], "content": _as_parts(a) + _as_parts(b)}
         else:
             out.append(m)
@@ -592,7 +592,7 @@ def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[
     """One row per level played: the messages produced while that level was current, tagged for filtering.
 
     The level switches after the tool round that cleared it (at the next message that is not a tool result), so a
-    row never splits an assistant tool call from its result. Level-ups come from ``step`` events (E006) or, for older
+    row never splits an assistant tool call from its result. Level-ups come from ``step`` events or, for older
     transcripts, from the recording rows (the call that raised ``levels``)."""
     system = next((e for e in events if e.get("event") == "system_prompt"), {})
     task = next((e for e in events if e.get("event") == "message" and e.get("role") == "user" and not e.get("_kind")),
@@ -641,7 +641,7 @@ def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[
             "actions": n, "baseline": base[lvl] if lvl < len(base) else None, "starts_mid_conversation": lvl > 0,
             "system": system.get("content"), "tools": system.get("tools"), "messages": _merge_users(msgs),
             "level_source": "steps" if has_steps else "recording",
-            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model", "toolset")}})
+            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model")}})
     return out
 
 
@@ -653,11 +653,10 @@ def build_run(run_dir: Path) -> Path:
     summ = results.get("summary") or {}
     cfg = results.get("config") or {}
     context = {"experiment": summ.get("experiment") or cfg.get("experiment"), "config_hash": summ.get("config_hash"),
-               "git_sha": summ.get("git_sha"), "model": summ.get("model") or (cfg.get("llm") or {}).get("model"),
-               "toolset": summ.get("toolset") or (cfg.get("agent") or {}).get("toolset", "ipython")}
+               "git_sha": summ.get("git_sha"), "model": summ.get("model") or (cfg.get("llm") or {}).get("model")}
     table = ["# Trace index", "",
              f"experiment `{context['experiment']}` | config `{context['config_hash']}` | git `{context['git_sha']}` | "
-             f"model `{context['model']}` | toolset `{context['toolset']}`", "",
+             f"model `{context['model']}`", "",
              "| game | levels | actions | turns | tools used | act calls | resets | GAME_OVERs | repeats | "
              "beliefs | living code | wm checks | promotions | compactions | end | report | map |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]

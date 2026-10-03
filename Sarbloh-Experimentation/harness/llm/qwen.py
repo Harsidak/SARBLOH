@@ -1,19 +1,19 @@
 """Qwen 3.8: everything Qwen-specific for the shared serving layer (see spec.py).
 
-E008 (owner decision, 2026-10-01): the model is Qwen3.8-27B, not Flash-Next. The chain is
+Owner decision, 2026-10-01: the model is Qwen3.8-27B, not Flash-Next. The chain is
 ``qwen_fp8_vision`` -> ``qwen_fp8``: the official ``Qwen/Qwen3.8-27B-FP8`` (Kaggle snapshot ``FP8`` below) on the shared
 vLLM 0.19 wheelhouse with prefix caching and a 65k window, first with one image per prompt (the agent is shown a PNG of
 the game after every act), then text only if the image start or the image smoke test fails. The vision tower is in the
 checkpoint's config (checked 2026-10-01); image serving on vLLM 0.19 FP8 is UNCONFIRMED until the first Kaggle start.
 
 Flags: qwen3_coder tool parser, qwen3 reasoning parser. Sampling follows the Duck: thinking on, temperature 0.6 /
-top_p 0.95 / top_k 20. E007 v3 measured ``qwen_fp8`` at 388 tok/s over 10 streams with a 0.63 prefix hit rate.
+top_p 0.95 / top_k 20. The serving bench (v3) measured ``qwen_fp8`` at 388 tok/s over 10 streams with a 0.63 prefix hit rate.
 
-The Flash-Next profiles (Keith Tyser's pinned runtime, ``qwen4_exp`` MoE, E007) stay defined but are not in the chain:
-E007 v4 killed ``qwen_flash_pc_64k`` (KV cache does not fit) and ``qwen_flash_pc`` (8.7% prefix hits), and the Flash-Next
+The Flash-Next profiles (Keith Tyser's pinned runtime, ``qwen4_exp`` MoE) stay defined but are not in the chain:
+The serving bench (v4) killed ``qwen_flash_pc_64k`` (KV cache does not fit) and ``qwen_flash_pc`` (8.7% prefix hits), and the Flash-Next
 stress test failed. The bundle licence is MIT in its SOURCE_IDENTITY and "unknown" on Kaggle: UNCONFIRMED.
 The 27B NVFP4 (overseer66, an unsloth mixed quant) is gone: vLLM 0.19 has no ``lm_head.weight_scale`` for its FP8
-lm_head (E007 v3). ``nvidia/Qwen3.8-27B-NVFP4`` runs on SGLang instead (E112, ``SGLANG_CHAIN`` below).
+lm_head (bench v3). ``nvidia/Qwen3.8-27B-NVFP4`` runs on SGLang instead (``SGLANG_CHAIN`` below).
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ PROFILES: dict[str, dict[str, Any]] = {
     # Prefix caching plus the 65k window our agent's compaction needs (trigger 40k, reserve 16k).
     "qwen_flash_pc_64k": {"model_dataset": FLASH, "runtime": "flash_next", "env": {},
                           "flags": {**FLASH_PC, "--max-model-len": "65536"}},
-    # Prefix caching: the agent's prompts are long and append-only (E007 v3: 2.0 s vs 8.1 s per later turn).
+    # Prefix caching: the agent's prompts are long and append-only (bench v3: 2.0 s vs 8.1 s per later turn).
     "qwen_flash_pc": {"model_dataset": FLASH, "runtime": "flash_next", "env": {}, "flags": FLASH_PC},
     # The Duck's exact serving recipe: the reference.
     "qwen_flash": {"model_dataset": FLASH, "runtime": "flash_next", "env": {}, "flags": FLASH_FLAGS},
@@ -93,18 +93,18 @@ PROFILES: dict[str, dict[str, Any]] = {
         **BASE, **TOOLS, "--enable-prefix-caching": None, "--max-model-len": "65536", "--max-num-seqs": "32",
         "--max-num-batched-tokens": "8192"}},
 }
-# E008: the same profile with one image per prompt (the agent keeps only the newest game image in its context).
+# The same profile with one image per prompt (the agent keeps only the newest game image in its context).
 PROFILES["qwen_fp8_vision"] = {**PROFILES["qwen_fp8"], "flags": {
     **PROFILES["qwen_fp8"]["flags"], "--limit-mm-per-prompt": '{"image": 1, "video": 0}'}}
 
-# E112 (option B, owner go 2026-10-02): nvidia/Qwen3.8-27B-NVFP4 on SGLang 0.5.19 "Pennyroyal" (the milestone-2
+# Option B (owner go 2026-10-02): nvidia/Qwen3.8-27B-NVFP4 on SGLang 0.5.19 "Pennyroyal" (the milestone-2
 # reference's RTX Pro 6000 build). The checkpoint is ModelOpt MIXED_PRECISION: MLP + lm_head NVFP4 (group 16),
 # self-attention and Gated-DeltaNet projections FP8, the MTP layer (mtp.*) unquantized, so NEXTN speculation runs on
 # the model's own MTP head. SGLang detects the format from config.json (quant_method "modelopt" -> "modelopt_mixed"),
 # so no --quantization flag. Kaggle: banwait13/qwencoder = the HF snapshot (shard sizes equal our SHA256-verified local
 # download of 2026-10-01). Wheels: banwait13/sglangwheels (flat copy of the Pennyroyal v2.5.3 wheelhouse).
 # Flags follow the reference launcher (CFG in kaggle/reference/arc-agi-3-milestone-2-solution.ipynb, cell 12) minus
-# its Flash-Next-only ones (AutoRound, external draft, PLE offload, MoE runner). E112 measured 1162 tok/s with MTP5
+# its Flash-Next-only ones (AutoRound, external draft, PLE offload, MoE runner). The NVFP4 bench measured 1162 tok/s with MTP5
 # (10 streams, thinking on). FR-Spec (--speculative-token-map) is not used: it crashes with the NVFP4 lm_head.
 NVFP4 = "banwait13/qwencoder"
 SGLANG_WHEELS = "banwait13/sglangwheels"
@@ -127,7 +127,7 @@ SGL_NV = {
 SGL_NV_MTP = {"--speculative-algorithm": "NEXTN", "--speculative-num-steps": "3", "--speculative-eagle-topk": "1",
               "--speculative-num-draft-tokens": "4", "--gdn-mtp-cache-mode": "none",
               "--speculative-accept-threshold-single": "1.0", "--speculative-accept-threshold-acc": "1.0"}
-# Five draft steps instead of three: the E112 bench winner.
+# Five draft steps instead of three: the NVFP4 bench winner.
 SGL_NV_MTP5 = {**SGL_NV_MTP, "--speculative-num-steps": "5", "--speculative-num-draft-tokens": "6"}
 
 
@@ -144,7 +144,7 @@ PROFILES.update({
     "sglang_nvfp4_vision": _nv(True),
     "sglang_nvfp4": _nv(False),
 })
-# E112 chain: NVFP4 + MTP5 + image, then MTP3, then no MTP, then text only, then the measured vLLM FP8 fallback.
+# NVFP4 chain: NVFP4 + MTP5 + image, then MTP3, then no MTP, then text only, then the measured vLLM FP8 fallback.
 SGLANG_CHAIN = ["sglang_nvfp4_mtp5_vision", "sglang_nvfp4_mtp_vision", "sglang_nvfp4_vision", "sglang_nvfp4",
                 "qwen_fp8_vision", "qwen_fp8"]
 
@@ -152,7 +152,7 @@ SPEC = ModelSpec(
     name="qwen",
     served_model_name="qwen3.8",
     profiles=PROFILES,
-    # E008: Qwen3.8-27B-FP8 with images, then the same without (a failed image start or image smoke test).
+    # Qwen3.8-27B-FP8 with images, then the same without (a failed image start or image smoke test).
     profile_chain=["qwen_fp8_vision", "qwen_fp8"],
     llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens

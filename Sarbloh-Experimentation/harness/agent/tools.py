@@ -1,13 +1,9 @@
 """Tool schemas the host offers the model.
 
-Upstream Prime Agent exposes one tool, the persistent ``ipython`` REPL; that is ``toolset: "ipython"`` (E003-E005, the
-control arm). ``toolset: "e008"`` gives three: ``ipython`` to think and compute (it cannot act and cannot read the
-raw game; it reads the state with ``observe()``), ``act`` to move (1 to N actions, plus the agent's plan, hypotheses,
-findings and goal), and ``recall`` to search memory and skills. The observation is pushed after every act; there is
-nothing to fetch. The handlers live in ``harness.agent.agent.AgentSession``.
-
-E006's ``dedicated`` toolset (plan, reset_level, remember, delegate, message, and ``expect`` / ``was_right`` on act)
-was removed on 2026-10-01 for E008; it is in git history (commit f117ca4).
+Three tools: ``ipython`` to think and compute (it cannot act and cannot read the raw game; it reads the state with
+``observe()``), ``act`` to move (1 to N actions, plus the agent's plan, hypotheses, findings and goal), and ``recall``
+to search memory and skills. The observation is pushed after every act; there is nothing to fetch. The handlers live
+in ``harness.agent.agent.AgentSession``.
 """
 
 from __future__ import annotations
@@ -18,38 +14,33 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
         "type": "object", "properties": properties, "required": required}}}
 
 
-IPYTHON_TOOL = _fn(
+IPYTHON = _fn(
     "ipython",
-    "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded "
-    "data persist across calls. Run shell commands with `bash('cmd')` / `await bash('cmd')`.",
-    {"code": {"type": "string", "description": "Python code to execute in the persistent Python REPL."}},
-    ["code"])
-
-IPYTHON_E008 = _fn(
-    "ipython",
-    "Run Python in a persistent REPL, to think and compute. Free. `obs = observe()` gives the current state, "
-    "read-only, and the full state (briefing, objects, board and picture) is shown to you in the next message, once "
-    "per state. For your code: `obs.board[r][c]` (the colour letter at row r, column c), `obs.objects` (list of "
-    "dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, corners, parent, children, adjacent, hud, cells), "
-    "`obs.change` (the newest change line), `obs.briefing`, `obs.history` (the last 20 steps), "
-    "`print(obs.ascii(r0, c0, r1, c1))`. An `obs` does not update: call observe() again after an act. Variables and "
-    "functions persist. It cannot spend actions: use act.",
+    "Run Python in a persistent REPL, to think and compute. Free. Variables, functions and imports persist for the "
+    "whole game, across levels: write code once as functions, change them when the game shows something new, and "
+    "reuse them. `obs = observe()` gives the current state, read-only, and the full state (briefing, objects, board "
+    "and picture) is shown to you in the next message, once per state. For your code: `obs.board[r][c]` (the colour "
+    "letter at row r, column c), `obs.objects` (list of dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, "
+    "corners, parent, children, adjacent, hud, cells), `obs.change` (the newest change line), `obs.briefing`, "
+    "`obs.history` (the last 20 steps), `print(obs.ascii(r0, c0, r1, c1))`. An `obs` does not update: call observe() "
+    "again after an act. It cannot spend actions: make the moves your code finds with act.",
     {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
     ["code"])
 
-ACT_E008 = _fn(
+ACT = _fn(
     "act",
     "Spend 1 to {max} game actions, in order; each costs 1 action against the score. Write your memory with the "
-    "same call: `plan` always; `hypotheses`, `findings` and `goal` when they change. The result gives one change line "
-    "per action, then the new state (the changed region, its objects and a picture) arrives as the next message. The "
-    "batch stops early at a level-up or a GAME_OVER.",
+    "same call: `plan` often, and `hypotheses`, `findings` and `goal` when they change. The result gives one change "
+    "line per action, then the new state (the changed region, its objects and a picture) arrives as the next message. "
+    "The batch stops early at a level-up or a GAME_OVER.",
     {"actions": {"type": "array", "items": {"type": "string"},
                  "description": "Up to {max} actions: \"1\" up, \"2\" down, \"3\" left, \"4\" right, \"5\" space "
                                 "(the game's special action), \"6 r c\" click the cell at row r, column c, \"7\" undo, "
                                 "\"reset\" restart the level. Only the legal ones work; the meaning of each is yours "
                                 "to verify. Example: [\"1\", \"1\", \"4\"] or [\"6 12 40\"]."},
      "plan": {"type": "string",
-              "description": "Your next steps and why, in one or two sentences. Replaces the previous plan."},
+              "description": "Optional. Your next steps and why, in one or two sentences. Replaces the previous plan; "
+                             "leave it out to keep the previous one."},
      "hypotheses": {"type": "array", "description": "New hypotheses, or status changes of old ones (by id). You "
                                                     "decide the status: proposed, verified (it predicted steps it did "
                                                     "not come from) or refuted (a step contradicted it).",
@@ -63,9 +54,9 @@ ACT_E008 = _fn(
      "findings": {"type": "array", "items": {"type": "string"},
                   "description": "Facts you have established in this level, one short sentence each."},
      "goal": {"type": "string", "description": "What wins the level, as you now believe it. Kept across levels."}},
-    ["actions", "plan"])
+    ["actions"])
 
-RECALL_E008 = _fn(
+RECALL = _fn(
     "recall",
     "Search your memory. Free. Finds steps (\"#12\", \"12-20\", \"level 1\", or words), hypotheses and findings of "
     "earlier levels, your goal history, lessons from other levels and games, and skills.",
@@ -74,18 +65,12 @@ RECALL_E008 = _fn(
                "description": "Where to search. Default all."}},
     ["query"])
 
-E008_TOOLS = ("ipython", "act", "recall")
 
-
-def toolset(mode: str, *, act_max: int) -> list[dict]:
-    """The tool list for a session. ``mode`` is the config's ``agent.toolset``: "e008" or "ipython"."""
-    if mode == "e008":
-        fn = ACT_E008["function"]
-        props = dict(fn["parameters"]["properties"])
-        props["actions"] = {**props["actions"], "description": props["actions"]["description"].format(max=act_max)}
-        act = {"type": "function", "function": {**fn, "description": fn["description"].format(max=act_max),
-                                                "parameters": {**fn["parameters"], "properties": props}}}
-        return [IPYTHON_E008, act, RECALL_E008]
-    if mode not in ("e008", "ipython"):
-        raise ValueError(f"unknown toolset {mode!r}: 'e008' or 'ipython'")
-    return [IPYTHON_TOOL]
+def game_tools(*, act_max: int) -> list[dict]:
+    """The tool list for a session, with ``act_max`` filled into the act schema."""
+    fn = ACT["function"]
+    props = dict(fn["parameters"]["properties"])
+    props["actions"] = {**props["actions"], "description": props["actions"]["description"].format(max=act_max)}
+    act = {"type": "function", "function": {**fn, "description": fn["description"].format(max=act_max),
+                                            "parameters": {**fn["parameters"], "properties": props}}}
+    return [IPYTHON, act, RECALL]

@@ -1,4 +1,4 @@
-"""``observe()``: the game state in the E008 REPL, read-only. Pre-imported when the toolset is "e008" (E116).
+"""``observe()``: the game state in the REPL, read-only. Pre-imported by the kernel.
 
 The host writes ``$RLM_SESSION_DIR/.prime/observation.json`` after every act and appends one line per step to
 ``history.jsonl``. ``observe()`` reads them, and it tells the host (a display event of type ``MIME``) to send the

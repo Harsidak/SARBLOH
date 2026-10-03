@@ -1,6 +1,6 @@
-"""E116 perception: everything the agent is shown about a game frame, in one file. Host side only.
+"""Perception: everything the agent is shown about a game frame, in one file. Host side only.
 
-Replaces E008's ``vision.py`` (the picture) and ``intuition.py`` (letters, objects, change lines). Coordinates are
+Replaces the old ``vision.py`` (the picture) and ``intuition.py`` (letters, objects, change lines). Coordinates are
 always (row, column), top-left = (0, 0), the order of the ``act`` click "6 r c".
 
 Three layers:
@@ -8,22 +8,22 @@ Three layers:
 1. Text views (kept from ``intuition.py``): the board as colour letters with numbered rows and columns; objects as
    4-connected one-colour regions whose ids stay the same across the steps of a level (``Tracker``); one change
    line per step.
-2. The X8 briefing, E115's winner (``experiments/E115_perception_lab/code/experiments/X8_fusion``), ported to work on
+2. The briefing, the winner of the perception lab (``experiments/*_perception_lab``, fusion variant), ported to work on
    the grid instead of a screenshot. A blueprint layout of the frame (terrain, panels, HUD, composite "things"),
    then MEASURED facts computed by code (reach, enclosure, tethers and midpoints, alignment, look-alikes, copies,
    lopsided colours) and GUESSES (a role per thing, each with a one-action test). A thing is named after the
    object-list id that covers most of it, so the text, the picture and the change lines share one set of ids.
-3. The picture: X8's map (blueprint, role tags, look-alike threads, midpoint rings, tile lattice) with the HUD drawn
+3. The picture: the lab's map (blueprint, role tags, look-alike threads, midpoint rings, tile lattice) with the HUD drawn
    enlarged on the right. The briefing is not drawn into it: it travels as text.
 
     ascii(grid, box) / legend(colours) / rows_of(grid)    text helpers
     segment(grid) -> (objects, background);  Tracker().observe(grid) -> (objects, change line or None)
-    brief(grid, objects, actions) -> Briefing             the X8 analysis
+    brief(grid, objects, actions) -> Briefing             the briefing analysis
     picture(briefing, cell) -> PNG;  render(grid, cell) -> PNG of the plain frame
     Scene(...).text(full=...)                             what the agent reads; Scene.to_json() feeds ``observe()``
     image_message(text, png, step)                        the user message that carries text and picture
 
-Deviations from X8, each for correctness or to bound the output on busy frames: facts name things by id; repeated
+Deviations from the lab version, each for correctness or to bound the output on busy frames: facts name things by id; repeated
 facts are dropped; "share one open space" is checked with a flood fill; alignment skips overlapping pairs; a line
 whose two ends touch the same thing is not a tether; things with no evidence get no guess; look-alikes and straight
 paths are checked among the largest things only (``MAX_PAIR_THINGS``, ``MAX_PATH_THINGS``); the tile-grid test leaves
@@ -374,7 +374,7 @@ def change_boxes(prev: Any, grid: Any, margin: int = 3) -> list[Box]:
 
 
 # =====================================================================================================================
-# 3. The X8 briefing: layout, measured facts, role guesses
+# 3. The briefing: layout, measured facts, role guesses
 # =====================================================================================================================
 
 NB4 = ((-1, 0), (1, 0), (0, -1), (0, 1))
@@ -531,7 +531,7 @@ def _norm(cells: list[Cell]) -> list[Cell]:
 
 
 def build_layout(g: np.ndarray) -> Layout:
-    """E115 ``scene.build_scene`` on a grid. Terrain is every colour above 8% of the frame; the rest is cut into
+    """The lab's ``scene.build_scene`` on a grid. Terrain is every colour above 8% of the frame; the rest is cut into
     one-colour pieces, which become lines, bars, composites (touching pieces of different colours), icons (pieces of
     one colour set inside one panel) and dotted figures (three or more tiny pieces close together)."""
     H, W = g.shape
@@ -1171,7 +1171,7 @@ def _share(sizes: list[int], room: int) -> list[int]:
 
 @dataclass
 class Briefing:
-    """The X8 analysis of one frame: the text tiers and what the picture draws."""
+    """The briefing analysis of one frame: the text tiers and what the picture draws."""
     controls: str                                   # "arrow keys", "clicks", "arrow keys and clicks", ...
     facts: dict[str, list[str]]                     # MEASURED by kind (``FACT_KINDS``): computed, true by construction
     guesses: list[str]                              # GUESSES: one line per role, each with a one-action test
@@ -1207,7 +1207,7 @@ class Briefing:
 
 
 def brief(grid: Any, objects: list[Obj], actions: Any = (1, 2, 3, 4), prev: Briefing | None = None) -> Briefing:
-    """The X8 briefing of ``grid``. ``objects`` are the frame's object list (things are named by its ids);
+    """The briefing of ``grid``. ``objects`` are the frame's object list (things are named by its ids);
     ``actions`` are the legal action ids (1-4 arrow keys, 6 click), which decide the YOU and HANDLE guesses. ``prev``
     is the briefing of the level's previous frame: its tile grid is kept while it still fits."""
     g = np.array(rows_of(grid), dtype=np.int16)
@@ -1270,7 +1270,7 @@ def brief(grid: Any, objects: list[Obj], actions: Any = (1, 2, 3, 4), prev: Brie
 
 
 # =====================================================================================================================
-# 4. The picture: X8's map and HUD panel, without the briefing text
+# 4. The picture: the map and HUD panel, without the briefing text
 # =====================================================================================================================
 
 PICTURE_TITLE = "Map: number = object id, ? = guessed role"
@@ -1341,7 +1341,7 @@ def render(grid: Any, cell: int = 4) -> bytes:
 
 
 def picture(b: Briefing, cell: int = 10) -> bytes:
-    """X8's map as a PNG: floor light, other terrain dark and hatched, panels pale yellow, the HUD grey-blue; things
+    """The map as a PNG: floor light, other terrain dark and hatched, panels pale yellow, the HUD grey-blue; things
     in their own colours, boxed in the colour of their guessed role and tagged "id: ROLE?"; dashed threads join
     look-alikes (magenta: turned or resized, blue: recoloured); a yellow ring marks a thing held at a midpoint; thin
     lines show the floor's tile grid. The HUD things are drawn again, enlarged, in a panel on the right."""

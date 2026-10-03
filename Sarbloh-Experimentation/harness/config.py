@@ -8,67 +8,54 @@ import json
 from typing import Any
 
 DEFAULT: dict[str, Any] = {
-    "experiment": "E008_perception_memory",
+    "experiment": "sarbloh_experimentation",   # the ledger label; the notebook sets the experiment directory name
     "games": None,                     # None = every environment; else ids or id prefixes (offline only)
     "concurrency": 8,                  # games played at once (each is a root session with its own kernel)
     "notebook_budget_s": 3600.0,       # whole notebook wall clock, measured from its first cell
     "teardown_reserve_s": 300.0,       # games are stopped this long before the budget ends
     "game_wall_s": 1800.0,             # cap per game
     "max_actions_per_game": 400,       # hard action budget per game (host-enforced)
-    "max_actions_per_cell": None,      # E004: host refuses arc.step beyond this many in one cell (None = off)
     "stop_after_levels": None,         # end each game after this many levels (local tests); None = play them all
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
-    # step ref (turn, tool call, and on a cell's first action its thought and code). Off on the competition rerun.
+    # step ref (turn, tool call, and on an act's first action its thought and arguments). Off on the competition rerun.
     "record": True,
-    # E111 priority scheduler (harness/scheduler.py). Off = E008: `concurrency` games at a time, each for game_wall_s.
+    # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
     "scheduler": {"enabled": False, "slots": 6, "quantum_calls": 4, "token_scale": 80000.0},
-    # --- agent ---------------------------------------------------------------------------------------------
+    # --- agent: tools ipython (read-only `observe()`), act and recall (harness/agent/tools.py) -------------
     "agent": {
-        "tool_mode": "native",         # native (ipython tool) | fenced (```python blocks); server start decides
-        # "e008" = ipython (read-only `observe()`) + act + recall, with perception pushed after every act and the
-        # agent-written memory (harness.agent.tools, harness.memory); "ipython" = upstream's single REPL tool (E003-E005,
-        # the control arm). Fenced mode always uses "ipython".
-        "toolset": "e008",
         "act_max_actions": 5,          # actions per act call
-        "allow_fenced_code": True,     # also execute fenced code when no native call came back
+        "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
         "max_tokens_per_turn": 16384,
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
-        # Ours (E005): also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
+        # Ours: also compact above trigger_tokens and keep 16k, because upstream's defaults are tuned for
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
         "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 40000},
         "max_consecutive_llm_failures": 6,
-        "reflect_every_actions": None,  # E004: forced harness write every N actions / level-up / GAME_OVER (None = off)
-        "reflect_max_reasks": 2,
-        # host-driven Continual Harness refinement; upstream defaults: on, every 25 turns + after compaction, 20 min
-        # cooldown
-        "auto_refine": {"enabled": True, "turn_interval": 25, "compact": True, "cooldown_s": 1200.0,
-                        "max_tokens": 4096},
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
-        # --- E008 (toolset "e008") -------------------------------------------------------------------------
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test
-        # E116 (harness/agent/perception.py): the full view (X8 briefing, objects, whole board, picture) at a level
-        # start, after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
+        # harness/agent/perception.py: the full view (briefing, objects, whole board, picture) at a level start,
+        # after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
         "perception": {
-            "image": True,             # the X8 picture with every observation (only if "vision" is True)
+            "image": True,             # the picture with every observation (only if "vision" is True)
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board: whole in the full view, changed region after an act
             "segmentation": True,      # object list with ids, hashes, containment, adjacency
-            "briefing": True,          # X8 briefing: MEASURED facts and GUESSES, in the full view
+            "briefing": True,          # briefing: MEASURED facts and GUESSES, in the full view
             "briefing_lines": 30,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 40,         # object rows shown per observation (the rest: `observe().objects`)
             "observation_tokens": 800,  # cap on the short view's text (chars / 4)
         },
         "memory": {
-            "lessons": True,           # the cross-game lessons graph (arm C switches it off)
-            "curator": True,           # hidden curator: open questions, promotions, skills (auto-refine)
-            "curator_every_turns": 25,  # also at every level-up and after every compaction
+            "lessons": True,           # the cross-game lessons graph
+            "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
+            "curator_every_turns": 25,  # also at every level-up (before its memory is cleared) and after compactions
             "curator_max_tokens": 4096,
             "recall_tokens": 1500,
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
@@ -82,7 +69,7 @@ DEFAULT: dict[str, Any] = {
     "model": "qwen",
     "llm": {
         "base_url": "http://127.0.0.1:8000/v1",
-        "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included (E007)
+        "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included
         "retries": 4,
     },
     # --- model server on Kaggle ----------------------------------------------------------------------------

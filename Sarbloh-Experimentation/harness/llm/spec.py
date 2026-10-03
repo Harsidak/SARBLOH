@@ -33,18 +33,18 @@ class ModelSpec:
     # Prebuilt server runtimes (vLLM or SGLang), for models the shared wheelhouse cannot serve. A profile with "runtime": "<name>" skips the
     # wheelhouse install; runtimes[name](working_dir, find_input) prepares the runtime once per process and returns
     # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}},
-    # optionally "python" (the interpreter that runs "serve") and "backend" ("vllm" | "sglang": metric names). E109.
+    # optionally "python" (the interpreter that runs "serve") and "backend" ("vllm" | "sglang": metric names).
     runtimes: dict[str, Callable[..., dict[str, Any]]] = field(default_factory=dict)
 
     def max_model_len(self, profile: str) -> int:
         flags = self.profiles[profile]["flags"]
-        return int(flags["--max-model-len"] if "--max-model-len" in flags else flags["--context-length"])  # E109
+        return int(flags["--max-model-len"] if "--max-model-len" in flags else flags["--context-length"])  # SGLang names it --context-length
 
     def has_tool_parser(self, profile: str) -> bool:
         return "--tool-call-parser" in self.profiles[profile]["flags"]
 
     def has_vision(self, profile: str) -> bool:
-        """True when the profile accepts at least one image per prompt: ``"vision"`` in the profile (E109, SGLang has
+        """True when the profile accepts at least one image per prompt: ``"vision"`` in the profile (SGLang has
         no per-prompt limit flag), else ``--limit-mm-per-prompt`` image > 0."""
         if "vision" in self.profiles[profile]:
             return bool(self.profiles[profile]["vision"])
