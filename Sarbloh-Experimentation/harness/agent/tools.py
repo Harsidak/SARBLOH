@@ -30,17 +30,18 @@ IPYTHON = _fn(
 
 ACT = _fn(
     "act",
-    "Spend 1 to {max} game actions, in order; each costs 1 action against the score. Write your memory with the "
-    "same call: `plan` often, and `hypotheses`, `findings` and `goal` when they change. The result gives one change "
-    "line per action, then the new state (the changed region, its objects and a picture) arrives as the next message. "
-    "The batch stops early at a level-up or a GAME_OVER.",
+    "Spend 1 to {max} game actions, in order; each costs 1 action against the score. In the same call you can "
+    "update your memory (`plan`, `hypotheses`, `findings`, `goal`), but only what changed: what you leave out is "
+    "kept. The result gives one change line per action, then the new state (the changed region, its objects and a "
+    "picture) arrives as the next message. The batch stops early at a level-up or a GAME_OVER.",
     {"actions": {"type": "array", "items": {"type": "string"},
                  "description": "Up to {max} actions: \"1\" up, \"2\" down, \"3\" left, \"4\" right, \"5\" space "
                                 "(the game's special action), \"6 r c\" click the cell at row r, column c, \"7\" undo, "
                                 "\"reset\" restart the level. Only the legal ones work; the meaning of each is yours "
                                 "to verify. Example: [\"1\", \"1\", \"4\"] or [\"6 12 40\"]."},
      "plan": {"type": "string",
-              "description": "Optional. Your next steps and to win the game (by clearing all levels in minimum steps)"},
+              "description": "Optional, only when your next steps change. Your next steps and why, in one or "
+                             "two sentences. It replaces the old plan; leave it out to keep the old one."},
      "hypotheses": {"type": "array", "description": "New hypotheses, or status changes of old ones (by id). You "
                                                     "decide the status: proposed, verified (it predicted steps it did "
                                                     "not come from) or refuted (a step contradicted it).",
@@ -52,8 +53,10 @@ ACT = _fn(
                                      "description": "Step numbers (#i in the change lines) that support or refute it."}},
                         "required": ["status"]}},
      "findings": {"type": "array", "items": {"type": "string"},
-                  "description": "Facts you have established in this level, one short sentence each."},
-     "goal": {"type": "string", "description": "What wins the level, as you now believe it. Kept across levels."}},
+                  "description": "New facts you have established in this level, one short sentence each. They "
+                                 "are added to the old ones, so send only new ones."},
+     "goal": {"type": "string", "description": "What wins the level, as you now believe it, only when it "
+                                               "changes. Kept across levels."}},
     ["actions"])
 
 RECALL = _fn(

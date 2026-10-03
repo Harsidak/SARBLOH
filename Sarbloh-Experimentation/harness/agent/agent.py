@@ -5,7 +5,7 @@ What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
                         summary and keeps the newest messages verbatim.
 - L2 REPL            -> one persistent ``rlm.repl`` kernel per session (``Kernel``).
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives compaction) and the game's memory
-                        (``harness.memory``), rendered into one pinned message on every turn.
+                        (``harness.memory``), rendered once per user message and joined to the newest one.
 - Autonomous mode    -> when the root stops calling tools before the game ends, a continuation message is sent,
                         bounded by turn, token and wall-clock budgets; the end-condition test is "game won". A
                         threshold compaction is followed by a continuation too, like upstream.
@@ -24,8 +24,9 @@ the game), ``act`` (1 to N actions plus the agent's plan, hypotheses, findings a
 and skills). After every act the host pushes the new state as the next user message: a change line per action in the
 act result, then the short view (changed region) and the picture (``harness.agent.perception``). The full view
 (briefing, every object, the whole board, the picture) is pushed at a level start, after a compaction, and when the
-agent calls ``observe()`` in ipython (once per state). The agent's memory is rendered into one pinned message before
-the recent turns on every turn (``harness.agent.context``). The hidden curator (``harness.agent.curator``) reviews the
+agent calls ``observe()`` in ipython (once per state). The agent's memory is rendered once per user message and joined
+to the front of the newest one, so the prompt before it stays the same and the server's prefix cache keeps it
+(``harness.agent.context``). The hidden curator (``harness.agent.curator``) reviews the
 memory at every level-up (before the level's memory is cleared, writing skills from it), after a compaction and every
 ``curator_every_turns`` turns. The host records what the agent writes and judges nothing. Every tool call is logged as
 a structured transcript event for ``harness.trace``.
@@ -108,6 +109,8 @@ class AgentSession:
         self._pending_obs: dict[str, Any] | None = None
         self._curate_pending: str | None = None
         self._pinned_chars = 0
+        self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
+        self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
         self.memory = GameMemory(memory_root or (session_dir / "memory"), arc.game.game_id, cfg.get("memory") or {})
         arc.on_step = lambda ev: self._log_event(ev)
 
@@ -170,9 +173,7 @@ class AgentSession:
             if compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens")) and (
                     self._compact_failed_at is None or tokens > self._compact_failed_at + 1024):
                 self._compact("threshold")
-            pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
-            self._pinned_chars = len(pinned["content"])
-            self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
+            pinned = self._memory_message()
             msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision)
 
             # 3) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
@@ -239,6 +240,18 @@ class AgentSession:
             self._maybe_curate()
             self.stats["continuations"] += 1
             self._append({"role": "user", "content": self._continuation()})
+
+    def _memory_message(self) -> dict[str, Any]:
+        """The memory, built once per user message (a new state, a continuation, a compaction) and then kept byte for
+        byte through the tool-call chain that follows, so the prompt stays a prefix of the next one. Writes made in
+        between (an ipython turn changes nothing; the curator may) show with the next state."""
+        newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
+        if self._pinned is None or self._pinned_for is not newest:
+            self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
+            self._pinned_for = newest
+            self._pinned_chars = len(self._pinned["content"])
+            self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
+        return self._pinned
 
     def _continuation(self) -> str:
         return prompts.continuation(status=self._status(), **self._left())
@@ -716,16 +729,17 @@ class AgentSession:
             if reason != "overflow":
                 self._compact_failed_at = tokens_before
                 return
-            summary = "(summary unavailable) Your memory block above is intact; use `recall` for earlier steps."
+            summary = "(summary unavailable) Your memory block is intact; use `recall` for earlier steps."
         self._compact_failed_at = None
         self._summary = summary
         kept = self.messages[prep.first_kept:]
-        # The memory is pinned outside the conversation, so the head carries the summary only.
+        # The memory is not part of the conversation, so the head carries the summary only.
         head = compaction.head_message(summary, prompts.event_message("compacted", level=self._level(),
                                                                       **self._left()) + "\n\n")
         if not any(context._has_image(m) for m in kept):
             kept.append(self._observation_refresh())   # the newest state must survive a compaction
         self.messages = [head, *kept]
+        self._pinned = None   # the memory is built again for the new prompt
         self._usage_tokens = None
         self.stats["compactions"] += 1
         self._curate_pending = self._curate_pending or "compact"

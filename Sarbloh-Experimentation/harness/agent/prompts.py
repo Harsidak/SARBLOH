@@ -94,9 +94,9 @@ The picture is a map of the board. Open floor is light, walls and other large ar
 TOOLS_BRIEFING = """Tools:
 You have three tools, and only `act` spends moves.
 - `ipython` (free) runs Python, so you can look at the board and compute things. It reads the current state with `observe()`. Your variables and functions stay for the whole game. It cannot make moves.
-- `act` makes 1 to {act_max} moves, and in the same call you write your memory (plan, hypotheses, findings and goal). Each move costs one move. Use one `act` per reply.
+- `act` makes 1 to {act_max} moves, and in the same call you can update your memory (plan, hypotheses, findings and goal). Each move costs one move. Use one `act` per reply.
 - `recall` (free) searches your memory: earlier steps, hypotheses, findings, goals, lessons and skills.
-The cycle is: read the new board, check your idea in `ipython`, then `act`. Plan often: write a short `plan` with most of your `act` calls. Use `recall` when you need something that is no longer in the conversation."""
+The cycle is: read the new board, check your idea in `ipython`, then `act`. Write to your memory only when something is new, such as a test result, a refuted rule or a new plan. What you wrote before stays, so leave out what has not changed. Use `recall` when you need something that is no longer in the conversation."""
 
 IPYTHON_TOOL_DETAILED = """`ipython` in detail:
 - Its argument is `code`, the Python to run. Top-level `await` works.
@@ -116,7 +116,7 @@ Arguments:
   - "6 r c" clicks the cell at row r and column c, for example "6 12 40". The row comes first, and each click is its own item in the list.
   - "reset" restarts the current level.
   For example, ["1", "1", "4"] or ["6 12 40"]. These names are only labels. What a move really does in this game is a guess until you have seen it happen.
-- `plan`, `hypotheses`, `findings` and `goal` are optional, and they are your memory. They are explained below under "Your memory".
+- `plan`, `hypotheses`, `findings` and `goal` are optional, and they are your memory. Send only the ones that changed. They are explained below under "Your memory".
 Limits:
 - Use one `act` per reply. A second `act` in the same reply is refused and spends nothing.
 - Only the legal moves in the status line work.
@@ -138,17 +138,17 @@ What comes back is the matches, grouped by scope. Long results are cut, so ask f
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-At the top of every turn there is a [memory] block. It is rebuilt from what you write with `act`, and it stays when old messages are removed. Old messages are not kept, so anything you want to remember must go into your memory. With `act` you write:
-- `plan` (optional, but write it often, and always when your next steps change): your next steps and the reason, in one or two sentences. It replaces your old plan. If you leave it out, your old plan stays.
-- `hypotheses` (when they change): a list of rules you think are true. Each one has a `status`, which is "proposed", "verified" (it correctly predicted moves you made after you wrote it) or "refuted" (a move showed it is wrong). A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
-- `findings` (when you learn one): facts about this level, one short sentence each.
-- `goal` (when it changes): what you think wins the level. While you are not sure, keep 2 or 3 different goals and test them against each other.
+A [memory] block comes with every new board. It shows what you wrote with `act`, and it stays when old messages are removed. Old messages are not kept, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act` you can write:
+- `plan` (when your next steps change): your next steps and the reason, in one or two sentences. It replaces your old plan. If you leave it out, your old plan stays.
+- `hypotheses` (when one is new or its status changes): a list of rules you think are true. Each one has a `status`, which is "proposed", "verified" (it correctly predicted moves you made after you wrote it) or "refuted" (a move showed it is wrong). A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
+- `findings` (when you learn a new one): facts about this level, one short sentence each. They are added to the ones you already have, so send only new ones.
+- `goal` (when it changes): what you think wins the level. It replaces your old goal. While you are not sure, keep 2 or 3 different goals and test them against each other.
 When you finish a level, skills are written from what the level taught you, your verified hypotheses and findings are saved as lessons for later levels, and then your plan, hypotheses and findings are cleared. Your goal is kept. So mark what you have verified before the level ends."""
 
 LEVEL_METHOD = """How to play a level:
 1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start, but each one needs its test.
 2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first `act`.
-3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses. A move toward the goal is a test too: say in `plan` what you expect it to do, and if the change lines show something else, stop and rethink before the next move.
+3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses. A move toward the goal is a test too: know what you expect it to do before you move, and if the change lines show something else, stop and rethink before the next move.
 4. Solve. When you know enough to reach the goal, move toward it in `act` calls of up to {act_max} moves. Write a search in `ipython` (for example a breadth-first search over the moves you have seen work) only when the path is long or not obvious."""
 
 RULES = """Rules:
@@ -222,8 +222,7 @@ ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent
                "\"reset\"). Check the status line before you act.")
 
 ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like actions [\"1\", \"4\"] or "
-                "[\"6 12 40\"] with a plan, for example plan \"test if 1 moves object 4 up\". The full rules are in your "
-                "instructions under \"`act` in detail\".")
+                "[\"6 12 40\"]. The full rules are in your instructions under \"`act` in detail\".")
 
 LOW_BUDGET = ("Note: only {left} moves are left for this game. Do not spend them on tests you can do in `ipython`. "
               "Send only moves that your verified rules say will help.")

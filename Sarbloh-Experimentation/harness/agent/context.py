@@ -1,12 +1,17 @@
 """Context builder: what is sent to the server on every turn.
 
-    [system] -> [memory: game status, goal, plan, skills, hypotheses, findings, lessons, open questions] -> recent turns
+    [system] -> older turns -> [memory + newest user message (the newest state)] -> the current tool-call chain
 
-The memory message is rebuilt before every turn from ``harness.memory`` and is never stored in the transcript or
-summarised by compaction: it is the agent's memory, not its conversation. The observation (change lines, state text,
-picture) is not pinned here: it is pushed as a user message right after each act result, so the newest state is always
-the last thing the agent reads. Only the newest image is kept; older image parts become a one-line text stub (the
-server allows one image per prompt). Consecutive user messages are joined (some chat templates need alternating roles).
+The memory (game status, goal, plan, skills, hypotheses, findings, lessons, open questions) is built from
+``harness.memory`` once per user message and goes in just before the newest one. It is never stored in the
+transcript or summarised by compaction: it is the agent's memory, not its conversation. It sits near the end, not
+after the system prompt, so the server's prefix cache keeps everything before it: a memory block at the top changed
+on almost every request and forced the whole conversation to be prefilled again. Inside the newest user message (not
+after the chain) it keeps the chat template sending the chain's thinking back. The observation (change lines, state
+text, picture) is not part of the memory: it is pushed as a user message right after each act result, so the newest
+state is always the last thing the agent reads. Only the newest image is kept; older image parts become a one-line
+text stub (the server allows one image per prompt). Consecutive user messages are joined (some chat templates need
+alternating roles).
 The agent's thinking is sent back only within the current tool-call chain, up to the next user message.
 """
 
@@ -30,8 +35,8 @@ EMPTY = {"goal": "(none yet: write one with act's `goal` as soon as you have a g
 
 
 def pinned_message(blocks: dict[str, str], status: str) -> dict[str, Any]:
-    parts = ["[memory] Rebuilt before every turn from what you wrote with `act`. It is your memory, not a message "
-             "to answer.", f"## Game\n{status}"]
+    parts = ["[memory] Your memory, from what you wrote with `act`; it is shown again with every new state. It is "
+             "not a message to answer.", f"## Game\n{status}"]
     for key in ORDER:
         text = (blocks.get(key) or "").strip() or EMPTY.get(key, "")
         if text:
@@ -102,8 +107,13 @@ def reasoning(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
           vision: bool = True) -> list[dict[str, Any]]:
-    head = [{"role": "system", "content": system}] + ([pinned] if pinned else [])
-    return merge_users(head + images(reasoning(messages), vision))
+    """The request: the system prompt, the conversation, and the memory joined to the front of the newest user
+    message, so everything before that message is the same as in the last request."""
+    msgs = images(reasoning(messages), vision)
+    if pinned:
+        at = max(chain_start(msgs) - 1, 0)
+        msgs = msgs[:at] + [pinned] + msgs[at:]
+    return merge_users([{"role": "system", "content": system}] + msgs)
 
 
 def loggable(msg: dict[str, Any]) -> dict[str, Any]:
