@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from harness import sysmon
+
 PRIME_ROOT = Path(__file__).resolve().parents[2]  # holds rlm/ (upstream runtime) and harness/
 KERNEL_SKILLS = Path(__file__).resolve().parent / "skills"
 PROTOCOL_VERSION = 3
@@ -156,6 +158,8 @@ class Kernel:
             [self.python, "-m", "rlm.repl"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=str(self.session_dir), env=env, bufsize=0,
         )
+        # Under memory pressure the kernel's OOM killer takes a REPL first: it is restarted here, the server is not.
+        sysmon.set_oom_score_adj(self.proc.pid, sysmon.KERNEL_OOM_SCORE_ADJ)
         threading.Thread(target=self._read_events, args=(self.proc,), daemon=True, name="kernel-events").start()
         threading.Thread(target=self._read_stderr, args=(self.proc,), daemon=True, name="kernel-stderr").start()
         if not self._ready.wait(timeout_s):

@@ -1,19 +1,25 @@
 """Context builder: what is sent to the server on every turn.
 
-    [system] -> older turns -> [memory + newest user message (the newest state)] -> the current tool-call chain
+Append-only (config ``append_only``, the default): the prompt only grows between rewrites, so each request starts with
+the whole previous one and the server's prefix cache keeps it. On this hybrid model (Gated DeltaNet + attention) a
+change anywhere in the history makes the server prefill everything again from about that point: in the 2026-10-04
+run, every request after a new board reused ~0% of its prompt (3283 of 5599 requests) and requests inside a tool-call
+chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, a compaction, a level-up reset):
+- every reply keeps its thinking and every picture stays;
+- the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
+  each new board only the sections that changed (``memory_update``), and in full again every few boards;
+- at the compaction trigger the agent first drains (``drain``): the thinking before the current tool-call chain, every
+  picture but the newest and the memory messages are removed, and a full memory goes back in. That leaves what the
+  old builder sent, so the agent never sees less than before. A summary is made only when a drain would not free
+  enough.
 
-The memory (game status, goal, plan, skills, hypotheses, findings, lessons, open questions) is built from
-``harness.memory`` once per user message and goes in just before the newest one. It is never stored in the
-transcript or summarised by compaction: it is the agent's memory, not its conversation. It sits near the end, not
-after the system prompt, so the server's prefix cache keeps everything before it: a memory block at the top changed
-on almost every request and forced the whole conversation to be prefilled again. Inside the newest user message (not
-after the chain) it keeps the chat template sending the chain's thinking back. The observation (change lines, state
-text, picture) is not part of the memory: it is pushed as a user message right after each act result, so the newest
-state is always the last thing the agent reads. Only the newest image is kept; older image parts become a one-line
-text stub (the server allows one image per prompt). Consecutive user messages are joined (some chat templates need
+The old builder (``append_only`` off): the memory is built once per user message and joined to the front of the newest
+one; only the newest image is kept (older image parts become a one-line text stub); thinking is sent back only within
+the current tool-call chain, newest reply first and up to about 16k tokens in all.
+
+Either way the observation (change lines, state text, picture) is a user message right after each act result, so the
+newest state is the last thing the agent reads, and consecutive user messages are joined (some chat templates need
 alternating roles).
-The agent's thinking is sent back only within the current tool-call chain, up to the next user message, newest reply
-first and up to about 16k tokens in all; older replies in the chain keep their tool calls and outputs without it.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 PINNED_KIND = "pinned"
+MEMORY_UPDATE_KIND = "memory_update"
 REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
 ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
 TITLES = {
@@ -36,14 +43,34 @@ EMPTY = {"goal": "(none yet: write one with act's `goal` as soon as you have a g
          "plan": "(none yet)", "hypotheses": "(none yet)"}
 
 
+def _section(blocks: dict[str, str], key: str) -> str:
+    return (blocks.get(key) or "").strip() or EMPTY.get(key, "")
+
+
 def pinned_message(blocks: dict[str, str], status: str) -> dict[str, Any]:
-    parts = ["[memory] Your memory, from what you wrote with `act`; it is shown again with every new state. It is "
-             "not a message to answer.", f"## Game\n{status}"]
+    parts = ["[memory] Your memory, from what you wrote with `act`. When a section changes, the new version is shown "
+             "with the next state. It is not a message to answer.", f"## Game\n{status}"]
     for key in ORDER:
-        text = (blocks.get(key) or "").strip() or EMPTY.get(key, "")
+        text = _section(blocks, key)
         if text:
             parts.append(f"## {TITLES[key]}\n{text}")
     return {"role": "user", "_kind": PINNED_KIND, "content": "\n\n".join(parts)}
+
+
+def changed_sections(blocks: dict[str, str], shown: dict[str, str]) -> list[str]:
+    """The memory sections whose text differs from the version last shown, in memory order."""
+    return [key for key in ORDER if _section(blocks, key) != _section(shown, key)]
+
+
+def memory_update(blocks: dict[str, str], keys: list[str]) -> dict[str, Any]:
+    """Only the sections in ``keys``, as they are now; the others are as last shown."""
+    parts = ["[memory update] These sections of your memory changed; the others are as shown before."]
+    parts += [f"## {TITLES[key]}\n{_section(blocks, key) or '(empty)'}" for key in keys]
+    return {"role": "user", "_kind": MEMORY_UPDATE_KIND, "content": "\n\n".join(parts)}
+
+
+def is_memory(m: dict[str, Any]) -> bool:
+    return m.get("_kind") in (PINNED_KIND, MEMORY_UPDATE_KIND)
 
 
 def _parts(content: Any) -> list[dict[str, Any]]:
@@ -130,10 +157,32 @@ def reasoning(messages: list[dict[str, Any]], budget_tokens: int = REASONING_BUD
             for i, m in enumerate(messages)]
 
 
+def all_reasoning(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every stored reply goes back with its thinking (the append-only builder)."""
+    return [({**m, "reasoning": m["_reasoning"], "reasoning_content": m["_reasoning"]} if m.get("_reasoning") else m)
+            for m in messages]
+
+
+def drain(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The history as the old builder sent it, with no model call: the replies before the current tool-call chain lose
+    their thinking, every picture but the newest becomes a stub, and the memory messages go (the caller puts a full
+    one back). Tool calls, tool outputs and board texts all stay."""
+    start = chain_start(messages)
+    out = [m for m in messages[:start] if not is_memory(m)]
+    out = [{k: v for k, v in m.items() if k != "_reasoning"} if m["role"] == "assistant" else m for m in out]
+    out += messages[start:]
+    return images(out, True)
+
+
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
-          vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS) -> list[dict[str, Any]]:
-    """The request: the system prompt, the conversation, and the memory joined to the front of the newest user
-    message, so everything before that message is the same as in the last request."""
+          vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS,
+          append_only: bool = False) -> list[dict[str, Any]]:
+    """The request. Append-only: the system prompt and the stored conversation as it is, every thinking and every
+    picture included (the memory is already in it). Else: the memory joined to the front of the newest user message,
+    so everything before that message is the same as in the last request."""
+    if append_only:
+        msgs = all_reasoning(messages)
+        return merge_users([{"role": "system", "content": system}] + (msgs if vision else images(msgs, False)))
     msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)

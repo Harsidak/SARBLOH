@@ -88,14 +88,18 @@ def _text(msg: dict[str, Any]) -> str:
     return str(content)
 
 
-def estimate_tokens(msg: dict[str, Any], reasoning: bool = True) -> int:
+def estimate_tokens(msg: dict[str, Any], reasoning: bool = True, image_tokens: int = 0) -> int:
     """chars/4, like upstream (conservative). The stored thinking counts too, so the cut point sees what is big;
-    ``reasoning=False`` leaves it out (the context estimate adds only the thinking that is actually sent)."""
+    ``reasoning=False`` leaves it out (the context estimate adds only the thinking that is actually sent). Each picture
+    adds ``image_tokens``."""
     chars = len(_text(msg)) + (len(msg.get("_reasoning") or "") if reasoning else 0)
     for tc in msg.get("tool_calls") or []:
         fn = tc.get("function") or {}
         chars += len(fn.get("name") or "") + len(fn.get("arguments") or "")
-    return math.ceil(chars / 4)
+    content = msg.get("content")
+    pictures = sum(1 for p in content if isinstance(p, dict) and p.get("type") == "image_url") \
+        if isinstance(content, list) else 0
+    return math.ceil(chars / 4) + pictures * image_tokens
 
 
 def _turn_start(messages: list[dict[str, Any]], index: int, start: int) -> int:

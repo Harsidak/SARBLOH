@@ -41,8 +41,17 @@ DEFAULT: dict[str, Any] = {
         # 200k-context frontier models. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
         # After a compaction the first prompt's size is the floor: no new compaction until the context passes
         # floor + floor_gap_tokens. The summary is at most summary_tokens long and replaces the previous one.
-        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 100000,
+        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 16000, "trigger_tokens": 120000,
                        "floor_gap_tokens": 8192, "summary_tokens": 2048},
+        # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
+        # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
+        # every memory_full_every states, else only its changed sections. At the compaction trigger a drain (drop the
+        # thinking before the current chain, the old pictures and the memory messages; no model call) runs first; a
+        # summary is made only when the drain would leave more than drain_max_fraction of the trigger.
+        # False: the old builder (thinking only in the current chain, newest picture, memory moved to every state).
+        "append_only": True,
+        "memory_full_every": 10,
+        "drain_max_fraction": 0.7,
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 16000,

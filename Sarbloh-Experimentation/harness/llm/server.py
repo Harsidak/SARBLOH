@@ -12,6 +12,9 @@ blocked every game for about 30 minutes):
 - Restarts are budgeted by remaining wall clock, not a fixed count. After ``fallback_after`` freezes on one profile,
   the watchdog moves to the next profile in the chain with the same tool mode.
 - Every server event is one line in server_events.jsonl.
+- Host memory (``harness.sysmon``): the server is marked never to be picked by the kernel's OOM killer, and the
+  watchdog writes a RAM/VRAM row (``ram``) every ``ram_every_s``; an exit records its code and the memory at that
+  moment. The 2026-10-04 run lost the server twice to an exit with no stack, most likely that killer (UNCONFIRMED).
 - Site-packages live in /tmp, not /kaggle/working (10+ GB of wheels once made the output download hang).
 
 A prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
@@ -34,11 +37,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from harness import sysmon
 from harness.llm.client import ServerGate
 from harness.llm.spec import ModelSpec
 
 WATCHDOG = {"interval_s": 15.0, "failures_to_restart": 4, "freeze_after_s": 120.0, "fallback_after": 2,
-            "max_restarts": 8, "min_useful_s": 600.0}
+            "max_restarts": 8, "min_useful_s": 600.0, "ram_every_s": 60.0}
 # Prepared prebuilt runtimes (ModelSpec.runtimes), by name: unpacking one takes minutes, so every server in the
 # process (bench profiles, restarts) shares it.
 _RUNTIMES: dict[str, dict[str, Any]] = {}
@@ -172,14 +176,15 @@ class LlmServer:
         """The running profile accepts an image per prompt (and passed the image smoke test)."""
         return bool(self.profile) and self.spec.has_vision(self.profile)
 
-    def event(self, name: str, **detail: Any) -> None:
+    def event(self, name: str, echo: bool = True, **detail: Any) -> None:
         row = {"t": round(time.time(), 1), "event": name, "profile": self.profile, **detail}
         try:
             with self.events_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, default=str) + "\n")
         except OSError:
             pass
-        log(f"{name} {json.dumps(detail, default=str)[:600]}")
+        if echo:
+            log(f"{name} {json.dumps(detail, default=str)[:600]}")
 
     # --- install -----------------------------------------------------------------------------------------
     def libcuda_link_dir(self) -> Path | None:
@@ -345,6 +350,9 @@ class LlmServer:
         self.event("launch", model_dir=str(model_dir))
         self.process = subprocess.Popen(cmd, env=self.env(profile), stdout=self.log_path.open("a", encoding="utf-8"),
                                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        # Its workers inherit the mark; the watchdog sets it again on the whole tree every ram_every_s.
+        self.event("oom_protect", pid=self.process.pid,
+                   ok=sysmon.set_oom_score_adj(self.process.pid, sysmon.SERVER_OOM_SCORE_ADJ))
 
     def wait_ready(self, timeout_s: float) -> bool:
         deadline = time.monotonic() + timeout_s
@@ -533,7 +541,9 @@ class LlmServer:
                 return False
             profile = self.profile
             self.freezes[profile] = self.freezes.get(profile, 0) + 1
-            self.event("freeze_detected", reason=reason, count=self.freezes[profile])
+            code = self.process.poll() if self.process is not None else None
+            self.event("freeze_detected", reason=reason, count=self.freezes[profile], exit_code=code,
+                       ram=sysmon.snapshot())
             self.kill(reason, dump=True)
             self.event("freeze", reason=reason, count=self.freezes[profile], stacks=self.stack_dump())
             for candidate in self._fallbacks():
@@ -572,11 +582,24 @@ class LlmServer:
             return None
         return "frozen" if now - state.get("moved_at", now) >= self.wd["freeze_after_s"] else None
 
+    def memory_tick(self) -> None:
+        """One ``ram`` row (written, not printed), and the OOM mark set again on the server's whole tree."""
+        try:
+            pid = self.process.pid if self.process is not None and self.process.poll() is None else None
+            marked = sysmon.protect_tree(pid) if pid else 0
+            self.event("ram", echo=False, marked=marked, **sysmon.snapshot(pid))
+        except Exception as exc:  # noqa: BLE001 - logging must never stop the watchdog
+            self.event("ram_error", echo=False, error=repr(exc)[:300])
+
     def start_watchdog(self) -> None:
         def loop() -> None:
             state: dict[str, Any] = {}
             logged = False
+            ram_at = 0.0
             while not self._stop.wait(self.wd["interval_s"]):
+                if time.monotonic() - ram_at >= self.wd["ram_every_s"]:
+                    ram_at = time.monotonic()
+                    self.memory_tick()
                 if not logged:  # which counters the freeze detector actually sees on this build
                     m = self.metrics()
                     if m is not None:
@@ -589,4 +612,5 @@ class LlmServer:
                     state = {}
 
         self.event("watchdog_on", **self.wd)
+        self.memory_tick()
         threading.Thread(target=loop, name="server-watchdog", daemon=True).start()

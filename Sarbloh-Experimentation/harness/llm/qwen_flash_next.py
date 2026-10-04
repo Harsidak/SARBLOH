@@ -164,8 +164,9 @@ SGLANG_CHAIN = ["sglang_nvfp4_mtp5_vision", "sglang_nvfp4_mtp_vision", "sglang_n
 # Intel's AutoRound W4A16 weights on the Pennyroyal SGLang build (our banwait13/sglangwheels is the same wheelhouse and
 # carries its FR-Spec map hot_tokens_64k.pt), the PLE table in pinned host RAM (--ple-offload-embedding, ~102 GB of
 # BF16 shards), NEXTN speculation with 3 steps on albucino's INT4 MTP drafter plus FR-Spec. Flags are the reference's,
-# except the window: 131072 (the agent compacts at 100k) instead of its 139264. Licences (qwen-community-1.0 for the
-# model, dfranzen's uploads) are UNCONFIRMED for prize eligibility; throughput on our agent is UNCONFIRMED until a run.
+# window included: 139264, so a 120k prompt (the agent's compaction trigger) still has room for a full 16k reply.
+# Licences (qwen-community-1.0 for the model, dfranzen's uploads) are UNCONFIRMED for prize eligibility; throughput on
+# our agent is UNCONFIRMED until a run.
 FLASH_SGL = "dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1"
 FLASH_DRAFT = "dfranzen/albucino-qwen3-8-flash-next-drafter/transformers/default/1"
 # Built by the runtimes below, before launch: the drafter's SGLang view and the checked FR-Spec map.
@@ -181,7 +182,7 @@ SGL_FLASH = {
     "--load-format": "safetensors", "--model-loader-extra-config": '{"enable_multithread_load":false}',
     "--weight-loader-prefetch-checkpoints": None, "--weight-loader-drop-cache-after-load": None,
     "--tensor-parallel-size": "1", "--dtype": "bfloat16", "--quantization": "auto-round", "--trust-remote-code": None,
-    "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.96", "--context-length": "131072", "--page-size": "64",
+    "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.96", "--context-length": "139264", "--page-size": "64",
     "--max-running-requests": "10", "--chunked-prefill-size": "8192", "--max-prefill-tokens": "16384",
     "--cuda-graph-max-bs-decode": "10", "--cuda-graph-bs-decode": ["1", "2", "4", "7", "8", "9", "10"],
     "--mamba-ssm-dtype": "bfloat16", "--max-mamba-cache-size": "60", "--mamba-radix-cache-strategy": "extra_buffer",
