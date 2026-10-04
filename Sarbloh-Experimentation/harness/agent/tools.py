@@ -16,15 +16,11 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 IPYTHON = _fn(
     "ipython",
-    "This is your primary tool to reason: you can use code to reason and come to take an optimal action. Run Python "
-    "in a persistent REPL; to perform reasoning you can write code snippets to verify your hypotheses or plans. "
-    "Variables, functions and imports persist for the whole game, across levels: write code and also edit the existing one when the game shows something new, and "
-    "reuse them. `obs = observe()` gives the current state, read-only, and the full state (briefing, objects, board "
-    "and picture) is shown to you in the next message, once per state. For your code: `obs.board[r][c]` (the colour "
-    "letter at row r, column c), `obs.objects` (list of dicts: id, letter, name, size, bbox [r0,c0,r1,c1], hash, "
-    "corners, parent, children, adjacent, hud, cells), `obs.change` (the newest change line), `obs.briefing`, "
-    "`obs.history` (the last 20 steps), `print(obs.ascii(r0, c0, r1, c1))`. An `obs` does not update: call observe() "
-    "again after an act. It cannot spend actions: make the moves your code finds with act.",
+    "Your main tool for reasoning: run Python to check your ideas and plans before you act. Variables, functions and "
+    "imports stay for the whole game, across levels, so reuse your code and change it when the game shows something "
+    "new. `obs = observe()` gives the current state, read-only; call it again after every act. It is free, and it "
+    "cannot make moves: make the moves your code finds with `act`. The full reference is in your instructions under "
+    "\"`ipython` in detail\".",
     {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
     ["code"])
 
@@ -33,10 +29,10 @@ ACT = _fn(
     "Spend 1 to {max} game actions, in order; each costs 1 action against the score. In the same call you can "
     "update your memory (`plan`, `hypotheses`, `findings`, `goal`), but only what changed: what you leave out is "
     "kept. The result gives one change line per action, then the new state (the changed region, its objects and a "
-    "picture) arrives as the next message. The batch stops early at a level-up or a GAME_OVER.",
+    "picture when pictures are on) arrives as the next message. The batch stops early at a level-up or a GAME_OVER.",
     {"actions": {"type": "array", "items": {"type": "string"},
                  "description": "Up to {max} actions: \"1\" up, \"2\" down, \"3\" left, \"4\" right, \"5\" space "
-                                "(the game's special action), \"6 r c\" click the cell at row r, column c, \"7\" undo, "
+                                "(the game's special action), \"6 r c\" click the cell at row r, column c, \"7\" often undo, "
                                 "\"reset\" restart the level. Only the legal ones work; the meaning of each is yours "
                                 "to verify. Example: [\"1\", \"1\", \"4\"] or [\"6 12 40\"]."},
      "plan": {"type": "string",
@@ -61,8 +57,8 @@ ACT = _fn(
 
 RECALL = _fn(
     "recall",
-    "Search your memory. it is completely free to use by you. Use it to recall steps (\"#12\", \"12-20\", \"level 1\", or words),hypotheses and findings of "
-    "earlier levels, your goal history, lessons from other levels and games, and skills.",
+    "Search your memory. It is free. Use it to recall steps (\"#12\", \"12-20\", \"level 1\", or words), "
+    "hypotheses and findings of earlier levels, your goal history, lessons from other levels and games, and skills.",
     {"query": {"type": "string", "description": "A step, a range, \"level N\", or words; \"\" for the latest."},
      "scope": {"type": "string", "enum": ["all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills"],
                "description": "Where to search. Default all."}},

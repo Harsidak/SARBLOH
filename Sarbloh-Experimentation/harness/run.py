@@ -71,7 +71,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
                    stop_after_levels=cfg.get("stop_after_levels"))
-    task = prompts.task_message(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
+    task = prompts.task_message(game_id=game.game_id, win_levels=game.number_of_levels,
+                                max_actions=cfg["max_actions_per_game"],
                                 minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,

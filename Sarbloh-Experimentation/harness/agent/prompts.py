@@ -8,7 +8,10 @@ How the game loop uses prompts (read from ``harness/agent/agent.py`` and ``harne
     agent.py    -> the model ends a turn with no tool    : continuation()
     agent.py    -> level up, GAME_OVER, WIN, refused act, reply cut off, compaction : event_message(kind, ...)
 
-The system prompt never changes during a game (cheap prefix caching). Everything that depends on the moment (a new
+The system prompt is the same text for every game in a run: nothing game-specific (name, level count, folder) is in
+it, so the server keeps one cached copy of it (and of the tool list after it) for all games. The game's name and level
+count go in the start message, and the status line repeats the level count with every state. It never changes during
+a game either (cheap prefix caching). Everything that depends on the moment (a new
 level, a lost level, a refused act, a long silence, low budget) is sent as a short message built by ``event_message``.
 So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else in the builders. The messages that
 start a level (game start, level up, after a compaction) also get the reasoning note for that level:
@@ -68,7 +71,7 @@ IPYTHON_BRIEFING = """iPython tool:
 # =====================================================================================================================
 
 GAME_FACTS = """Game:
-You are playing the ARC-AGI-3 game `{game_id}`. It has {win_levels} levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the controls, the rules or the goal. You find them out by looking and by trying moves. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
+You are playing an ARC-AGI-3 game made of several levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the controls, the rules or the goal. You find them out by looking and by trying moves. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
 You work alone. There is no human to answer questions, so never ask one. Thinking and using Python are free. Only game moves count, so make each move for a reason."""
 
 READING_THE_STATE = """What you see:
@@ -138,7 +141,7 @@ What comes back is the matches, grouped by scope. Long results are cut, so ask f
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-A [memory] block shows what you wrote with `act`, and it stays when old messages are removed. When a part of it changes, the new version comes with the next board. Old messages are not kept, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act` you can write:
+A [memory] block shows what you wrote with `act`, and it stays when old messages are removed. When a part of it changes, a [memory update] with only the changed parts comes with the next board, and the parts it does not show are as before. Old messages are removed from time to time to make room, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act` you can write:
 - `plan` (when your next steps change): your next steps and the reason, in one or two sentences. It replaces your old plan. If you leave it out, your old plan stays.
 - `hypotheses` (when one is new or its status changes): a list of rules you think are true. Each one has a `status`, which is "proposed", "verified" (it correctly predicted moves you made after you wrote it) or "refuted" (a move showed it is wrong). A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
 - `findings` (when you learn a new one): facts about this level, one short sentence each. They are added to the ones you already have, so send only new ones.
@@ -163,14 +166,13 @@ You call `act` with actions ["4"], plan "test if 4 moves object 4 right", hypoth
 The result is `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
 Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You mark both hypotheses verified with evidence [0] and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
 
-ENVIRONMENT = """Working directory: {cwd}
-Python packages: numpy. `observe` (the current state, read-only) is already imported."""
+ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only) is already imported. The working directory of `ipython` is a folder of your own for this game."""
 
 # =====================================================================================================================
 # 3. Situation messages (user turns or notes sent by the harness at a given moment)
 # =====================================================================================================================
 
-TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. You have at most {max_actions} moves and about {minutes} minutes for the whole game.
+TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. {levels}You have at most {max_actions} moves and about {minutes} minutes for the whole game.
 The first board is shown below. This is level 1, so nothing is known yet. Do this first:
 1. Read the briefing, the board and the object list. Use `ipython` (`obs = observe()`, then `obs.objects`) to check what you think you see.
 2. In one `act` call, write your first plan, 2 to 4 hypotheses and a goal guess, and make 1 or 2 test moves."""
@@ -308,19 +310,21 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 # 5. Interface used by agent.py and run.py
 # =====================================================================================================================
 
-def game_system(*, game_id: str, win_levels: int, act_max: int, cwd: str, vision: bool = True, **_: Any) -> str:
-    """The system prompt (tools ipython, act, recall). ``vision`` says whether pictures are sent."""
-    pictures = {"picture_after": ", and a picture of the whole board (only the newest picture is kept)",
+def game_system(*, act_max: int, vision: bool = True, **_: Any) -> str:
+    """The system prompt (tools ipython, act, recall), the same for every game. ``vision`` says whether pictures are
+    sent. Other arguments (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt
+    differ between games."""
+    pictures = {"picture_after": ", and a picture of the whole board",
                 "picture_start": ", and the picture", "full_state": "briefing, objects, board and picture",
                 "picture_ids": " and on the picture", "picture_help": PICTURE_HELP} if vision else \
         {"picture_after": "", "picture_start": "", "full_state": "briefing, objects and board", "picture_ids": "",
          "picture_help": ""}
-    return assemble_system(legend=LEGEND_LETTERS, game_id=game_id, win_levels=win_levels, act_max=act_max, cwd=cwd,
-                           **pictures)
+    return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, **pictures)
 
 
-def task_message(*, game_id: str, max_actions: int, minutes: int) -> str:
-    return event_message("start", game_id=game_id, max_actions=max_actions, minutes=minutes, level=1)
+def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:
+    levels = f"It has {win_levels} levels. " if win_levels else ""
+    return event_message("start", game_id=game_id, max_actions=max_actions, minutes=minutes, level=1, levels=levels)
 
 
 def continuation(*, moves_left: int | None = None, minutes_left: int | None = None) -> str:

@@ -1,0 +1,10 @@
+# E120 GLM-4.6V. Stage 2 overrides of harness/config.py (stage 1 is a probe script, not a harness run).
+experiment: E120_glm
+games: [ls20, tr87, lp85]
+concurrency: 3
+model: glm            # new spec harness/llm/glm.py (to be written); the baseline arm keeps model: qwen
+agent:
+  compaction: {trigger_tokens: 60000}
+  # both arms: picture returned in the act tool result (code change, not a config knob yet)
+server:
+  profile_chain: [glm46v_awq_vision]   # placeholder name until the spec exists
