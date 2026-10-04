@@ -73,9 +73,18 @@ def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class AgentSession:
+    tracing = True
+    _frames = 0
+
     def __init__(self, *, cfg: dict[str, Any], llm: LLM, name: str, session_dir: Path, task: str,
-                 arc: ArcHost, deadline: float, stop_event: threading.Event, memory_root: Path | None = None) -> None:
+                 arc: ArcHost, deadline: float, stop_event: threading.Event, memory_root: Path | None = None,
+                 tracing: bool = True) -> None:
         self.cfg = cfg
+        # Config ``tracing``: the transcript, with what harness/trace.py needs to rebuild every request exactly (a
+        # snapshot of the context after each rewrite, the pictures as files, a digest of each request). Off: nothing
+        # is written. Logging only: the messages and the requests are the same either way.
+        self.tracing = tracing
+        self._frames = 0                     # pictures saved to frames/
         self.llm = llm
         self.name = name
         self.task = task
@@ -164,7 +173,8 @@ class AgentSession:
         try:
             self.kernel.start()
             self._log_event({"event": "system_prompt", "content": self._system_prompt(), "tools": self.tools,
-                             "vision": self.vision})
+                             "vision": self.vision, "append_only": self.append_only,
+                             "reasoning_budget": self._reasoning_budget()})
             # The memory is the pinned block; the first state comes with the task.
             self._log_event({"event": "memory_init", **self.memory.on_new_game()})
             self._append({"role": "user", "content": self.task})
@@ -200,12 +210,13 @@ class AgentSession:
             pinned = None if self.append_only else self._memory_message()
             msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
                                  reasoning_budget=self._reasoning_budget(), append_only=self.append_only)
+            effort = self._effort()
 
             # 3) send the current message to LLM and handles other errors like emergency compaction, llm failures time out
             try:
                 reply = self.llm.chat(msgs, tools=tools, max_tokens=self.cfg["max_tokens_per_turn"],
                                       timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())),
-                                      template_kwargs=self._effort())
+                                      template_kwargs=effort)
             except ContextOverflow as exc:
                 self._on_overflow(exc, tokens)
                 continue
@@ -234,8 +245,13 @@ class AgentSession:
                 sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
             if reply.prompt_tokens > 0 and estimate > 0:
                 self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
+            # For the trace: the request's digest (harness/trace.py rebuilds it from the transcript and checks it), the
+            # template's reasoning effort, and whether the thinking stays in the stored reply (it always does except
+            # in the old builder after a fenced-code reply).
+            trace = {"wire_sha": context.digest(msgs), "effort": (effort or {}).get("reasoning_effort"),
+                     "reasoning_unsent": bool(reply.reasoning) and "_reasoning" not in assistant} if self.tracing else {}
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
-                         finish=reply.finish_reason, turn=self.stats["turns"])
+                         finish=reply.finish_reason, turn=self.stats["turns"], **trace)
             # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
             # while it is still sent (until the next user message), so completion_tokens would overcount.
             self._usage_tokens = reply.prompt_tokens
@@ -322,6 +338,7 @@ class AgentSession:
             self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
             self._pinned_for = newest
             self._pinned_chars = len(self._pinned["content"])
+            self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
             self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
         return self._pinned
 
@@ -540,6 +557,7 @@ class AgentSession:
             png = self._picture(rows, b)
             msg = perception.image_message(text, png, self._last_step)
             self.stats["images_sent"] += 1
+            self._save_picture(msg, png)
         msg.update({"_full": full, "_step": self._last_step})
         dt = time.time() - t0
         self.stats["observations"] += 1
@@ -547,6 +565,28 @@ class AgentSession:
         self.stats["perception_s_total"] = round(self.stats["perception_s_total"] + dt, 3)
         self.stats["perception_s_max"] = round(max(self.stats["perception_s_max"], dt), 3)
         return msg
+
+    def _save_picture(self, msg: dict[str, Any], png: bytes) -> None:
+        """Tracing: the picture as ``frames/img_NNNNN.png`` next to the transcript, named in the message
+        (``_image_file``, never sent) so the trace can put the picture back into the training rows."""
+        if not self.tracing:
+            return
+        self._frames += 1
+        name = f"frames/img_{self._frames:05d}.png"
+        try:
+            path = self.session_dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(png)
+            msg["_image_file"] = name
+        except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
+            self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
+
+    def _snapshot(self, reason: str) -> None:
+        """Tracing: the whole stored context after a rewrite (drain, compaction, trim, reset), thinking included. The
+        trace replays it plus every message appended after it to rebuild each request."""
+        if self.tracing:
+            self._log_event({"event": "context", "reason": reason,
+                             "messages": [context.snapshot(m) for m in self.messages]})
 
     def _briefing(self, rows: list[list[int]]) -> perception.Briefing | None:
         """The briefing analysis of the newest frame, once per state. None when switched off or when it fails: the agent
@@ -874,6 +914,7 @@ class AgentSession:
             return False
         self.messages = drained
         self._insert_memory()
+        self._snapshot("drain")
         self._pinned, self._usage_tokens, self._usage_at = None, None, 0
         self._floor_pending, self._compact_floor = True, None
         self.stats["drains"] += 1
@@ -928,6 +969,7 @@ class AgentSession:
                          "kept_messages": len(kept), "split_turn": prep.is_split, "summary_chars": len(summary),
                          "action_count": self.arc.game.action_count, "duration_s": round(time.time() - t0, 1)})
         self._log_event({"event": "message", **head})
+        self._snapshot("compaction")
         if kept[-1]["role"] == "assistant":
             # Upstream queues the autonomous continuation for a threshold compaction in autonomous mode. After a tool
             # result nothing is added: the agent goes on with its tool-call chain and keeps its thinking.
@@ -980,6 +1022,7 @@ class AgentSession:
         if self.append_only:
             self.messages = [m for m in self.messages if not context.is_memory(m)]
             self._insert_memory()
+        self._snapshot("trim")
         self._pinned, self._usage_tokens, self._usage_at = None, None, 0
         self._floor_pending, self._compact_floor = True, None
         self.stats["context_trims"] += 1
@@ -1002,6 +1045,7 @@ class AgentSession:
         if self.append_only:
             self._append(self._memory_full())
         self.messages.append(obs)   # logged when it was made
+        self._snapshot(reason)
         self._summary, self._pinned, self._usage_tokens, self._usage_at = None, None, None, 0
         self._compact_floor, self._floor_pending, self._compact_failed_at = None, False, None
         self.stats["context_resets"] += 1
@@ -1041,6 +1085,8 @@ class AgentSession:
         self._log_event({"event": "message", **context.loggable(msg), **{k: v for k, v in extra.items() if v}})
 
     def _log_event(self, obj: dict[str, Any]) -> None:
+        if not self.tracing:
+            return
         obj = {"t": round(time.time(), 2), **obj}
         try:
             with self.transcript.open("a", encoding="utf-8") as fh:

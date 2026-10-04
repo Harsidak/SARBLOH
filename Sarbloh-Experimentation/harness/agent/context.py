@@ -24,6 +24,8 @@ alternating roles).
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 PINNED_KIND = "pinned"
@@ -199,3 +201,20 @@ def loggable(msg: dict[str, Any]) -> dict[str, Any]:
     return {**msg, "content": [p if p.get("type") != "image_url" else
                                {"type": "image_url", "image_url": {"url": f"[png of step {msg.get('_image_step')}]"}}
                                for p in msg["content"]]}
+
+
+def snapshot(msg: dict[str, Any]) -> dict[str, Any]:
+    """A stored message as ``loggable`` but with its thinking kept (``_reasoning``): one entry of the trace's context
+    snapshot, taken after every rewrite."""
+    out = loggable(msg)
+    if msg.get("_reasoning"):
+        out["_reasoning"] = msg["_reasoning"]
+    return out
+
+
+def digest(request: list[dict[str, Any]]) -> str:
+    """A short hash of a request with every picture reduced to its part type: the transcript keeps the pictures as
+    files, not bytes, so the trace can rebuild each request from the transcript and check it against this."""
+    canon = [{**m, "content": [{"type": "image_url"} if p.get("type") == "image_url" else p for p in m["content"]]}
+             if isinstance(m.get("content"), list) else m for m in request]
+    return hashlib.sha256(json.dumps(canon, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:16]

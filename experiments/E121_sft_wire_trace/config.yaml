@@ -1,0 +1,5 @@
+# E121 SFT wire trace. Overrides of Sarbloh-Experimentation/harness/config.py for the first Kaggle check run
+# (kaggle/experimental/sarbloh_experimentation.ipynb sets tracing from SUBMISSION; Save & Run keeps it on).
+experiment: E121_sft_wire_trace
+tracing: true          # off on the competition rerun (run.py forces it; the notebook sets it from SUBMISSION)
+record: true

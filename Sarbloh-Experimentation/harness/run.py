@@ -4,7 +4,8 @@
     python -m harness.run --local ...       # local: an already running OpenAI-compatible server (llama.cpp)
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
-LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md).
+LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md),
+reports and the SFT export; config ``tracing`` off (always on the competition rerun) skips the transcripts and all of it.
 """
 
 from __future__ import annotations
@@ -76,7 +77,7 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
                                 minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
-                           memory_root=run_dir / "memory")
+                           memory_root=run_dir / "memory", tracing=bool(cfg.get("tracing", True)))
     session_ref["s"] = session
     t0 = time.time()
     try:
@@ -171,6 +172,9 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")
+    if not cfg.get("tracing", True):
+        print("[trace] tracing off: no transcripts, reports or SFT export", flush=True)
+        return summary
     try:
         print(f"[trace] step maps: {trace.build_run(run_dir)}", flush=True)
     except Exception as exc:  # noqa: BLE001 - the trace is a report; it must not fail the run
@@ -244,6 +248,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     run_dir = working_dir / "prime_run"
     os.environ.setdefault("RECORDINGS_DIR", str(run_dir / "recordings"))
     record = bool(cfg.get("record")) and not rerun  # rerun outputs are never seen; skip the disk writes
+    if rerun:
+        cfg["tracing"] = False   # the same reason; also set by the notebook
     working_dir.mkdir(parents=True, exist_ok=True)
     _print_env(cfg)
 

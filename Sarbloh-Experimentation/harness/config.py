@@ -19,6 +19,11 @@ DEFAULT: dict[str, Any] = {
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on an act's first action its thought and arguments). Off on the competition rerun.
     "record": True,
+    # The trace for analysis and LoRA SFT: each game's transcript.jsonl (with a snapshot of the context after every
+    # rewrite, the reasoning effort and a digest of every request), the pictures sent (games/<id>/frames/), and after
+    # the run harness/trace.py (reports + sft_levels.jsonl). Logging only: the agent's context and requests are the same
+    # either way. Off: none of it is written. Always off on the competition rerun (its outputs are never seen).
+    "tracing": True,
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
