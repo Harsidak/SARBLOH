@@ -16,8 +16,10 @@ Changed: the summary is a short game handover note (at most ``summary_tokens``, 
 one (passed as ``<previous-summary>``) instead of preserving all of it. The plan, hypotheses and findings are in the
 agent's memory block and the kernel's names are listed by the host in code, so the note leaves them out. The token
 estimate counts the stored thinking, so the cut point sees what is big.
-Added: if the summarizer request itself overflows, the oldest part of the serialized conversation is dropped and
-the call is retried (upstream routes to a larger model instead).
+Added: the in-context summary (``summarize_in_context``): the agent writes the note itself as one more turn on its own
+prompt, like Claude Code's /compact, so it sees its thinking and the boards and the server prefills almost nothing;
+the separate summarizer is the fallback. Added: if the summarizer request itself overflows, the oldest part of the
+serialized conversation is dropped and the call is retried (upstream routes to a larger model instead).
 """
 
 from __future__ import annotations
@@ -52,7 +54,30 @@ PREVIOUS_SUMMARY_RULE = """
 
 The note in <previous-summary> was written at the last compaction. Your note replaces it: keep from it only what still matters now, and drop what is finished, out of date or already in the memory block."""
 
-TURN_PREFIX_SUMMARIZATION_PROMPT = """This is the start of the agent's current turn. The turn was too long to keep whole, so only its end stays in the context. In at most {words} words, say what the turn started from and what it found so far, so that the kept end makes sense. Keep step numbers, coordinates and error messages exact."""
+# The in-context summary (config compaction.in_context): the agent writes the note itself, as one more turn on its own
+# prompt, the way Claude Code's /compact does. It sees all of its thinking and the boards, and the server has the
+# whole prompt cached, so only the note is new work.
+HANDOVER_PROMPT = """Stop playing for a moment, and do not call any tool in this reply. Think only briefly, and write the note as your answer. Your context is nearly full, so everything above is about to be removed except your [memory] block, your last few messages, the moves of this level and the newest board. Write a handover note to yourself so that you can carry on exactly where you are, without working anything out again. Use at most {words} words, under these headings:
+
+## Where I am
+The level, what the board looks like now, and what I was in the middle of doing.
+
+## What I tried and what happened
+Every attempt on this level, with step numbers: the moves or the test, and what happened. Say clearly which ideas failed, so that I do not try them again.
+
+## What I know works
+The rules and facts I have confirmed, with exact positions, colours and numbers, and my Python helpers that work: the name of each one and what it does.
+
+## Next step
+The exact next move or test, and why.
+
+Leave out what my [memory] block already says. Keep step numbers, coordinates and numbers exact.{previous}"""
+
+HANDOVER_PREVIOUS_RULE = """
+
+My note from the last time the context was shortened is above. This note replaces it, so carry over what still matters from it."""
+
+TURN_PREFIX_SUMMARIZATION_PROMPT ="""This is the start of the agent's current turn. The turn was too long to keep whole, so only its end stays in the context. In at most {words} words, say what the turn started from and what it found so far, so that the kept end makes sense. Keep step numbers, coordinates and error messages exact."""
 
 COMPACTION_SUMMARY_PREFIX = """[compaction-summary]
 
@@ -278,6 +303,30 @@ def summarize(llm: Any, prep: Preparation, summary_tokens: int, overflow: type[E
     prefix = _complete(llm, lambda c: turn_prefix_prompt(c, prefix_budget), serialize_conversation(prep.turn_prefix),
                        prefix_budget, overflow)
     return f"{history}\n\n---\n\n**Turn Context (split turn):**\n\n{prefix}"
+
+
+def handover_message(summary_tokens: int, has_previous: bool) -> dict[str, Any]:
+    """The request appended to the agent's own context for an in-context summary."""
+    return {"role": "user", "content": HANDOVER_PROMPT.format(
+        words=_words(summary_tokens), previous=HANDOVER_PREVIOUS_RULE if has_previous else "")}
+
+
+def summarize_in_context(llm: Any, request: list[dict[str, Any]], tools: list[dict[str, Any]] | None,
+                         summary_tokens: int, template_kwargs: dict[str, Any] | None = None,
+                         timeout_s: float | None = None, thinking: bool | None = False,
+                         think_tokens: int = 0) -> str:
+    """The agent's own handover note: ``request`` is its prompt as last sent plus ``handover_message``, with the same
+    tools and template arguments, so the server reuses the cached prompt. ``thinking=False`` turns the thinking off
+    (only where that leaves the prompt as it was; see the agent); otherwise ``think_tokens`` more are allowed for it.
+    A margin above ``summary_tokens`` lets the note end on its own. Raises when no text comes back (the caller falls
+    back to ``summarize``)."""
+    reply = llm.chat(request, tools=tools, max_tokens=summary_tokens + 512 + think_tokens, timeout_s=timeout_s,
+                     thinking=thinking, template_kwargs=template_kwargs)
+    text = re.sub(r"<think>.*?</think>", "", reply.content or "", flags=re.DOTALL).strip()
+    if not text:
+        raise RuntimeError("the in-context summary came back empty"
+                           + (" (it called a tool)" if reply.tool_calls else ""))
+    return text
 
 
 def head_message(summary: str, digest_block: str) -> dict[str, Any]:

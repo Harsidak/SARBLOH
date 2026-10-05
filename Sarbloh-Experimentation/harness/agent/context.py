@@ -8,10 +8,10 @@ chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, 
 - every reply keeps its thinking and every picture stays;
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
-- at the compaction trigger the agent first drains (``drain``): the thinking before the current tool-call chain, every
-  picture but the newest and the memory messages are removed, and a full memory goes back in. That leaves what the
-  old builder sent, so the agent never sees less than before. A summary is made only when a drain would not free
-  enough.
+- at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
+  included, so the agent carries on mid-thought; before them the old boards become one-line stubs, the ipython outputs
+  are cut short, act results become a short move log (one cut line per step), and the thinking, the old pictures and
+  the memory messages go; a full memory goes back in. A summary is made only when a drain would not free enough.
 
 The old builder (``append_only`` off): the memory is built once per user message and joined to the front of the newest
 one; only the newest image is kept (older image parts become a one-line text stub); thinking is sent back only within
@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 PINNED_KIND = "pinned"
 MEMORY_UPDATE_KIND = "memory_update"
+STUB_KIND = "board_stub"           # an old board after a drain: one line, no picture
+ACT_LINE_CHARS = 200               # an old act result's change line after a drain
 REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
 ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
 TITLES = {
@@ -165,15 +168,75 @@ def all_reasoning(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for m in messages]
 
 
-def drain(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The history as the old builder sent it, with no model call: the replies before the current tool-call chain lose
-    their thinking, every picture but the newest becomes a stub, and the memory messages go (the caller puts a full
-    one back). Tool calls, tool outputs and board texts all stay."""
-    start = chain_start(messages)
-    out = [m for m in messages[:start] if not is_memory(m)]
-    out = [{k: v for k, v in m.items() if k != "_reasoning"} if m["role"] == "assistant" else m for m in out]
-    out += messages[start:]
+def is_act_result(m: dict[str, Any]) -> bool:
+    """A tool result of `act`: its change lines, one per step, are the move log (a drain shortens it, never drops
+    it)."""
+    return m.get("role") == "tool" and str(m.get("content") or "").startswith("act")
+
+
+def board_stub(m: dict[str, Any]) -> dict[str, Any]:
+    """An old board as one line: its header ("[state after step #12]") and a note that the text is gone."""
+    first = next((ln.strip() for ln in _text_of(m).splitlines() if ln.strip()), "")
+    head = first[1:first.index("]")] if first.startswith("[") and "]" in first else "board"
+    return {"role": "user", "_kind": STUB_KIND, "_step": m.get("_step"),
+            "content": f"[{head}: the board is removed to save space; the change lines are in the act result]"}
+
+
+def cut_output(m: dict[str, Any], chars: int) -> dict[str, Any]:
+    """An ipython output cut to its first ``chars`` characters, its last line (the game status) kept."""
+    text = _text_of(m)
+    if len(text) <= chars:
+        return m
+    lines = text.rstrip().splitlines()
+    tail = lines[-1] if lines and lines[-1].startswith("[game:") else ""
+    return {**m, "content": f"{text[:chars].rstrip()}\n[... {len(text) - chars} more characters removed to save "
+                            f"space]" + (f"\n{tail}" if tail else "")}
+
+
+_MARKS = re.compile(r"(?: \[repeat: [^\]]*\]| \[GAME_OVER\])+$")
+
+
+def short_act_result(m: dict[str, Any], line_chars: int = ACT_LINE_CHARS) -> dict[str, Any]:
+    """An old act result as a move log: its first line, each change line cut to ``line_chars`` with its repeat and
+    GAME_OVER marks kept, and its status line; the event notes after them (what to do after a GAME_OVER, ...) go."""
+    out = []
+    for ln in _text_of(m).splitlines():
+        if ln.startswith("#") and len(ln) > line_chars:
+            marks = _MARKS.search(ln)
+            tail = marks.group(0) if marks else ""
+            ln = ln[:max(line_chars - len(tail), 40)].rstrip() + " ..." + tail
+        if ln.startswith(("act", "#", "[game:")):
+            out.append(ln)
+    return {**m, "content": "\n".join(out)}
+
+
+def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
+          output_chars: int | None = None) -> list[dict[str, Any]]:
+    """A smaller history with no model call. The messages from ``keep_from`` on (default: the current tool-call
+    chain) stay word for word, thinking included. Before them: every reply loses its thinking (its tool calls stay),
+    every board but the newest becomes a one-line stub, every ipython output is cut to ``output_chars`` and every act
+    result becomes a short move log (``short_act_result``); None keeps boards and outputs whole. Every picture but the
+    newest becomes a stub, and the memory messages go (the caller puts a full one back)."""
+    start = chain_start(messages) if keep_from is None else keep_from
+    newest = max((i for i, m in enumerate(messages) if m.get("_kind") == "observation"), default=None)
+    out = []
+    for i, m in enumerate(messages[:start]):
+        if is_memory(m):
+            continue
+        if m["role"] == "assistant":
+            m = {k: v for k, v in m.items() if k != "_reasoning"}
+        elif output_chars is not None and m.get("_kind") == "observation" and i != newest:
+            m = board_stub(m)
+        elif output_chars is not None and m["role"] == "tool":
+            m = short_act_result(m) if is_act_result(m) else cut_output(m, output_chars)
+        out.append(m)
+    out += [m for m in messages[start:] if not is_memory(m)]
     return images(out, True)
+
+
+def _text_of(m: dict[str, Any]) -> str:
+    c = m.get("content") or ""
+    return c if isinstance(c, str) else "".join(p.get("text", "") for p in c if isinstance(p, dict))
 
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,

@@ -43,7 +43,7 @@ def is_competition_rerun() -> bool:
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
     """Scale the compaction settings to the served window. From 128k up they stay as configured (16384 reserve,
-    16000 kept, compact above 120000 or window - reserve, whichever is lower); smaller windows get at most a quarter
+    6000 kept, compact above 120000 or window - reserve, whichever is lower); smaller windows get at most a quarter
     each, and a turn's output never exceeds the reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]
@@ -52,7 +52,9 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
     if comp.get("trigger_tokens") and comp["trigger_tokens"] < 2 * comp["keep_recent_tokens"]:
         raise ValueError(f"compaction.trigger_tokens {comp['trigger_tokens']} < 2x keep_recent_tokens "
                          f"{comp['keep_recent_tokens']}: every compaction would leave the context near the trigger")
-    agent["max_tokens_per_turn"] = min(agent["max_tokens_per_turn"], comp["reserve_tokens"])
+    cap = agent["max_tokens_per_turn"]
+    agent["max_tokens_per_turn"] = ({k: min(v, comp["reserve_tokens"]) for k, v in cap.items()} if isinstance(cap, dict)
+                                    else min(cap, comp["reserve_tokens"]))
 
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,

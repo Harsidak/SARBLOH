@@ -208,9 +208,10 @@ GAME_OVER = """GAME_OVER: this level is lost. Before you do anything else:
 
 WIN = "WIN: every level is done, and the game is complete."
 
-CUT_OFF = "Your last reply was too long, so it was cut off and lost. Think less this time and call a tool soon."
+CUT_OFF = ("Your last reply reached the length limit before you called a tool. Do not start your thinking over: call "
+           "a tool now, `ipython` to test your idea or `act` to make the move.")
 
-COMPACTED = """Older messages were shortened to save space. Your [memory] block is complete, and the newest board is shown below. Use `recall` if you need an earlier step."""
+COMPACTED = """Older messages were removed to save space. Your [memory] block is complete, the newest board is shown below, and your handover note, when there is one, says where you were and what you meant to do next. Carry on from there without starting over. Use `recall` if you need an earlier step."""
 
 ACT_TWICE = ("Your second `act` in the same reply was not run, and no move was spent. Read the new board that came "
              "after your first `act`, then act in your next reply.")
