@@ -184,7 +184,8 @@ SGL_FLASH = {
     "--tensor-parallel-size": "1", "--dtype": "bfloat16", "--quantization": "auto-round", "--trust-remote-code": None,
     "--kv-cache-dtype": "fp8_e4m3", "--mem-fraction-static": "0.96", "--context-length": "139264", "--page-size": "64",
     "--max-running-requests": "10", "--chunked-prefill-size": "8192", "--max-prefill-tokens": "16384",
-    "--cuda-graph-max-bs-decode": "10", "--cuda-graph-bs-decode": ["1", "2", "4", "7", "8", "9", "10"],
+    # a graph for every batch size up to 10: a missing size (the reference skipped 3, 5 and 6) pads to the next one
+    "--cuda-graph-max-bs-decode": "10", "--cuda-graph-bs-decode": [str(b) for b in range(1, 11)],
     "--mamba-ssm-dtype": "bfloat16", "--max-mamba-cache-size": "60", "--mamba-radix-cache-strategy": "extra_buffer",
     "--mamba-track-interval": "64", "--mamba-backend": "flashinfer", "--linear-attn-decode-backend": "flashinfer",
     "--linear-attn-prefill-backend": "flashinfer", "--moe-runner-backend": "auto", "--ple-offload-embedding": None,
