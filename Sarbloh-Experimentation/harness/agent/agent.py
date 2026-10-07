@@ -28,10 +28,12 @@ Ours, not upstream: the game status line after each tool result, the "reply was 
 upstream's chars/4 token estimate by the measured prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars,
 so chars/4 alone never triggered compaction).
 
-Tools (``harness.agent.tools``): ``ipython`` (think and compute; reads the state with ``observe()``, cannot act or fetch
-the game), ``act`` (1 to N actions plus the agent's plan, hypotheses, findings and goal) and ``recall`` (search memory
-and skills). After every act the host pushes the new state as the next user message: a change line per action in the
-act result, then the short view (changed region) and the picture (``harness.agent.perception``). The full view
+Tools (``harness.agent.tools``): ``ipython`` (think, compute and act: ``observe()`` reads the state, ``await act([...])``
+makes 1 to N moves plus the agent's plan, hypotheses, findings and goal, through a host request to ``_tool_act``) and
+``recall`` (search memory and skills). One tool for code and moves, so the agent can model the game, search the model
+and send the path in one cell. The change lines of every act are printed in the cell output; after a reply that moved,
+the host pushes the new state as the next user message: the short view (changed region) and the picture
+(``harness.agent.perception``). The full view
 (briefing, every object, the whole board, the picture) is pushed at a level start, after a compaction, and when the
 agent calls ``observe()`` in ipython (once per state). Append-only (config ``append_only``): nothing already sent is
 changed until a rewrite, so the server's prefix cache keeps the whole prompt; at the compaction trigger a drain in code
@@ -125,8 +127,9 @@ class AgentSession:
         self._turns_since_curate = 0
         self._effort_sent: str | None = None    # the reasoning effort of the last request (logged when it changes)
         self.kernel = Kernel(session_dir / "work", self._host)
-        self.tools = game_tools(act_max=int(cfg.get("act_max_actions", 5)))
-        self._acted_in_reply = False
+        self.tools = game_tools()
+        self._act_info: dict[str, Any] | None = None
+        self._cell: dict[str, Any] | None = None   # the ipython cell running now: its call, and the acts it made
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
         self.vision = bool(cfg.get("vision")) and bool(self.perception.get("image", True))
@@ -263,7 +266,6 @@ class AgentSession:
 
             # 5) If tool calls: execute each, then maybe run the curator
             if calls:
-                self._acted_in_reply = False   # one act per reply: the model must read each result first
                 for call in calls:
                     self._run_call(call, reply)
                 if self._pending_obs is not None:
@@ -437,17 +439,8 @@ class AgentSession:
                 self.stats["act_arg_errors"] += 1
             self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                              "error": call["error"][:500]})
-        elif call["name"] == "act" and self._acted_in_reply:
-            failed = True
-            self.stats["tool_errors"] += 1
-            text = "act refused: " + prompts.event_message("act_twice")
-            self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
-                             "error": "second act in one reply", "args": call["args"]})
         elif call["name"] != "ipython":
-            before = self.arc.game.action_count
             try:
-                if call["name"] == "act":
-                    self._acted_in_reply = True
                 text = self._run_tool(call["name"], call["args"], call_id, turn, reply)
             except Exception as exc:  # noqa: BLE001 - a bad argument is the model's to fix, not a crash
                 failed = True
@@ -457,11 +450,13 @@ class AgentSession:
                 text = f"{call['name']} refused: {exc}"
                 self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                                  "error": str(exc)[:500], "args": call["args"]})
-                if self.arc.game.action_count == before:
-                    self._acted_in_reply = False   # a refused act spent nothing: a corrected retry may follow
         else:
             timeout = max(10.0, min(self.cfg["cell_timeout_s"], self.deadline - time.time()))
-            res = self.kernel.execute(call["code"], timeout_s=timeout)
+            self._cell = {"call_id": call_id, "turn": turn, "reply": reply, "acts": [], "closed": None}
+            try:
+                res = self.kernel.execute(call["code"], timeout_s=timeout)
+            finally:
+                cell, self._cell = self._cell, None
             if res.status != "ok":
                 self.stats["cell_errors"] += 1
                 failed = True
@@ -469,7 +464,8 @@ class AgentSession:
             if any(observation.MIME in d for d in res.displays):
                 text += "\n" + self._observe_called()
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
-                             "duration_s": round(res.duration_s, 2), "output_chars": len(text)})
+                             "duration_s": round(res.duration_s, 2), "output_chars": len(text),
+                             "acts": len(cell["acts"])})
         text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:
             msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
@@ -477,6 +473,8 @@ class AgentSession:
             msg = {"role": "user", "content": f"[ipython output]\n{text}"}
         if failed:
             msg["_error"] = True
+        if call["name"] == "ipython" and not call["error"] and cell["acts"]:
+            msg["_act_log"] = "\n".join(cell["acts"])   # a drain keeps the moves of this cell as a move log
         self._append(msg)
 
     # --- tools: act and recall ----------------------------------------------------------------------------
@@ -752,6 +750,7 @@ class AgentSession:
                          "goal": wrote["goal"], "hypotheses": wrote["hypotheses"], "findings": wrote["findings"],
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
                          "actions": [start, arc.game.action_count]})
+        self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
         if done == 0 and stop:
             raise RuntimeError(stop + " (your plan and memory writes were saved)")
         if lines:
@@ -1144,10 +1143,37 @@ class AgentSession:
     # --- host requests from the REPL ----------------------------------------------------------------------
     def _host(self, req: dict[str, Any]) -> dict[str, Any]:
         kind = str(req.get("type", ""))
+        if kind == "arc.act":
+            return self._act_from_cell(req.get("args") or {})
         if kind.startswith("arc."):
-            raise PermissionError("in this harness the game state is pushed to you after every act; read it "
-                                  "with `observe()` and act with the act tool")
+            raise PermissionError("in this harness the state is read with `observe()` and moves are made with "
+                                  "`await act([...])`")
         raise RuntimeError(f"host request {kind!r} is not supported by this harness")
+
+    def _act_from_cell(self, args: dict[str, Any]) -> dict[str, Any]:
+        """``await act(...)`` in a cell (answered on the kernel's host thread while the main loop waits for the cell).
+        After a level up or the end of the game the cell may not act again: the new level is read first."""
+        cell = self._cell
+        if cell is None:
+            raise RuntimeError("act() works only inside an ipython call")
+        if cell["closed"]:
+            raise RuntimeError(f"not run, nothing spent: {cell['closed']} in this cell already. Read the new state "
+                               "in your next reply before you move again.")
+        self._act_info = None
+        try:
+            text = self._tool_act(args, cell["call_id"], cell["turn"], cell["reply"])
+        except Exception as exc:
+            self.stats["tool_errors"] += 1
+            if isinstance(exc, (ValueError, TypeError)):
+                self.stats["act_arg_errors"] += 1
+            self._log_event({"event": "tool_error", "turn": cell["turn"], "call": cell["call_id"], "tool": "act",
+                             "error": str(exc)[:500], "args": args})
+            raise
+        info = self._act_info or {}
+        cell["acts"].append(text)
+        if info.get("level_up") or self.arc.finished or info.get("state") == "WIN":
+            cell["closed"] = "the level changed" if info.get("level_up") else "the game ended"
+        return {"text": text, **info}
 
     # --- bookkeeping -------------------------------------------------------------------------------------
     def _time_left(self) -> str:

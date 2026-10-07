@@ -44,7 +44,7 @@ TITLES = {
     "lessons": "Lessons from earlier levels and games",
     "questions": "Open questions (from a review of your last steps)",
 }
-EMPTY = {"goal": "(none yet: write one with act's `goal` as soon as you have a guess)",
+EMPTY = {"goal": "(none yet: write one with `act(..., goal=...)` as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
 
 
@@ -53,7 +53,7 @@ def _section(blocks: dict[str, str], key: str) -> str:
 
 
 def pinned_message(blocks: dict[str, str], status: str) -> dict[str, Any]:
-    parts = ["[memory] Your memory, from what you wrote with `act`. When a section changes, the new version is shown "
+    parts = ["[memory] Your memory, from what you wrote with `act()`. When a section changes, the new version is shown "
              "with the next state. It is not a message to answer.", f"## Game\n{status}"]
     for key in ORDER:
         text = _section(blocks, key)
@@ -179,7 +179,7 @@ def board_stub(m: dict[str, Any]) -> dict[str, Any]:
     first = next((ln.strip() for ln in _text_of(m).splitlines() if ln.strip()), "")
     head = first[1:first.index("]")] if first.startswith("[") and "]" in first else "board"
     return {"role": "user", "_kind": STUB_KIND, "_step": m.get("_step"),
-            "content": f"[{head}: the board is removed to save space; the change lines are in the act result]"}
+            "content": f"[{head}: the board is removed to save space; the change lines are in the act output]"}
 
 
 def cut_output(m: dict[str, Any], chars: int) -> dict[str, Any]:
@@ -228,7 +228,14 @@ def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
         elif output_chars is not None and m.get("_kind") == "observation" and i != newest:
             m = board_stub(m)
         elif output_chars is not None and m["role"] == "tool":
-            m = short_act_result(m) if is_act_result(m) else cut_output(m, output_chars)
+            if m.get("_act_log"):   # an ipython cell that moved: its output cut short, then its move log whole
+                log = short_act_result({"content": m["_act_log"]})["content"]
+                cut = _text_of(cut_output(m, output_chars))
+                m = {**m, "content": f"{cut}\n[moves made by this call]\n{log}"}
+            elif is_act_result(m):
+                m = short_act_result(m)
+            else:
+                m = cut_output(m, output_chars)
         out.append(m)
     out += [m for m in messages[start:] if not is_memory(m)]
     return images(out, True)

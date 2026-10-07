@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-SUMMARIZATION_SYSTEM_PROMPT = """You write short handover notes. You read part of a conversation in which an agent plays a grid puzzle game: it thinks, runs Python in a kernel, and makes moves with the act tool. Your note lets the agent carry on where it left off. Do not continue the conversation and do not answer anything in it. Write only the note."""
+SUMMARIZATION_SYSTEM_PROMPT = """You write short handover notes. You read part of a conversation in which an agent plays a grid puzzle game: it thinks, runs Python in a kernel, and makes moves with `act()` from its Python code. Your note lets the agent carry on where it left off. Do not continue the conversation and do not answer anything in it. Write only the note."""
 
 # One note at a time: a later compaction writes a new note that replaces the old one (the old note is input, not
 # something to keep whole). The plan, hypotheses and findings live in the agent's memory block, and the kernel's names

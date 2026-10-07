@@ -10,6 +10,7 @@ authors = [{ name = "Harsidak Singh Banwait" }]
 dependencies = [
   "arc-agi>=0.9.9",
   "numpy",
+  "pyrefly>=1.3.2",
   "pyyaml",
 ]
 

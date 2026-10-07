@@ -67,7 +67,7 @@ IPYTHON_BRIEFING = """iPython tool:
 - Unlimited Uses: You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush."""
 
 # =====================================================================================================================
-# 2. System-prompt snippets (tools: ipython, act, recall)
+# 2. System-prompt snippets (tools: ipython with act(), recall)
 # =====================================================================================================================
 
 GAME_FACTS = """Game:
@@ -75,10 +75,10 @@ You are playing an ARC-AGI-3 game made of several levels. The game is turn based
 You work alone. There is no human to answer questions, so never ask one. Thinking and using Python are free. Only game moves count, so make each move for a reason."""
 
 READING_THE_STATE = """What you see:
-1. After every `act`, the result has one line per move. For example:
+1. Every `act()` prints one line per move in the output of your `ipython` call. For example:
    `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
    `#12` is the step number, and you use step numbers as evidence. A line that ends with `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
-2. The new state follows in the next message. It has a status line, the last step, the objects in the area that changed and that area drawn as letters{picture_after}.
+2. After a reply that made moves, the new state follows in the next message. It has a status line, the last step, the objects in the area that changed and that area drawn as letters{picture_after}.
 3. At the start of each level, after old messages are shortened, and whenever you call `observe()` in `ipython`, you get the full state instead: a briefing, the full list of objects and the whole board as letters{picture_start}.
 
 The briefing is worked out by code from the board, and it has two parts:
@@ -95,42 +95,42 @@ The picture is a map of the board. Open floor is light, walls and other large ar
 """
 
 TOOLS_BRIEFING = """Tools:
-You have three tools, and only `act` spends moves.
-- `ipython` (free) runs Python, so you can look at the board and compute things. It reads the current state with `observe()`. Your variables and functions stay for the whole game. It cannot make moves.
-- `act` makes 1 to {act_max} moves, and in the same call you can update your memory (plan, hypotheses, findings and goal). Each move costs one move. Use one `act` per reply.
+You have two tools.
+- `ipython` is where you play. It runs Python: read the state with `observe()` (free), write code that models the game, search it, and make moves with `await act([...])`. Only `act()` spends moves, 1 to {act_max} per call, and the same call can update your memory (plan, hypotheses, findings and goal). Your variables and functions stay for the whole game.
 - `recall` (free) searches your memory: earlier steps, hypotheses, findings, goals, lessons and skills.
-The cycle is: read the new board, check your idea in `ipython`, then `act`. Write to your memory only when something is new, such as a test result, a refuted rule or a new plan. What you wrote before stays, so leave out what has not changed. Use `recall` when you need something that is no longer in the conversation."""
+The cycle is: read the board, write or fix a small model of the game in Python, search it for the moves that reach your goal, send them with `act()`, and compare what happened with what your model predicted. One `ipython` call can do all of this, and it can call `act()` more than once. Write to your memory only when something is new, such as a rule that held, a refuted rule or a new plan. What you wrote before stays, so leave out what has not changed. Use `recall` when you need something that is no longer in the conversation."""
 
 IPYTHON_TOOL_DETAILED = """`ipython` in detail:
 - Its argument is `code`, the Python to run. Top-level `await` works.
-- Your variables, functions and imports stay between calls, for the whole game and across levels. So write your code as functions you can call again (for example one that finds an object, or one that searches for a path), change them when the game shows you something new, and then make the moves your code finds with `act`. Check what you already have with `dir()` before you write something again.
+- Your variables, functions and imports stay between calls, for the whole game and across levels. So write your code as functions you can call again (for example `step(state, move)` that predicts the next state, and a breadth-first search over it), change them when the game shows you something new, and make the moves your code finds with `act()` in the same call. Check what you already have with `dir()` before you write something again.
 - `obs = observe()` gives you the current state. It is free, and the full state ({full_state}) also comes to you in the next message, once per state. There is no number grid: colors are letters, and positions are (row, column).
   - `obs.board` is the board, one string of letters per row. `obs.board[r][c]` is the color at row r and column c.
   - `obs.objects` is a list of dicts, one per object, with the keys `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash`, `corners`, `parent`, `children`, `adjacent`, `hud` and `cells`. `cells` is a list of (row, column), or None when the object has more than 256 cells. To find objects, filter the list, for example `[o for o in obs.objects if o["letter"] == "R"]`.
   - `print(obs.ascii(r0, c0, r1, c1))` prints a window of the board with row and column labels.
   - `obs.change` is the change line of the newest step, and `obs.history` lists the last 20 steps. Each step is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
   - `obs.briefing` has every line of the briefing, `obs.step` is the newest step number, `obs.status` is the status line, `obs.background` is the background letter, and `obs.legend` maps each letter to its color name.
-- An `obs` does not change after you get it. Call `observe()` again after every `act`, and call it inside your helper functions instead of keeping an old board in a variable."""
+- An `obs` does not change after you get it. Call `observe()` again after every `act()`, and call it inside your helper functions instead of keeping an old board in a variable."""
 
-ACT_DETAILED = """`act` in detail:
+ACT_DETAILED = """`act()` in detail:
+`r = await act(actions, plan=None, hypotheses=None, findings=None, goal=None, quiet=False)` runs inside `ipython`.
 Arguments:
 - `actions` (required) is a list of 1 to {act_max} moves, made in order.
   - "1" is up, "2" down, "3" left, "4" right and "5" space (the game's special action). "7" is often undo, but check that in this game before you rely on it.
-  - "6 r c" clicks the cell at row r and column c, for example "6 12 40". The row comes first, and each click is its own item in the list.
+  - "6 r c" clicks the cell at row r and column c, for example "6 12 40". The row comes first, and each click is its own item in the list. A tuple (6, r, c) works too.
   - "reset" restarts the current level.
   For example, ["1", "1", "4"] or ["6 12 40"]. These names are only labels. What a move really does in this game is a guess until you have seen it happen.
 - `plan`, `hypotheses`, `findings` and `goal` are optional, and they are your memory. Send only the ones that changed. They are explained below under "Your memory".
+- Do not forget `await`: without it nothing happens.
 Limits:
-- Use one `act` per reply. A second `act` in the same reply is refused and spends nothing.
 - Only the legal moves in the status line work.
-- The whole call is refused before any move, with nothing spent and nothing saved, if there are more than {act_max} moves, if a move cannot be read or is not legal, or if a hypothesis is wrong (an unknown id, a bad status, or no text). Fix it and send the call again.
-- The moves stop early at a level up, at GAME_OVER, or when the game ends.
+- The whole call is refused before any move, with nothing spent and nothing saved, if there are more than {act_max} moves, if a move cannot be read or is not legal, or if a hypothesis is wrong (an unknown id, a bad status, or no text). The refusal is a `RuntimeError` in your code. Fix it and call again.
+- The moves stop early at a level up, at GAME_OVER, or when the game ends. After a level up or the end of the game, `act()` refuses for the rest of that `ipython` call, so that you look at the new level first.
 - If the game refuses a move, the moves before it still count, and your memory writes are kept.
 What comes back:
-- The first line is `act: 3 of 3 actions done`, plus `; stopped: <reason>` when it stopped early.
-- Then comes one change line per move, for example `#12 A1(up): <what changed>`. A click is written `A6(r12,c40)`. `[repeat: same state and action as #7]` means you made this exact move from this exact board before, and `[GAME_OVER]` marks the move that lost the level.
+- It prints `act: 3 of 3 actions done`, plus `; stopped: <reason>` when it stopped early, and then one change line per move, for example `#12 A1(up): <what changed>`. A click is written `A6(r12,c40)`. `[repeat: same state and action as #7]` means you made this exact move from this exact board before, and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
+- It returns `r` with `r.lines` (the change lines), `r.done` (moves made), `r.stopped` (why it stopped early, or None), `r.level_up` and `r.state`. Call `observe()` after it for the new board, so your code can compare it with what your model predicted.
 - After a level up, a GAME_OVER or a WIN there is a short note that tells you what to do next.
-- The new board follows in the next message."""
+- After your reply, the new board follows in the next message."""
 
 RECALL_DETAILED = """`recall` in detail:
 Arguments:
@@ -141,32 +141,34 @@ What comes back is the matches, grouped by scope. Long results are cut, so ask f
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-A [memory] block shows what you wrote with `act`, and it stays when old messages are removed. When a part of it changes, a [memory update] with only the changed parts comes with the next board, and the parts it does not show are as before. Old messages are removed from time to time to make room, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act` you can write:
+A [memory] block shows what you wrote with `act()`, and it stays when old messages are removed. When a part of it changes, a [memory update] with only the changed parts comes with the next board, and the parts it does not show are as before. Old messages are removed from time to time to make room, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act()` you can write:
 - `plan` (when your next steps change): your next steps and the reason, in one or two sentences. It replaces your old plan. If you leave it out, your old plan stays.
-- `hypotheses` (when one is new or its status changes): a list of rules you think are true. Each one has a `status`, which is "proposed", "verified" (it correctly predicted moves you made after you wrote it) or "refuted" (a move showed it is wrong). A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
+- `hypotheses` (when one is new or its status changes): a list of rules you think are true. Each one has a `status`, which is "proposed" (a guess), "verified" (it has matched the moves you made so far, so you rely on it) or "refuted" (a move showed it is wrong). You do not need proof to act on a rule: act on your best guess, and fix the rule when the game disagrees. A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
 - `findings` (when you learn a new one): facts about this level, one short sentence each. They are added to the ones you already have, so send only new ones.
 - `goal` (when it changes): what you think wins the level. It replaces your old goal. While you are not sure, keep 2 or 3 different goals and test them against each other.
-When you finish a level, skills are written from what the level taught you, your verified hypotheses and findings are saved as lessons for later levels, and then your plan, hypotheses and findings are cleared. Your goal is kept. So mark what you have verified before the level ends."""
+When you finish a level, skills are written from what the level taught you, your verified and refuted hypotheses and your findings are saved as lessons for later levels, and then your plan, hypotheses and findings are cleared. Your goal is kept. So before the level ends, mark the rules that held as verified."""
 
 LEVEL_METHOD = """How to play a level:
-1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start, but each one needs its test.
-2. Guess (free). Write 2 to 4 hypotheses and a goal guess in your first `act`.
-3. Test (cheap). Test one idea per `act` with 1 or 2 moves. Pick the move whose result tells your guesses apart, then read the change lines and update the statuses. A move toward the goal is a test too: know what you expect it to do before you move, and if the change lines show something else, stop and rethink before the next move.
-4. Solve. When you know enough to reach the goal, move toward it in `act` calls of up to {act_max} moves. Write a search in `ipython` (for example a breadth-first search over the moves you have seen work) only when the path is long or not obvious."""
+1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start.
+2. Learn by trying. On a new game, find out what the moves do by making them: a few moves that show what each control does teach you more than long thinking. Write your guesses about the rules and the goal into your memory as you go. The first levels are where this pays off, so do not be afraid to spend some moves there.
+3. Model it in code. Write a small `step(state, move)` function in `ipython` that predicts what a move does, from what you have seen. Keep it simple, and grow it as you learn.
+4. Search and act. Search your model (for example breadth-first search) for the moves that reach your goal, and send them with `act()` in the same call, up to {act_max} per call. Then compare what happened with what your model predicted. Where they differ, fix the model and search again.
+5. On later levels, start from your code, your skills and your lessons, and only test what is new."""
 
 RULES = """Rules:
 - Do not read, count or copy cells in your head. Ask `ipython` instead: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute distances and find objects with the same hash. One short Python call is faster and more exact than a long thought.
 - Think in steps: reason, call a tool, read the result, then reason again. A single reply that is too long is cut off and lost, so call a tool before a reply gets very long.
 - "reset" costs a move and throws away your progress in the level. Use it after GAME_OVER, or when the level is clearly stuck. Do not use it to experiment.
-- Every level can be solved. If your search finds no way to the goal, one of your rules is wrong, so test the rule you are least sure about."""
+- Every level can be solved. If your search finds no way to the goal, one of your rules is wrong, so test the rule you are least sure about.
+- Code that moves must stop on surprises. Before a long run of moves, have your code check after each `act()` that the board matches your model, and stop when it does not, so that a wrong model does not waste many moves."""
 
 EXAMPLE = """Example from another game:
 The board shows `4 R 3x3 r10-12 c20-22`, `9 N 3x3 r10-12 c41-43` and `17 G 1x30 r63 c0-29 hud`.
-You call `act` with actions ["4"], plan "test if 4 moves object 4 right", hypotheses [{{"text": "4 moves object 4 right", "status": "proposed"}}, {{"text": "object 17 counts the moves left", "status": "proposed"}}] and goal "move object 4 onto object 9".
-The result is `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
-Object 4 moves 3 columns per move and still has 18 columns to go, so it needs 6 more moves. You mark both hypotheses verified with evidence [0] and send the 6 right moves in `act` calls of up to {act_max} moves. The level is done."""
+In `ipython` you run `r = await act(["4"], plan="see what 4 does", hypotheses=[{{"text": "4 moves object 4 right", "status": "proposed"}}, {{"text": "object 17 counts the moves left", "status": "proposed"}}], goal="move object 4 onto object 9")`.
+It prints `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
+Object 4 moves 3 columns per move and still has 18 columns to go. In the same call you write `step()` for "each right move shifts object 4 by 3 columns", find that it needs 6 more right moves, and send them with `await act(["4"] * 6, hypotheses=[{{"id": "h1", "status": "verified", "evidence": [0]}}])`. The level is done."""
 
-ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only) is already imported. The working directory of `ipython` is a folder of your own for this game."""
+ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only) and `act` (moves) are already imported. The working directory of `ipython` is a folder of your own for this game."""
 
 # =====================================================================================================================
 # 3. Situation messages (user turns or notes sent by the harness at a given moment)
@@ -175,7 +177,7 @@ ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only
 TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. {levels}You have at most {max_actions} moves and about {minutes} minutes for the whole game.
 The first board is shown below. This is level 1, so nothing is known yet. Do this first:
 1. Read the briefing, the board and the object list. Use `ipython` (`obs = observe()`, then `obs.objects`) to check what you think you see.
-2. In one `act` call, write your first plan, 2 to 4 hypotheses and a goal guess, and make 1 or 2 test moves."""
+2. In `ipython`, make a few moves with `act()` that show what the controls do, and write your first plan, hypotheses and a goal guess in the same call."""
 
 CONTINUE_GAME = "continue"
 
@@ -183,8 +185,8 @@ LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. Well played
 Your memory changed: your verified hypotheses and findings are now lessons, your plan, hypotheses and findings are empty, and your goal is kept and marked as won.
 On the new level:
 1. Look at the new board before you move. Find what is the same as before (the same colors, the same `#hash`) and what is new.
-2. Keep the rules you verified, and do not test them again.
-3. New objects usually bring a new rule, so test them first with 1 or 2 moves.
+2. Keep the rules that worked, and do not test them again. Run your model and search code from the last level on this board.
+3. New objects usually bring a new rule, so try them first with 1 or 2 moves and add what you see to your model.
 4. Check that your goal still makes sense on this board before you follow it."""
 
 NEW_SKILLS = ("New skills from the level you just won: {names}. The loaded skills are in your [memory] block, and "
@@ -203,32 +205,29 @@ REASON_EARLY_LEVELS = 2   # levels 1 and 2 get REASON_EARLY; later levels get RE
 
 GAME_OVER = """GAME_OVER: this level is lost. Before you do anything else:
 1. Find the step that caused it in the change lines. Use `recall` with the step numbers if you need to.
-2. Write it into your memory in your next `act`. Refute the hypothesis that led there, or add a finding such as "touching the red block ends the level".
-3. Send "reset" in that same `act` to restart the level. Your memory is kept."""
+2. Write it into your memory in your next `act()`. Refute the hypothesis that led there, or add a finding such as "touching the red block ends the level", and fix your model in code.
+3. Send "reset" in that same `act()` to restart the level. Your memory is kept."""
 
 WIN = "WIN: every level is done, and the game is complete."
 
 CUT_OFF = ("Your last reply reached the length limit before you called a tool. Do not start your thinking over: call "
-           "a tool now, `ipython` to test your idea or `act` to make the move.")
+           "a tool now: `ipython` to test your idea or to make the move with `act()`.")
 
 COMPACTED = """Older messages were removed to save space. Your [memory] block is complete, the newest board is shown below, and your handover note, when there is one, says where you were and what you meant to do next. Carry on from there without starting over. Use `recall` if you need an earlier step."""
 
-ACT_TWICE = ("Your second `act` in the same reply was not run, and no move was spent. Read the new board that came "
-             "after your first `act`, then act in your next reply.")
-
-ACT_TOO_MANY = ("You sent {sent} moves, but one `act` takes at most {act_max}. Nothing was run and no move was spent. "
-                "Send the first {act_max}, read the result, then send the rest.")
+ACT_TOO_MANY = ("You sent {sent} moves, but one `act()` takes at most {act_max}. Nothing was run and no move was "
+                "spent. Send them in calls of at most {act_max}, checking the board between them.")
 
 ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal} (and "
                "\"reset\"). Check the status line before you act.")
 
-ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like actions [\"1\", \"4\"] or "
-                "[\"6 12 40\"]. The full rules are in your instructions under \"`act` in detail\".")
+ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like `await act([\"1\", \"4\"])` "
+                "or `await act([\"6 12 40\"])`. The full rules are in your instructions under \"`act()` in detail\".")
 
 LOW_BUDGET = ("Note: only {left} moves are left for this game. Do not spend them on tests you can do in `ipython`. "
-              "Send only moves that your verified rules say will help.")
+              "Send the moves your model says reach the goal.")
 
-LOW_TIME = ("Note: only about {minutes} minutes are left. Stop long tests, and use what you have verified to finish the "
+LOW_TIME = ("Note: only about {minutes} minutes are left. Stop testing, and use the best model you have to finish the "
             "level you are on.")
 
 # =====================================================================================================================
@@ -259,7 +258,7 @@ SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "GAME_IN
 # The message per situation.
 EVENT_SNIPPETS: dict[str, str] = {
     "start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER, "win": WIN,
-    "cut_off": CUT_OFF, "compacted": COMPACTED, "act_twice": ACT_TWICE, "act_too_many": ACT_TOO_MANY,
+    "cut_off": CUT_OFF, "compacted": COMPACTED, "act_too_many": ACT_TOO_MANY,
     "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "low_budget": LOW_BUDGET, "low_time": LOW_TIME,
 }
 
@@ -312,7 +311,7 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 # =====================================================================================================================
 
 def game_system(*, act_max: int, vision: bool = True, **_: Any) -> str:
-    """The system prompt (tools ipython, act, recall), the same for every game. ``vision`` says whether pictures are
+    """The system prompt (tools ipython with act(), recall), the same for every game. ``vision`` says whether pictures are
     sent. Other arguments (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt
     differ between games."""
     pictures = {"picture_after": ", and a picture of the whole board",

@@ -14,7 +14,7 @@ DEFAULT: dict[str, Any] = {
     "notebook_budget_s": 3600.0,       # whole notebook wall clock, measured from its first cell
     "teardown_reserve_s": 300.0,       # games are stopped this long before the budget ends
     "game_wall_s": 1800.0,             # cap per game
-    "max_actions_per_game": 400,       # hard action budget per game (host-enforced)
+    "max_actions_per_game": 2000,       # hard action budget per game (host-enforced)
     "stop_after_levels": None,         # end each game after this many levels (local tests); None = play them all
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on an act's first action its thought and arguments). Off on the competition rerun.
@@ -27,33 +27,28 @@ DEFAULT: dict[str, Any] = {
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
-    "scheduler": {"enabled": False, "slots": 6, "quantum_calls": 4, "token_scale": 80000.0},
-    # --- agent: tools ipython (read-only `observe()`), act and recall (harness/agent/tools.py) -------------
+    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 12, "token_scale": 40000.0},
+    # --- agent: tools ipython (`observe()` reads, `await act([...])` moves) and recall (harness/agent/tools.py)
     "agent": {
-        "act_max_actions": 5,          # actions per act call
+        "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
         # The most a reply may write (thinking included): "early" on levels 1 and 2, "later" after, like the
         # reasoning effort ("medium" alone does not shorten the thinking). An int is used on every level.
-        "max_tokens_per_turn": {"early": 16384, "later": 8192},
+        "max_tokens_per_turn": {"early": 8192, "later": 4096},
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
         # (prompts.REASON_EARLY_LEVELS), "later" after. None sends nothing (the template's default).
         "reasoning_effort": {"early": "xhigh", "later": "medium"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
-        "tool_output_chars": 6000,     # upstream: 65536 per stream; ours is cut to fit small context windows
+        "tool_output_chars": 5000,     # upstream: 65536 per stream; ours is cut to fit small context windows
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
-        # Ours: also compact above trigger_tokens, because upstream's defaults are tuned for 200k-context frontier
-        # models, and keep only the newest 6k word for word (thinking included), so a rewrite frees about 75-80% (the
-        # system prompt, ~8k, stays) and the next one is far away. trigger_tokens must be >= 2x keep_recent_tokens; None = upstream only.
+        # Ours: compact before SGLang KV-cache hits congestion cliff (trigger at 100k), keep newest 4k verbatim.
         # After a compaction the first prompt's size is the floor: no new compaction until the context passes
         # floor + floor_gap_tokens. The summary is at most summary_tokens long and replaces the previous one.
-        # in_context (append-only only): the agent writes the summary itself, as one more turn on its own cached
-        # prompt, so it sees everything (its thinking and the boards included) and the server prefills almost nothing;
-        # if that fails, a separate summarizer call reads the history as text. False: always the separate call.
-        "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 6000, "trigger_tokens": 120000,
-                       "floor_gap_tokens": 8192, "summary_tokens": 2048, "in_context": True},
+        "compaction": {"reserve_tokens": 8192, "keep_recent_tokens": 4000, "trigger_tokens": 120000,
+                       "floor_gap_tokens": 8192, "summary_tokens": 1024, "in_context": True},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
         # every memory_full_every states, else only its changed sections. At the compaction trigger a drain (no model
@@ -62,14 +57,13 @@ DEFAULT: dict[str, Any] = {
         # (one cut line per step), and the thinking, the pictures and the memory messages go (a full memory goes
         # back). A summary is made only when the drain would leave more than drain_max_fraction of the trigger.
         # 0 = never drain.
-        # False: the old builder (thinking only in the current chain, newest picture, memory moved to every state).
         "append_only": True,
         "memory_full_every": 10,
         "drain_max_fraction": 0.35,
         "drain_output_chars": 400,
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
-        "chain_reasoning_tokens": 16000,
+        "chain_reasoning_tokens": 4000,
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test
@@ -81,17 +75,17 @@ DEFAULT: dict[str, Any] = {
             "ascii": True,             # letter board: whole in the full view, changed region after an act
             "segmentation": True,      # object list with ids, hashes, containment, adjacency
             "briefing": True,          # briefing: MEASURED facts and GUESSES, in the full view
-            "briefing_lines": 30,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
+            "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
-            "max_objects": 40,         # object rows shown per observation (the rest: `observe().objects`)
-            "observation_tokens": 800,  # cap on the short view's text (chars / 4)
+            "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)
+            "observation_tokens": 600,  # cap on the short view's text (chars / 4)
         },
         "memory": {
             "lessons": True,           # the cross-game lessons graph
             "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
-            "curator_every_turns": 25,  # also at every level-up (before its memory is cleared) and after compactions
-            "curator_max_tokens": 4096,
-            "recall_tokens": 1500,
+            "curator_every_turns": 35,  # also at every level-up (before its memory is cleared) and after compactions
+            "curator_max_tokens": 1536,
+            "recall_tokens": 1000,
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
                      "questions": 100},

@@ -41,11 +41,12 @@ try:
     import numpy as np
 except Exception:
     np = None
-from observation import observe   # the state, read-only; the REPL cannot fetch the game or act
+from observation import observe   # the state, read-only and free
+from acting import act            # `await act([...])` makes moves; each costs one move
 class _NoArc:
     def __getattr__(self, name):
         raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
-                           "and act with the act tool.")
+                           "and make moves with `await act([...])`.")
 arc = _NoArc()
 _BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
 """
