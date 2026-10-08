@@ -87,7 +87,7 @@ DEFAULT: dict[str, Any] = {
             "curator_max_tokens": 1536,
             "recall_tokens": 1000,
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
-            "caps": {"goal": 150, "plan": 200, "skills": 600, "hypotheses": 400, "findings": 300, "lessons": 400,
+            "caps": {"goal": 150, "plan": 200, "skills": 800, "hypotheses": 400, "findings": 300, "lessons": 400,
                      "questions": 100},
         },
     },

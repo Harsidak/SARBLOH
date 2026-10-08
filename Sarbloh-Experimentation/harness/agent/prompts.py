@@ -14,18 +14,19 @@ count go in the start message, and the status line repeats the level count with 
 a game either (cheap prefix caching). Everything that depends on the moment (a new
 level, a lost level, a refused act, a long silence, low budget) is sent as a short message built by ``event_message``.
 So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else in the builders. The messages that
-start a level (game start, level up, after a compaction) also get the reasoning note for that level:
-``REASON_EARLY`` on levels 1 and 2, ``REASON_LATER`` from level 3 on.
+start a level (game start, level up) also get the reasoning note for that level: ``REASON_EARLY`` on levels 1 and 2,
+``REASON_LATER`` from level 3 on. After a compaction the message is only "continue" under the summary.
 
-Tools are described twice on purpose: ``TOOLS_BRIEFING`` says what each tool is for and what it costs;
+The system prompt is the API contract only. Advice on how to play (game intuition, the level method, the example) is in
+the skills ``game_intuition``, ``planning`` and ``world_model``, loaded at the start of every game.
 ``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED`` + ``ACT_DETAILED`` + ``RECALL_DETAILED``) gives every argument, limit,
 refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``, ``_tool_recall``),
 ``runtime/skills/observation.py`` and ``agent/perception.py``. If those change, change these.
 
 Style (owner rule, 2026-10-02): simple English in full sentences that flow, written as instructions to a human. Exact
 tool and function names, no stories. The score formula is not shown to the agent on purpose (owner decision
-2026-10-02). ROLE_OBJECTIVE_COMMUNICATION, GAME_INTUITION and IPYTHON_BRIEFING are the owner's wording; edit them only
-when the owner asks.
+2026-10-02). ROLE_OBJECTIVE_COMMUNICATION, IPYTHON_BRIEFING and the skill ``game_intuition`` are the owner's wording;
+edit them only when the owner asks.
 
 Placeholders are filled with ``str.format``: a literal brace in a template is doubled.
 """
@@ -52,15 +53,6 @@ Write your thinking and your notes in short, plain sentences."""
 LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
                   "B=black, M=magenta, P=pink, R=red, b=blue, S=sky blue, Y=yellow, O=orange, r=dark red, N=green, "
                   "p=purple.")
-
-GAME_INTUITION = """Game Intuition:
-- Visualizing the Board: Treat the board as a picture with objects, obstacles, and targets.
-- Objects: Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
-- No Player Character: Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
-- Backgrounds: Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
-- Timers and HUDs (Important): If you see a strip of blocks on the edge of the screen that changes on every move, it is likely a timer or a "moves-remaining" bar. **Do not treat these as puzzle pieces.** Do not click on them unless you are absolutely sure they are part of the puzzle.
-- Clicks and Goals: A click needs an exact row and column. The row counts down from the top, and the column counts across from the left. Describe your goals with objects (for example, "move the red block onto the green one"), not with coordinates, because positions change from level to level.
-- Game Progress: If the number of finished levels goes up, or the whole board changes at once, you probably finished a level. Stop and look at the new board carefully before you use an old plan. `WIN` means you have beaten the entire game."""
 
 IPYTHON_BRIEFING = """iPython tool:
 - Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
@@ -93,12 +85,6 @@ How to read it:
 PICTURE_HELP = """
 The picture is a map of the board. Open floor is light, walls and other large areas are dark and hatched, and the HUD at the edge of the screen is grey-blue and is drawn again, larger, on the right. Objects keep their real colors. Each object has a box and a tag with its id and its guessed role, for example `10: YOU?`. A dashed line joins objects with the same shape (pink when one is turned or resized, blue when only the colors differ), a yellow ring marks an object held between two others, and thin lines show the floor's tile grid. The letters are exact, so use the picture to see the layout at a glance and the letters for exact positions.
 """
-
-TOOLS_BRIEFING = """Tools:
-You have two tools.
-- `ipython` is where you play. It runs Python: read the state with `observe()` (free), write code that models the game, search it, and make moves with `await act([...])`. Only `act()` spends moves, 1 to {act_max} per call, and the same call can update your memory (plan, hypotheses, findings and goal). Your variables and functions stay for the whole game.
-- `recall` (free) searches your memory: earlier steps, hypotheses, findings, goals, lessons and skills.
-The cycle is: read the board, write or fix a small model of the game in Python, search it for the moves that reach your goal, send them with `act()`, and compare what happened with what your model predicted. One `ipython` call can do all of this, and it can call `act()` more than once. Write to your memory only when something is new, such as a rule that held, a refuted rule or a new plan. What you wrote before stays, so leave out what has not changed. Use `recall` when you need something that is no longer in the conversation."""
 
 IPYTHON_TOOL_DETAILED = """`ipython` in detail:
 - Its argument is `code`, the Python to run. Top-level `await` works.
@@ -148,25 +134,11 @@ A [memory] block shows what you wrote with `act()`, and it stays when old messag
 - `goal` (when it changes): what you think wins the level. It replaces your old goal. While you are not sure, keep 2 or 3 different goals and test them against each other.
 When you finish a level, skills are written from what the level taught you, your verified and refuted hypotheses and your findings are saved as lessons for later levels, and then your plan, hypotheses and findings are cleared. Your goal is kept. So before the level ends, mark the rules that held as verified."""
 
-LEVEL_METHOD = """How to play a level:
-1. Look (free). Read the briefing, the board and the object list. Name the objects: what you might control, the walls, the targets, and any counter on the edge. The GUESSES in the briefing are a good place to start.
-2. Learn by trying. On a new game, find out what the moves do by making them: a few moves that show what each control does teach you more than long thinking. Write your guesses about the rules and the goal into your memory as you go. The first levels are where this pays off, so do not be afraid to spend some moves there.
-3. Model it in code. Write a small `step(state, move)` function in `ipython` that predicts what a move does, from what you have seen. Keep it simple, and grow it as you learn.
-4. Search and act. Search your model (for example breadth-first search) for the moves that reach your goal, and send them with `act()` in the same call, up to {act_max} per call. Then compare what happened with what your model predicted. Where they differ, fix the model and search again.
-5. On later levels, start from your code, your skills and your lessons, and only test what is new."""
-
 RULES = """Rules:
 - Do not read, count or copy cells in your head. Ask `ipython` instead: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute distances and find objects with the same hash. One short Python call is faster and more exact than a long thought.
-- Think in steps: reason, call a tool, read the result, then reason again. A single reply that is too long is cut off and lost, so call a tool before a reply gets very long.
-- "reset" costs a move and throws away your progress in the level. Use it after GAME_OVER, or when the level is clearly stuck. Do not use it to experiment.
-- Every level can be solved. If your search finds no way to the goal, one of your rules is wrong, so test the rule you are least sure about.
-- Code that moves must stop on surprises. Before a long run of moves, have your code check after each `act()` that the board matches your model, and stop when it does not, so that a wrong model does not waste many moves."""
-
-EXAMPLE = """Example from another game:
-The board shows `4 R 3x3 r10-12 c20-22`, `9 N 3x3 r10-12 c41-43` and `17 G 1x30 r63 c0-29 hud`.
-In `ipython` you run `r = await act(["4"], plan="see what 4 does", hypotheses=[{{"text": "4 moves object 4 right", "status": "proposed"}}, {{"text": "object 17 counts the moves left", "status": "proposed"}}], goal="move object 4 onto object 9")`.
-It prints `#0 A4(right): obj 4 R 3x3 moved right 3 -> r10-12 c23-25; obj 17 G shrank 30->29 cells (hud)`.
-Object 4 moves 3 columns per move and still has 18 columns to go. In the same call you write `step()` for "each right move shifts object 4 by 3 columns", find that it needs 6 more right moves, and send them with `await act(["4"] * 6, hypotheses=[{{"id": "h1", "status": "verified", "evidence": [0]}}])`. The level is done."""
+- A reply that is too long is cut off and lost, so call a tool before a reply gets very long.
+- "reset" costs a move and throws away your progress in the level. Use it after GAME_OVER, or when the level is clearly stuck.
+- Your skills (in the [memory] block, and through `recall` with scope "skills") hold advice on how to play. Read them."""
 
 ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only) and `act` (moves) are already imported. The working directory of `ipython` is a folder of your own for this game."""
 
@@ -193,9 +165,9 @@ NEW_SKILLS = ("New skills from the level you just won: {names}. The loaded skill
               "`recall` with scope \"skills\" finds every skill.")
 
 # The reasoning note for the level the agent is on, added to the messages that start a level.
-REASON_EARLY = ("This is level {level}, so reason extensively before you move. Look at the board from several sides, "
-                "write down every guess you can make, and work out in `ipython` what each move you consider would "
-                "show before you choose one. Thinking is free, and moves are not.")
+REASON_EARLY = ("This is level {level}. Early levels count least, so moves here are cheap: learn the controls by "
+                "trying them. A few moves that show what each control does teach you more than long thinking. Write "
+                "your guesses into your memory as you go, and turn what you see into your `step()` model.")
 
 REASON_LATER = ("This is level {level}. Reason before you move, but start from what you already have. Read your skills "
                 "and lessons first, and reuse the functions you wrote in `ipython` on earlier levels: call them on this "
@@ -213,7 +185,7 @@ WIN = "WIN: every level is done, and the game is complete."
 CUT_OFF = ("Your last reply reached the length limit before you called a tool. Do not start your thinking over: call "
            "a tool now: `ipython` to test your idea or to make the move with `act()`.")
 
-COMPACTED = """Older messages were removed to save space. Your [memory] block is complete, the newest board is shown below, and your handover note, when there is one, says where you were and what you meant to do next. Carry on from there without starting over. Use `recall` if you need an earlier step."""
+COMPACTED = "continue"
 
 ACT_TOO_MANY = ("You sent {sent} moves, but one `act()` takes at most {act_max}. Nothing was run and no move was "
                 "spent. Send them in calls of at most {act_max}, checking the board between them.")
@@ -236,24 +208,19 @@ LOW_TIME = ("Note: only about {minutes} minutes are left. Stop testing, and use 
 
 SNIPPETS: dict[str, str] = {
     "ROLE_OBJECTIVE_COMMUNICATION": ROLE_OBJECTIVE_COMMUNICATION,
-    "GAME_INTUITION": GAME_INTUITION,
     "IPYTHON_BRIEFING": IPYTHON_BRIEFING,
     "GAME_FACTS": GAME_FACTS,
     "READING_THE_STATE": READING_THE_STATE,
-    "TOOLS_BRIEFING": TOOLS_BRIEFING,
     "TOOLS_DETAILED": TOOLS_DETAILED,
     "MEMORY": MEMORY,
-    "LEVEL_METHOD": LEVEL_METHOD,
     "RULES": RULES,
-    "EXAMPLE": EXAMPLE,
     "ENVIRONMENT": ENVIRONMENT,
 }
 
-# The system prompt. Order matters: who you are, the game, how to see, how to act, how to remember, how to play, the
-# rules, one example.
-SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "GAME_INTUITION", "READING_THE_STATE",
-                          "TOOLS_BRIEFING", "IPYTHON_BRIEFING", "TOOLS_DETAILED", "MEMORY", "LEVEL_METHOD", "RULES",
-                          "EXAMPLE", "ENVIRONMENT"]
+# The system prompt carries only the contract the agent cannot discover: the game, how to read the state, the tools,
+# the memory, the rules and the environment. Advice on how to play is in the skills (``harness/agent/skills/*.md``).
+SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "READING_THE_STATE", "IPYTHON_BRIEFING",
+                          "TOOLS_DETAILED", "MEMORY", "RULES", "ENVIRONMENT"]
 
 # The message per situation.
 EVENT_SNIPPETS: dict[str, str] = {
@@ -262,7 +229,7 @@ EVENT_SNIPPETS: dict[str, str] = {
     "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "low_budget": LOW_BUDGET, "low_time": LOW_TIME,
 }
 
-LEVEL_START_KINDS = ("start", "level_up", "compacted")   # these get the reasoning note when the level is known
+LEVEL_START_KINDS = ("start", "level_up")   # these get the reasoning note when the level is known
 
 LOW_BUDGET_MOVES = 20     # add the low-budget note when this many moves or fewer are left
 LOW_TIME_MINUTES = 5      # add the low-time note when this many minutes or fewer are left
