@@ -64,3 +64,4 @@ resources/
 scripts/
 tests/
 Alignment/
+.agents/

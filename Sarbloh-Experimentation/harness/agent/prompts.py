@@ -44,10 +44,9 @@ You are an agent playing a multi-level grid puzzle game. Your goal is to solve t
 
 Objective:
 The game board is a 64x64 grid made of colors. {legend}
-You will play the game in a continuous cycle: look at the board, use Python to check your ideas, take an action, and check the results. Keep in mind that game rules and layouts can change between levels.
-
-Communication:
-Write your thinking and your notes in short, plain sentences."""
+You will play the game in a continuous cycle: look at the board, use Python as your primary tool to reason, act and check your ideas. Keep in mind that game rules and layouts can change between levels.
+While reasoning your main focus must be on the code so that you can get the best possible way to win the levels.
+Write your thinking in short, plain sentences."""
 
 # The colour legend, in the letters the board is shown with (``observe()``).
 LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
@@ -127,12 +126,12 @@ What comes back is the matches, grouped by scope. Long results are cut, so ask f
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-A [memory] block shows what you wrote with `act()`, and it stays when old messages are removed. When a part of it changes, a [memory update] with only the changed parts comes with the next board, and the parts it does not show are as before. Old messages are removed from time to time to make room, so anything you want to remember must go into your memory. Write to it only when something is new. What you wrote before stays until you change it, so do not write the same plan, goal or findings again. With `act()` you can write:
+A [memory] block shows what you wrote with `act()`. When a part of it changes, a [memory update] with only the changed parts comes with the next board, and the parts it does not show are as before. Old messages are removed from time to time to make room, so anything you want to remember must go into your memory. Write to it only when something is new. You can find your recent memory(goals, hypothesis, questions) using recall tool. With `act()` you can write:
 - `plan` (when your next steps change): your next steps and the reason, in one or two sentences. It replaces your old plan. If you leave it out, your old plan stays.
-- `hypotheses` (when one is new or its status changes): a list of rules you think are true. Each one has a `status`, which is "proposed" (a guess), "verified" (it has matched the moves you made so far, so you rely on it) or "refuted" (a move showed it is wrong). You do not need proof to act on a rule: act on your best guess, and fix the rule when the game disagrees. A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
-- `findings` (when you learn a new one): facts about this level, one short sentence each. They are added to the ones you already have, so send only new ones.
-- `goal` (when it changes): what you think wins the level. It replaces your old goal. While you are not sure, keep 2 or 3 different goals and test them against each other.
-When you finish a level, skills are written from what the level taught you, your verified and refuted hypotheses and your findings are saved as lessons for later levels, and then your plan, hypotheses and findings are cleared. Your goal is kept. So before the level ends, mark the rules that held as verified."""
+- `hypotheses` (when one is new or its status changes): a list of rules or mechanics of how the game works which you would understand during the game. think are true. Act on your best guess, and fix the rule when the game disagrees. A new hypothesis also needs `text`, the rule written concretely (objects, directions, counts), and it gets an id such as "h3". To change an old one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Always give step numbers in `evidence`.
+- `findings` (when you learn a new one): facts about this level, one short sentence each. You can send new ones as they are added to the ones you already have.
+- `goal` (when it changes): what you think wins the level. you discover this by playing the game understanding the mechanics, depending on the level and your interaction with it goal can change or you can update one.
+When you finish a level, lessons you verify would convert into skills. Your goal is kept. So before the level ends, mark the rules that held as verified."""
 
 RULES = """Rules:
 - Do not read, count or copy cells in your head. Ask `ipython` instead: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute distances and find objects with the same hash. One short Python call is faster and more exact than a long thought.

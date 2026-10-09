@@ -27,7 +27,7 @@ DEFAULT: dict[str, Any] = {
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
-    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 12, "token_scale": 40000.0},
+    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0},
     # --- agent: tools ipython (`observe()` reads, `await act([...])` moves) and recall (harness/agent/tools.py)
     "agent": {
         "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
