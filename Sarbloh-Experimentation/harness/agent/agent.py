@@ -103,7 +103,7 @@ class AgentSession:
                       "curator_runs": 0, "curator_errors": 0, "skills_written": 0, "observations": 0, "images_sent": 0,
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
-                      "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0,
+                      "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
                       "memory_full": 0, "memory_updates": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -137,6 +137,9 @@ class AgentSession:
         self.append_only = bool(cfg.get("append_only", True))
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
+        # Old code out of the context (config stub_old_code): only the newest ipython call's code is sent in full.
+        self.stub_old_code = bool(cfg.get("stub_old_code", False))
+        self.stub_code_min_lines = int(cfg.get("stub_code_min_lines", 20))
         self.memory = GameMemory(memory_root or (session_dir / "memory"), arc.game.game_id, cfg.get("memory") or {})
         arc.on_step = lambda ev: self._log_event(ev)
 
@@ -245,6 +248,8 @@ class AgentSession:
                      "reasoning_unsent": bool(reply.reasoning) and "_reasoning" not in assistant} if self.tracing else {}
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason, turn=self.stats["turns"], **trace)
+            if native:
+                self._stub_old_code()
             # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
             # while it is still sent (until the next user message), so completion_tokens would overcount.
             self._usage_tokens = reply.prompt_tokens
@@ -281,6 +286,23 @@ class AgentSession:
             if note is not None:
                 self._append(note)
         self._append(msg)
+
+    def _stub_old_code(self) -> None:
+        """Config ``stub_old_code``: a new reply with tool calls just came, so every older reply's long ipython code
+        becomes a short note (``context.stub_code``); the kernel still holds what it defined (``show_source``). Each
+        change is logged, so the trace can rebuild the requests."""
+        if not self.stub_old_code:
+            return
+        for i in range(len(self.messages) - 2, -1, -1):
+            m = self.messages[i]
+            if m["role"] != "assistant" or not m.get("tool_calls") or m.get("_code_stubbed"):
+                continue
+            new = context.stub_code(m, self.stub_code_min_lines)
+            if new is None:
+                continue
+            self.messages[i] = new
+            self.stats["code_stubs"] += 1
+            self._log_event({"event": "code_stub", "index": i, "tool_calls": new["tool_calls"]})
 
     def _memory_full(self) -> dict[str, Any]:
         """The whole memory as a stored message (append-only), at the start, after a rewrite and every
@@ -810,7 +832,8 @@ class AgentSession:
         if self._system is None:
             self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
-                                               cwd=str(self.kernel.session_dir), vision=self.vision)
+                                               cwd=str(self.kernel.session_dir), vision=self.vision,
+                                               old_code_stubbed=self.stub_old_code)
         return self._system
 
     def _context_limits(self) -> tuple[int, int, int]:

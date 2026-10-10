@@ -757,6 +757,8 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
             state, start = [_stored(m, prefix) for m in ev.get("messages") or []], ev.get("reason") or "rewrite"
         elif kind == "pinned":
             pinned = _stored(ev, prefix)
+        elif kind == "code_stub" and 0 <= (ev.get("index") or 0) < len(state):   # an old reply's code became a note
+            state[ev["index"]] = {**state[ev["index"]], "tool_calls": ev.get("tool_calls"), "_code_stubbed": True}
         elif kind == "step":
             level = max(level, ev.get("level_after") or 0)
         elif kind == "message":

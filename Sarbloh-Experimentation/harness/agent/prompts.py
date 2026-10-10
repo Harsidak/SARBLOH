@@ -112,7 +112,10 @@ IPYTHON_TOOL_DETAILED = """`ipython` in detail:
   - `obs.change` is the change line of the newest step, and `obs.history` lists the last 20 steps. Each step is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
   - `obs.briefing` has every line of the briefing, `obs.step` is the newest step number, `obs.status` is the status line, `obs.background` is the background letter, and `obs.legend` maps each letter to its color name.
 - An `obs` does not change after you get it. Call `observe()` again after every `act()`, and call it inside your helper functions instead of keeping an old board in a variable.
-- You can call `act()` and `observe()` as many times as you like in one `ipython` call. So one call can act, look at the result, fix the model and act again, without waiting for the next message."""
+- You can call `act()` and `observe()` as many times as you like in one `ipython` call. So one call can act, look at the result, fix the model and act again, without waiting for the next message.{old_code}"""
+
+OLD_CODE = """
+- Only your newest `ipython` call is shown with its code. In older calls the code is replaced by a short note that names the functions, classes and variables it defined, to save space. They all still exist in your kernel, so do not write them again: call them, and run `show_source("name")` to print the current code of one before you change it."""
 
 ACT_DETAILED = """`act()` in detail:
 `r = await act(actions, plan=None, hypotheses=None, findings=None, goal=None, quiet=False)` runs inside `ipython`.
@@ -287,16 +290,17 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 # 5. Interface used by agent.py and run.py
 # =====================================================================================================================
 
-def game_system(*, act_max: int, vision: bool = True, **_: Any) -> str:
+def game_system(*, act_max: int, vision: bool = True, old_code_stubbed: bool = False, **_: Any) -> str:
     """The system prompt (tools ipython with act(), recall), the same for every game. ``vision`` says whether pictures are
-    sent. Other arguments (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt
+    sent; ``old_code_stubbed`` adds the note that old calls' code is replaced (config ``stub_old_code``). Other arguments (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt
     differ between games."""
     pictures = {"picture_after": ", and a picture of the whole board",
                 "picture_start": ", and the picture", "full_state": "briefing, objects, board and picture",
                 "picture_ids": " and on the picture", "picture_help": PICTURE_HELP} if vision else \
         {"picture_after": "", "picture_start": "", "full_state": "briefing, objects and board", "picture_ids": "",
          "picture_help": ""}
-    return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, **pictures)
+    return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, old_code=OLD_CODE if old_code_stubbed else "",
+                           **pictures)
 
 
 def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:

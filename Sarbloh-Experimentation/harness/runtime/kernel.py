@@ -43,6 +43,7 @@ except Exception:
     np = None
 from observation import observe   # the state, read-only and free
 from acting import act            # `await act([...])` makes moves; each costs one move
+from source import show_source    # the code of a name defined in an earlier cell
 class _NoArc:
     def __getattr__(self, name):
         raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
