@@ -37,13 +37,13 @@ DEFAULT: dict[str, Any] = {
     "agent": {
         "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
-        # The most a reply may write (thinking included): "early" on levels 1 and 2, "later" after, like the
-        # reasoning effort ("medium" alone does not shorten the thinking). An int is used on every level.
-        "max_tokens_per_turn": {"early": 8192, "later": 4096},
+        # The most a reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
+        # int for every level. Room for a world model of several hundred lines; the prompt asks for short thinking.
+        "max_tokens_per_turn": 8192,
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
-        # (prompts.REASON_EARLY_LEVELS), "later" after. None sends nothing (the template's default).
-        "reasoning_effort": {"early": "xhigh", "later": "medium"},
+        # (prompts.EARLY_LEVELS), "later" after. None sends nothing (the template's default).
+        "reasoning_effort": {"early": "xhigh", "later": "xhigh"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 5000,     # upstream: 65536 per stream; ours is cut to fit small context windows

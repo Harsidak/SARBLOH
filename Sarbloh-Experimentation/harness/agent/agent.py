@@ -352,7 +352,7 @@ class AgentSession:
         """The chat template's reasoning effort for the level the agent is on (config ``reasoning_effort``). A change
         alters the first line of the system prompt, so the whole prompt is prefilled again once."""
         eff = self.cfg.get("reasoning_effort") or {}
-        value = eff.get("early") if self._level() <= prompts.REASON_EARLY_LEVELS else eff.get("later")
+        value = eff.get("early") if self._level() <= prompts.EARLY_LEVELS else eff.get("later")
         if value not in (None, "xhigh", "medium", "low"):
             raise ValueError(f"reasoning_effort {value!r}: the chat template takes xhigh, medium or low")
         if value != self._effort_sent:
@@ -362,11 +362,11 @@ class AgentSession:
 
     def _max_tokens(self) -> int:
         """The most this reply may write (config ``max_tokens_per_turn``): "early" on the levels that get the long
-        thinking (``prompts.REASON_EARLY_LEVELS``), "later" after; an int on every level. A request parameter, so the
+        thinking (``prompts.EARLY_LEVELS``), "later" after; an int on every level. A request parameter, so the
         prompt and its cache are the same either way."""
         cap = self.cfg["max_tokens_per_turn"]
         if isinstance(cap, dict):
-            cap = cap.get("early") if self._level() <= prompts.REASON_EARLY_LEVELS else cap.get("later")
+            cap = cap.get("early") if self._level() <= prompts.EARLY_LEVELS else cap.get("later")
         return int(cap)
 
     def _continuation(self) -> str:

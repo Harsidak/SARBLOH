@@ -14,8 +14,7 @@ count go in the start message, and the status line repeats the level count with 
 a game either (cheap prefix caching). Everything that depends on the moment (a new
 level, a lost level, a refused act, a long silence, low budget) is sent as a short message built by ``event_message``.
 So "which prompt goes in when" is the table ``EVENT_SNIPPETS`` plus the if/else in the builders. The messages that
-start a level (game start, level up) also get the reasoning note for that level: ``REASON_EARLY`` on levels 1 and 2,
-``REASON_LATER`` from level 3 on. After a compaction the message is only "continue" under the summary.
+start a level (game start, level up) also get ``LEVEL_NOTE``. After a compaction the message is only "continue" under the summary.
 
 The system prompt is the API contract only. Advice on how to play (game intuition, the level method, the example) is in
 the skills ``game_intuition``, ``planning`` and ``world_model``, loaded at the start of every game.
@@ -24,7 +23,7 @@ refusal and return format, taken from ``tools.py``, ``agent.py`` (``_tool_act``,
 ``runtime/skills/observation.py`` and ``agent/perception.py``. If those change, change these.
 
 Style (owner rule, 2026-10-02): simple English in full sentences that flow, written as instructions to a human. Exact
-tool and function names, no stories. The score formula is not shown to the agent on purpose (owner decision
+tool and function names, no stories. The action meanings are the standard ARC-AGI-3 ones and are stated outright. The score formula is not shown to the agent on purpose (owner decision
 2026-10-02). ROLE_OBJECTIVE_COMMUNICATION, IPYTHON_BRIEFING and the skill ``game_intuition`` are the owner's wording;
 edit them only when the owner asks.
 
@@ -54,7 +53,7 @@ LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g
                   "p=purple.")
 
 IPYTHON_BRIEFING = """iPython tool:
-- Write short, focused Python code instead of massive, complicated scripts. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
+- Write as much Python as the job needs. A world model of several hundred lines is fine, and one call can hold all of it. Never print the entire game board. Print only small, useful summaries (like object lists, coordinate changes, or counts).
 - Unlimited Uses: You can use the Python tool as many times as you need to investigate the board before making an actual game move. Do not rush."""
 
 # =====================================================================================================================
@@ -62,8 +61,26 @@ IPYTHON_BRIEFING = """iPython tool:
 # =====================================================================================================================
 
 GAME_FACTS = """Game:
-You are playing an ARC-AGI-3 game made of several levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the controls, the rules or the goal. You find them out by looking and by trying moves. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
-You work alone. There is no human to answer questions, so never ask one. Thinking and using Python are free. Only game moves count, so make each move for a reason."""
+You are playing an ARC-AGI-3 game made of several levels. The game is turn based, so nothing moves until you make a move. Nobody will tell you the rules or the goal. You find them out by looking, by trying moves and by writing code. Early levels usually teach one idea each, and later levels mix them. You win the game when every level is done.
+You work alone. There is no human to answer questions, so never ask one.
+Moves are expensive, and code is not. On the first one or two levels you may spend moves to learn what the controls do and what wins. Once you know that, stop trying things on the board: write the game as Python, simulate the moves in code, and send only the moves your code found. The levels get harder as you go, so the later ones need your code more than your guesses.
+
+Controls:
+Every ARC-AGI-3 game uses the same set of actions. The status line shows which of them work in this game.
+- "1" is up, "2" is down, "3" is left and "4" is right.
+- "5" is the special action, like the space bar: it can select, use, rotate, attach or detach something, or carry out a step.
+- "6 r c" clicks the cell at row r and column c.
+- "7" is undo. It takes back your last move, but it still counts as a move.
+- "reset" restarts the current level.
+Each game decides which object these actions work on. Watch the change lines after your first moves to see what each one does here.
+
+How to work:
+Think a bit, then write code. Do not work out positions, paths or the result of a move in your head. Your code does that better. Each call should usually do this:
+1. Read the board from `observe()`.
+2. Write or fix `step(state, move)`, your world model of the game.
+3. Search it with breadth-first search, depth-first search or anything else that fits, to find the shortest path to the goal.
+4. Send that path with `act()`.
+5. Call `observe()` again, and compare the board with what `step()` predicted. If they differ, fix the model and search again in the same call."""
 
 READING_THE_STATE = """What you see:
 1. Every `act()` prints one line per move in the output of your `ipython` call. For example:
@@ -94,16 +111,15 @@ IPYTHON_TOOL_DETAILED = """`ipython` in detail:
   - `print(obs.ascii(r0, c0, r1, c1))` prints a window of the board with row and column labels.
   - `obs.change` is the change line of the newest step, and `obs.history` lists the last 20 steps. Each step is a dict with `i` (the step number), `level`, `action`, `change` and `state`.
   - `obs.briefing` has every line of the briefing, `obs.step` is the newest step number, `obs.status` is the status line, `obs.background` is the background letter, and `obs.legend` maps each letter to its color name.
-- An `obs` does not change after you get it. Call `observe()` again after every `act()`, and call it inside your helper functions instead of keeping an old board in a variable."""
+- An `obs` does not change after you get it. Call `observe()` again after every `act()`, and call it inside your helper functions instead of keeping an old board in a variable.
+- You can call `act()` and `observe()` as many times as you like in one `ipython` call. So one call can act, look at the result, fix the model and act again, without waiting for the next message."""
 
 ACT_DETAILED = """`act()` in detail:
 `r = await act(actions, plan=None, hypotheses=None, findings=None, goal=None, quiet=False)` runs inside `ipython`.
 Arguments:
 - `actions` (required) is a list of 1 to {act_max} moves, made in order.
-  - "1" is up, "2" down, "3" left, "4" right and "5" space (the game's special action). "7" is often undo, but check that in this game before you rely on it.
-  - "6 r c" clicks the cell at row r and column c, for example "6 12 40". The row comes first, and each click is its own item in the list. A tuple (6, r, c) works too.
-  - "reset" restarts the current level.
-  For example, ["1", "1", "4"] or ["6 12 40"]. These names are only labels. What a move really does in this game is a guess until you have seen it happen.
+  - The moves are the controls listed above: "1" to "5", "7", "6 r c" and "reset". For a click the row comes first, for example "6 12 40", and each click is its own item in the list. A tuple (6, r, c) works too.
+  For example, ["1", "1", "4"] or ["6 12 40"].
 - `plan`, `hypotheses`, `findings` and `goal` are optional, and they are your memory. Send only the ones that changed. They are explained below under "Your memory".
 - Do not forget `await`: without it nothing happens.
 Limits:
@@ -148,7 +164,7 @@ ENVIRONMENT = """Python packages: numpy. `observe` (the current state, read-only
 TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. {levels}You have at most {max_actions} moves and about {minutes} minutes for the whole game.
 The first board is shown below. This is level 1, so nothing is known yet. Do this first:
 1. Read the briefing, the board and the object list. Use `ipython` (`obs = observe()`, then `obs.objects`) to check what you think you see.
-2. In `ipython`, make a few moves with `act()` that show what the controls do, and write your first plan, hypotheses and a goal guess in the same call."""
+2. Think a bit, then write code in `ipython`. Find what you might control and what might be the goal. Send the first moves you need with `act()`, call `observe()` to see what they changed, and start your `step()` model from that in the same call. Write your first plan, hypotheses and a goal guess with that `act()`."""
 
 CONTINUE_GAME = "continue"
 
@@ -163,16 +179,11 @@ On the new level:
 NEW_SKILLS = ("New skills from the level you just won: {names}. The loaded skills are in your [memory] block, and "
               "`recall` with scope \"skills\" finds every skill.")
 
-# The reasoning note for the level the agent is on, added to the messages that start a level.
-REASON_EARLY = ("This is level {level}. Early levels count least, so moves here are cheap: learn the controls by "
-                "trying them. A few moves that show what each control does teach you more than long thinking. Write "
-                "your guesses into your memory as you go, and turn what you see into your `step()` model.")
+# The note for the level the agent is on, added to the messages that start a level.
+LEVEL_NOTE = ("This is level {level}. Think a bit, then put your effort into the code: build or fix your `step()` "
+              "model for this board, search it, and send the path it finds.")
 
-REASON_LATER = ("This is level {level}. Reason before you move, but start from what you already have. Read your skills "
-                "and lessons first, and reuse the functions you wrote in `ipython` on earlier levels: call them on this "
-                "board, and change them where this level is different. Reason further only where they do not fit.")
-
-REASON_EARLY_LEVELS = 2   # levels 1 and 2 get REASON_EARLY; later levels get REASON_LATER
+EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
 GAME_OVER = """GAME_OVER: this level is lost. Before you do anything else:
 1. Find the step that caused it in the change lines. Use `recall` with the step numbers if you need to.
@@ -247,8 +258,8 @@ def assemble_system(**ctx: Any) -> str:
 
 
 def reasoning_note(level: int) -> str:
-    """How to reason on ``level`` (1-based): extensively on the first levels, from skills and code later."""
-    return _fill(REASON_EARLY if level <= REASON_EARLY_LEVELS else REASON_LATER, {"level": level})
+    """The note for ``level`` (1-based): think a bit, then code."""
+    return _fill(LEVEL_NOTE, {"level": level})
 
 
 def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int | None = None,
