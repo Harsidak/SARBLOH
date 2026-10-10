@@ -2,8 +2,8 @@
 
 - The driessmit wheelhouse ships vLLM 0.19.0 with transformers 4.57.6, which does not know ``model_type: gemma4``.
   The ``sarbloh-wheels-gemma4`` overlay (transformers 5.5.0 + huggingface_hub 1.x) goes on top with --no-deps
-  (vllm-project/vllm#39216). Verified by E003-E006: vLLM 0.19.0 runs with it.
-- The gemma4 tool parser sometimes wraps a string argument in an extra pair of quotes (E006: ``"\\"explore\\""``),
+  (vllm-project/vllm#39216). Verified in our runs: vLLM 0.19.0 runs with it.
+- The gemma4 tool parser sometimes wraps a string argument in an extra pair of quotes (seen in a run: ``"\\"explore\\""``),
   which the agent then sees as the literal text ``"explore"``. ``unquote`` repairs it.
 """
 
@@ -18,13 +18,13 @@ WEIGHTS = "banwait13/sarblohmodels"  # Gemma-4-31B-IT-NVFP4, flat safetensors
 BASE = {"--quantization": "modelopt", "--enable-prefix-caching": None, "--generation-config": "vllm"}
 TOOLS = {"--enable-auto-tool-choice": None, "--tool-call-parser": "gemma4", "--reasoning-parser": "gemma4"}
 TEXT_ONLY = {"--limit-mm-per-prompt": '{"image": 0, "audio": 0, "video": 0}'}
-# Long context, fp8 KV (the checkpoint's hf_quant_config sets kv_cache_quant_algo FP8), text only. E006's profile.
+# Long context, fp8 KV (the checkpoint's hf_quant_config sets kv_cache_quant_algo FP8), text only. The first measured profile.
 FAST = {**BASE, **TOOLS, **TEXT_ONLY, "--max-model-len": "131072", "--kv-cache-dtype": "fp8", "--max-num-seqs": "32",
         "--max-num-batched-tokens": "8192", "--gpu-memory-utilization": "0.92"}
 
 PROFILES: dict[str, dict[str, Any]] = {
-    # E007 speed arm: prompt-lookup (n-gram) speculative decoding, since the agent copies grids and code from its own
-    # context, plus bigger prefill chunks for the ~40k-token prompts. UNCONFIRMED until the E007 bench.
+    # Speed arm: prompt-lookup (n-gram) speculative decoding, since the agent copies grids and code from its own
+    # context, plus bigger prefill chunks for the prompts of up to ~60k tokens. UNCONFIRMED until benched.
     "gemma_turbo": {"model_dataset": WEIGHTS, "env": {"OMP_NUM_THREADS": "1"}, "flags": {
         **FAST, "--max-num-batched-tokens": "16384",
         "--speculative-config": '{"method": "ngram", "num_speculative_tokens": 4, "prompt_lookup_max": 4, '

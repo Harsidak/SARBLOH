@@ -88,12 +88,11 @@ class GameMemory:
         return {"confirmation": line, "promoted": promoted, "erased": {k: len(v) if isinstance(v, list) else bool(v)
                                                                       for k, v in gone.items()}}
 
-    # --- writes from the act tool --------------------------------------------------------------------------
+    # --- writes from act() ---------------------------------------------------------------------------------
     def write_act(self, args: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
-        """plan (required), hypotheses, findings, goal. Validates everything before writing anything."""
-        plan = str(args.get("plan") or "").strip()
-        if not plan:
-            raise ValueError("plan is required: your next steps and why, in one or two sentences")
+        """plan, hypotheses, findings, goal, all optional. Validates everything before writing anything. A missing plan
+        keeps the old one; the returned ``plan`` is the one written in this call, or None."""
+        plan = str(args.get("plan") or "").strip() or None
         w = self.working
         snapshot = (w.plan, [dict(h, history=list(h["history"])) for h in w.hypotheses], list(w.findings), w.goal,
                     w.next_h)
@@ -103,7 +102,8 @@ class GameMemory:
         except Exception:
             w.plan, w.hypotheses, w.findings, w.goal, w.next_h = snapshot
             raise
-        w.set_plan(plan)
+        if plan:
+            w.set_plan(plan)
         goal_changed = w.set_goal(args.get("goal") or "")
         w.save()
         return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None}

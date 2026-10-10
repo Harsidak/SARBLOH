@@ -1,7 +1,7 @@
-"""E007 serving benchmark: the same workloads on every profile, so tokens/s numbers compare like for like.
+"""Serving benchmark: the same workloads on every profile, so tokens/s numbers compare like for like.
 
 - ``decode``: N streams x 512 forced tokens (ignore_eos); per-stream prompts differ so nothing is shared.
-- ``cold_prefill``: N fresh ~24k-token prompts at once, 1 output token each: prefill throughput, and the E006
+- ``cold_prefill``: N fresh ~24k-token prompts at once, 1 output token each: prefill throughput, and the
   pattern (the third freeze came on ten cold 40k-token prefills right after a restart).
 - ``agent_like``: N sessions x T turns of an append-only conversation (shared system prompt, per-session grid
   text, a grid delta per turn): time per turn, prefix-cache hit rate, spec-decode acceptance.
@@ -66,8 +66,8 @@ PUZZLE = ("[{i}] A 12x12 grid game: a 2x2 player block at (1,1), a key at (9,2),
 
 
 def decode(server: LlmServer, streams: int, max_tokens: int = 512, thinking: bool = False) -> dict[str, Any]:
-    """``thinking=False``: forced ``max_tokens`` (ignore_eos) of plain text, like for like since E007.
-    ``thinking=True`` (E112): the agent's real decode shape, a reasoning trace on a puzzle with the Duck's sampling
+    """``thinking=False``: forced ``max_tokens`` (ignore_eos) of plain text, like for like across runs.
+    ``thinking=True``: the agent's real decode shape, a reasoning trace on a puzzle with the Duck's sampling
     (temperature 0.6, top_p 0.95, top_k 20), stopping when the model stops; tok/s = completion tokens / wall."""
     def one(i: int) -> int:
         if thinking:
@@ -89,7 +89,7 @@ def decode(server: LlmServer, streams: int, max_tokens: int = 512, thinking: boo
             "per_stream_tok_s": round(total / max(1e-6, wall) / streams, 1), "wall_s": round(wall, 1),
             "spec_accept": _ratio(_delta(m0, m1, "vllm:spec_decode_num_accepted_tokens_total"),
                                   _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total")),
-            # E109: SGLang reports the mean accepted draft length (tokens per verify step) as a gauge
+            # SGLang reports the mean accepted draft length (tokens per verify step) as a gauge
             "spec_accept_length": (m1 or {}).get("sglang:spec_accept_length")}
 
 
@@ -173,7 +173,7 @@ def tool_check(server: LlmServer) -> dict[str, Any]:
 
 
 def quick(server: LlmServer, concurrency: int = 8) -> dict[str, Any]:
-    """The throughput probe run.py prints before the games (same keys as before E007)."""
+    """The throughput probe run.py prints before the games (same keys as the first probe)."""
     one, many = decode(server, 1), decode(server, concurrency)
     server.bench = {"single_stream_tok_s": one["tok_s"], "aggregate_tok_s": many["tok_s"],
                     "concurrency": concurrency, "spec_accept": many["spec_accept"],
@@ -189,9 +189,9 @@ def profile_bench(server: LlmServer, streams: int = 10) -> dict[str, Any]:
                            "startup_s": server.startup_s}
     for name, fn in (("tool_check", lambda: tool_check(server)),
                      ("decode_1", lambda: decode(server, 1)),
-                     ("decode_8", lambda: decode(server, 8)),  # E006's probe ran 8 streams: like for like
+                     ("decode_8", lambda: decode(server, 8)),  # the first probe ran 8 streams: like for like
                      (f"decode_{streams}", lambda: decode(server, streams)),
-                     (f"think_{streams}", lambda: decode(server, streams, max_tokens=2048, thinking=True)),  # E112
+                     (f"think_{streams}", lambda: decode(server, streams, max_tokens=2048, thinking=True)),  # the agent's decode shape
                      ("cold_prefill", lambda: cold_prefill(server, streams)),
                      ("agent_like", lambda: agent_like(server, streams)),
                      ("agent_like_thinking", lambda: agent_like(server, streams, turns=3, max_tokens=1024,

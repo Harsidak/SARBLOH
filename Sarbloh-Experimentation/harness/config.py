@@ -7,6 +7,11 @@ import hashlib
 import json
 from typing import Any
 
+# Local trace collection for LoRA SFT: `python -m harness.run --local` plays the games with the DeepSeek API
+# (harness/llm/deepseek.py) instead of a local server, and saves each run under runs/sft_deepseek/<time>/.
+# Never used on Kaggle (no internet there): main() ignores it.
+local_SFT_RUN = True
+
 DEFAULT: dict[str, Any] = {
     "experiment": "sarbloh_experimentation",   # the ledger label; the notebook sets the experiment directory name
     "games": None,                     # None = every environment; else ids or id prefixes (offline only)
@@ -100,6 +105,8 @@ DEFAULT: dict[str, Any] = {
         "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included
         "retries": 4,
     },
+    # --- DeepSeek API (only when local_SFT_RUN is on; key from $DEEPSEEK_API_KEY or the repo .env) -------------------
+    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-reasoner", "send_reasoning": True},
     # --- model server on Kaggle ----------------------------------------------------------------------------
     "server": {
         "wheelhouse_dataset": "banwait13/sarbloh-vllm-wheelhouse",  # kaggle/wheels.ipynb, vLLM 0.19.0

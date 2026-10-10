@@ -25,6 +25,7 @@ NODE_TYPES = ("shape", "rule", "refuted", "goal")
 EDGE_TYPES = ("moves", "blocks", "wins-when", "appears-in-level", "contradicts", "about")
 BASE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent" / "skills"
 SKILL_TOKENS = 200
+START_SKILLS = ("game_intuition", "planning", "world_model")   # loaded before the curator's first pick
 
 _SHARED: dict[str, Any] = {}
 _SHARED_LOCK = threading.Lock()
@@ -139,7 +140,7 @@ class LessonsGraph:
 
 class SkillBook:
     """Base notes (read-only markdown files) plus curated notes (JSON, shared across games). ``loaded[game]`` is the
-    curator's pick of at most three; before its first pick a game loads the three base notes."""
+    curator's pick of at most three; before its first pick a game loads ``START_SKILLS``."""
 
     def __init__(self, path: Path, base_dir: Path = BASE_SKILLS_DIR) -> None:
         self.path = Path(path)
@@ -187,7 +188,7 @@ class SkillBook:
         return known
 
     def loaded_for(self, game: str) -> list[str]:
-        return self.loaded.get(game) or list(self.base)[:3]
+        return self.loaded.get(game) or ([n for n in START_SKILLS if n in self.base] or list(self.base))[:3]
 
     def render(self, game: str, cap_tokens: int) -> str:
         out: list[str] = []

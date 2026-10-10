@@ -3,8 +3,8 @@
     uv run python Sarbloh/harness/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
 
 Sources in <run_dir>: ``results.json`` and, per game, ``games/<game_id>/transcript.jsonl`` (every message of the
-root session with the model's reasoning, every cell, and, since E006, one structured event per step, act, reset,
-plan, memory write, recall, delegation, message and world-model check), plus the ARC SDK recording
+root session with the model's reasoning, every cell, and one structured event per step, act, memory write,
+recall and curator pass; older transcripts also have reset, plan, delegation, message and world-model events), plus the ARC SDK recording
 ``recordings/<scorecard>/<game_id>-<guid>.jsonl`` (one line per environment step). Without a recording the actions
 come from ``run.history``.
 
@@ -21,10 +21,21 @@ Writes, per game (next to the transcript):
   4. Waste per level: actions vs the human baseline, resets with reasons, the largest single spend, repeated
      (state, action) pairs, and actions spent after the last new belief (stagnation).
   5. Run context: config hash, git SHA, model, compactions, tokens, wall clock, end reason.
-Writes, per run: ``trace.md`` (one row per game) and ``sft_levels.jsonl``: one row per (game, level) with the
-level's message sequence in chat format, tagged ``level_cleared`` and ``rhae``, so "successful trajectories for LoRA"
-is ``[r for r in rows if r["level_cleared"]]``. A level's messages are those produced while that level was being
-played; rows for level > 0 start mid-conversation (``starts_mid_conversation``) and carry the task message first.
+Writes, per run: ``trace.md`` (one row per game) and ``sft_levels.jsonl``, the LoRA SFT export, tagged per row with
+the level, ``level_cleared`` and ``rhae``, so "successful trajectories" is ``[r for r in rows if r["level_cleared"]]``.
+
+The SFT export is what the model was sent, not the message log (``sft_wire``). The agent rewrites its context while it
+plays (a reset at every level-up, drains, compactions, trims), so the transcript has a snapshot of the stored context
+after every rewrite; the stored context at any turn is the last snapshot plus the messages appended after it, and each
+request is rebuilt from it with the agent's own builder (``harness.agent.context.build``) and checked against the
+digest the agent logged (``wire_sha``). Turns whose request extends the previous request plus its reply form one row,
+so every assistant message in a row follows exactly the messages it was answering (the append-only context makes a
+row of everything between two rewrites). Per reply: ``turn``, ``flags`` (cut_off, tool_error, cell_error, repeat,
+game_over, no_tool_call) and ``train``: false for a flagged reply (all flags but no_tool_call) and for replies of
+earlier rows that are only context here. Pictures are files (``games/<id>/frames/``) named in the image parts. Row
+fields beside ``system``, ``tools`` and ``messages``: ``segment_start`` (start, level_up, drain, compaction, trim,
+overflow), ``template_kwargs`` (the reasoning effort), ``wire_verified``. Transcripts written before these fields fall
+back to ``sft_levels``: one row per level from the message log.
 """
 
 from __future__ import annotations
@@ -36,6 +47,10 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+if __package__ in (None, ""):   # run as a script: the package root is the parent of harness/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from harness.agent import context as agent_context   # the agent's own request builder
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -191,11 +206,11 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     remembers = [e for e in events if e.get("event") == "remember"]
     plans = [e for e in events if e.get("event") == "plan"]
     wm_events = [e for e in events if e.get("event") == "wm"]
-    hyps = [e for e in events if e.get("event") == "hypothesis"]          # E008
-    goal_events = [e for e in events if e.get("event") == "goal"]         # E008
-    level_ups = [e for e in events if e.get("event") == "level_up"]       # E008
-    curations = [e for e in events if e.get("event") == "curator"]        # E008
-    recalls = [e for e in events if e.get("event") == "recall"]           # E008
+    hyps = [e for e in events if e.get("event") == "hypothesis"]
+    goal_events = [e for e in events if e.get("event") == "goal"]
+    level_ups = [e for e in events if e.get("event") == "level_up"]
+    curations = [e for e in events if e.get("event") == "curator"]
+    recalls = [e for e in events if e.get("event") == "recall"]
 
     # 1. actions and their causes ------------------------------------------------------------------------
     act_by_call = {str(a.get("call")): a for a in acts}
@@ -222,7 +237,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
                 "level_up": s.get("level_up"), "wm_match": wm_of.get(s.get("i")),
                 "self_verdict": next_verdict.get(call) if act else None, "repeat_of": s.get("repeat_of"),
                 "t": round(s.get("t", t0) - t0, 1)})
-    else:  # E005 and earlier: no step events; the recording has the action, the call and the level
+    else:  # old transcripts without step events: the recording has the action, the call and the level
         prev_level = 0
         for r in rows:
             actions.append({"i": r["i"], "turn": r.get("turn"), "call": r.get("call"), "tool": "ipython",
@@ -261,7 +276,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
             beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
                             "first_level": None, "kinds": ["refine"], "versions": 1, "refuted_at": None,
                             "evidence": [], "content": _one(json.dumps(e.get("applied"), default=str), 300)}
-    for h in hyps:   # E008: the agent's hypotheses, with the statuses it set
+    for h in hyps:   # the agent's hypotheses, with the statuses it set
         bid = f"{h.get('level')}:{h.get('id')}"
         b = beliefs.setdefault(bid, {"id": bid, "title": None, "first_turn": h.get("turn"),
                                      "first_action": h.get("action_count"), "first_level": h.get("level"),
@@ -368,8 +383,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
     end = next((e for e in reversed(events) if e.get("event") == "end"), {})
     stats = end.get("stats") or {}
     tool_counts = stats.get("tool_counts") or dict(Counter(tool_of_call.values()))
-    ran = next((e.get("toolset") for e in events if e.get("event") == "system_prompt" and e.get("toolset")), None)
-    ctx = {**context, **({"toolset": ran} if ran else {}), "end_reason": session.get("end_reason") or end.get("reason"),
+    ctx = {**context, "end_reason": session.get("end_reason") or end.get("reason"),
            "wall_s": session.get("wall_s"), "tokens_total": session.get("tokens_total"),
            "output_tokens": stats.get("output_tokens"), "prompt_tokens_last": stats.get("prompt_tokens_last"),
            "turns": stats.get("turns"), "compactions": comps, "tool_counts": tool_counts,
@@ -378,7 +392,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "wm_events": [{k: v for k, v in e.items() if k not in ("event",)} for e in wm_events],
            "wm_checks": stats.get("wm_checks"), "wm_mispredictions": stats.get("wm_mispredictions"),
            "plan_versions": len(plans),
-           # E008
+           # memory and curator
            "act_arg_errors": stats.get("act_arg_errors"), "recalls": len(recalls),
            "recall_scopes": dict(Counter(str(r.get("scope")) for r in recalls)),
            "hypotheses": len({(h.get("level"), h.get("id")) for h in hyps}),
@@ -404,10 +418,11 @@ def render_report(a: dict[str, Any]) -> str:
     c = a["context"]
     out = [f"# {a['game_id']}: trace report", "",
            f"level {a['levels_completed']}/{a['number_of_levels']} | score {a['score']} | {len(a['actions'])} actions "
-           f"| end {c.get('end_reason')} | toolset {c.get('toolset')}", ""]
+           f"| end {c.get('end_reason')}", ""]
     # 1
     out += ["## 1. Actions and their causes", "",
-            "`expect / plan` = E006's prediction or E008's plan for the act; `wm` / `self` = E006 only; `repeat` = "
+            "`expect / plan` = the plan written with the act (a prediction in old transcripts); `wm` / `self` = "
+            "old transcripts only; `repeat` = "
             "same state and action as an earlier step.", "",
             "| # | turn | call | tool | action | expect / plan | what happened | wm | self | repeat |",
             "|---|---|---|---|---|---|---|---|---|---|"]
@@ -466,7 +481,7 @@ def render_report(a: dict[str, Any]) -> str:
     # 5
     out += ["", "## 5. Run context", "",
             f"- experiment `{c.get('experiment')}`, config hash `{c.get('config_hash')}`, git `{c.get('git_sha')}`, "
-            f"model `{c.get('model')}`, toolset `{c.get('toolset')}`",
+            f"model `{c.get('model')}`",
             f"- end reason {c.get('end_reason')}, wall {c.get('wall_s')} s, turns {c.get('turns')}, output tokens "
             f"{c.get('output_tokens')}, all tokens {c.get('tokens_total')}, last prompt "
             f"{c.get('prompt_tokens_last')}",
@@ -476,7 +491,7 @@ def render_report(a: dict[str, Any]) -> str:
             + (", ".join(f"{e.get('kind')} {e.get('name', '')} v{e.get('version', '')}"
                          + (f" {e.get('passed')}/{e.get('tested')}" if e.get('kind') == 'check' else "")
                          for e in c.get("wm_events") or []) or "none"),
-            f"- E008: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
+            f"- memory: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
             f"{json.dumps(c.get('recall_scopes'))}, hypotheses {c.get('hypotheses')} "
             f"{json.dumps(c.get('hypothesis_statuses'))}, levels without a hypothesis "
             f"{c.get('levels_without_hypothesis')}, promotions {c.get('promotions')}, curator runs "
@@ -576,7 +591,7 @@ def _merge_users(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             a, b = out[-1]["content"], m["content"]
             if isinstance(a, str) and isinstance(b, str):
                 out[-1] = {**out[-1], "content": f"{a}\n\n{b}"}
-            else:   # E008 observations are lists of parts (text + image marker)
+            else:   # observations are lists of parts (text + image marker)
                 out[-1] = {**out[-1], "content": _as_parts(a) + _as_parts(b)}
         else:
             out.append(m)
@@ -592,7 +607,7 @@ def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[
     """One row per level played: the messages produced while that level was current, tagged for filtering.
 
     The level switches after the tool round that cleared it (at the next message that is not a tool result), so a
-    row never splits an assistant tool call from its result. Level-ups come from ``step`` events (E006) or, for older
+    row never splits an assistant tool call from its result. Level-ups come from ``step`` events or, for older
     transcripts, from the recording rows (the call that raised ``levels``)."""
     system = next((e for e in events if e.get("event") == "system_prompt"), {})
     task = next((e for e in events if e.get("event") == "message" and e.get("role") == "user" and not e.get("_kind")),
@@ -641,8 +656,141 @@ def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[
             "actions": n, "baseline": base[lvl] if lvl < len(base) else None, "starts_mid_conversation": lvl > 0,
             "system": system.get("content"), "tools": system.get("tools"), "messages": _merge_users(msgs),
             "level_source": "steps" if has_steps else "recording",
-            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model", "toolset")}})
+            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model")}})
     return out
+
+
+_EVENT_KEYS = {"t", "event", "reasoning", "usage", "finish", "turn", "wire_sha", "effort", "reasoning_unsent"}
+BAD_FLAGS = ("cut_off", "tool_error", "cell_error", "repeat", "game_over")
+
+
+def _stored(m: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """A logged message as the agent stored it, with its picture's file (``_image_file``) in the image part."""
+    m = {k: v for k, v in m.items() if k not in _EVENT_KEYS}
+    if m.get("_image_file") and isinstance(m.get("content"), list):
+        url = f"{prefix}/{m['_image_file']}"
+        m["content"] = [{"type": "image_url", "image_url": {"url": url}} if p.get("type") == "image_url" else p
+                        for p in m["content"]]
+    return m
+
+
+def _turn_flags(events: list[dict[str, Any]]) -> dict[Any, set[str]]:
+    """Per turn, what went wrong in it: cut off, a refused tool call, a failed cell, a repeated (state, action) pair, a
+    GAME_OVER, or no tool call at all."""
+    flags: dict[Any, set[str]] = defaultdict(set)
+    for ev in events:
+        kind, turn = ev.get("event"), ev.get("turn")
+        if kind == "message" and ev.get("role") == "assistant":
+            if ev.get("finish") == "length":
+                flags[turn].add("cut_off")
+            if not ev.get("tool_calls") and not _FENCED.search(ev.get("content") or ""):
+                flags[turn].add("no_tool_call")
+        elif kind == "tool_error":
+            flags[turn].add("tool_error")
+        elif kind == "cell" and ev.get("status") not in (None, "ok"):
+            flags[turn].add("cell_error")
+        elif kind == "step" and turn is not None:
+            if ev.get("repeat_of") is not None:
+                flags[turn].add("repeat")
+            if ev.get("state") == "GAME_OVER":
+                flags[turn].add("game_over")
+    return flags
+
+
+def _as_sent(m: dict[str, Any]) -> dict[str, Any]:
+    """A stored reply as the next append-only request carries it."""
+    return agent_context.merge_users(agent_context.all_reasoning([m]))[0]
+
+
+def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[str, Any],
+             prefix: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Rows of exact requests (see the module docstring) and their counts. ``prefix`` is the game directory relative to
+    the run directory (where its frames are)."""
+    system_ev = next((e for e in events if e.get("event") == "system_prompt"), {})
+    system = system_ev.get("content") or ""
+    vision = bool(system_ev.get("vision"))
+    append_only = system_ev.get("append_only", True)
+    budget = int(system_ev.get("reasoning_budget") or agent_context.REASONING_BUDGET_TOKENS)
+    flags = _turn_flags(events)
+    base = run.get("baseline_actions") or []
+    per_level = run.get("actions_per_level") or []
+    cleared = run.get("levels_completed") or 0
+    n_levels = run.get("number_of_levels") or 10 ** 6
+    rows: list[dict[str, Any]] = []
+    counts = Counter()
+
+    def emit(g: dict[str, Any]) -> None:
+        lvl = g["level"]
+        n = per_level[lvl] if lvl < len(per_level) else None
+        ok = lvl < cleared
+        counts["turns"] += len(g["turns"])
+        if lvl >= n_levels or (not ok and not n):
+            counts["turns_dropped"] += len(g["turns"])
+            return   # after the last level, or a level with no action spent: nothing to learn from
+        msgs = [({k: v for k, v in m.items() if k != "reasoning"} if m["role"] == "assistant" else m)
+                for m in g["request"]] + [g["turns"][-1]["target"]]
+        msgs = [({**m, "train": False} if m["role"] == "assistant" else m) for m in msgs]
+        for t in g["turns"]:
+            bad = sorted(t["flags"] & set(BAD_FLAGS))
+            msgs[t["pos"]] = {**t["target"], "turn": t["turn"], "flags": sorted(t["flags"]), "train": not bad}
+            counts["trainable" if not bad else "flagged"] += 1
+        if not any(m.get("train") for m in msgs if m["role"] == "assistant"):
+            counts["rows_without_target"] += 1
+            return
+        sys_msg = msgs[0] if msgs and msgs[0]["role"] == "system" else None
+        rows.append({
+            "game_id": run.get("game_id"), "level": lvl, "level_cleared": ok,
+            "rhae": round(min((base[lvl] / n) ** 2, 1.15), 4) if ok and n and lvl < len(base) else 0.0,
+            "actions": n, "baseline": base[lvl] if lvl < len(base) else None,
+            "segment_start": g["start"], "turns": [t["turn"] for t in g["turns"]],
+            "template_kwargs": {"reasoning_effort": g["effort"]} if g["effort"] else {},
+            "wire_verified": all(t["verified"] for t in g["turns"]),
+            "system": sys_msg["content"] if sys_msg else system, "tools": system_ev.get("tools"),
+            "messages": msgs[1:] if sys_msg else msgs, "source": "wire",
+            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model")}})
+
+    state: list[dict[str, Any]] = []
+    pinned, start, level, group = None, "start", 0, None
+    for ev in events:
+        kind = ev.get("event")
+        if kind == "context":
+            state, start = [_stored(m, prefix) for m in ev.get("messages") or []], ev.get("reason") or "rewrite"
+        elif kind == "pinned":
+            pinned = _stored(ev, prefix)
+        elif kind == "step":
+            level = max(level, ev.get("level_after") or 0)
+        elif kind == "message":
+            m = _stored(ev, prefix)
+            if ev.get("role") == "assistant":
+                if ev.get("reasoning") and not ev.get("reasoning_unsent"):
+                    m["_reasoning"] = ev["reasoning"]
+                request = agent_context.build(system, state, None if append_only else pinned, vision=vision,
+                                              reasoning_budget=budget, append_only=append_only)
+                verified = agent_context.digest(request) == ev.get("wire_sha")
+                counts["verified"] += verified
+                target = {k: v for k, v in _as_sent(m).items() if k != "reasoning"}
+                if ev.get("reasoning"):
+                    target["reasoning_content"] = ev["reasoning"]   # what it generated, sent back or not
+                turn = {"turn": ev.get("turn"), "pos": len(request), "target": target, "verified": verified,
+                        "flags": flags.get(ev.get("turn"), set())}
+                g = group
+                if g is not None and g["effort"] == ev.get("effort") and g["level"] == level \
+                        and len(request) > len(g["request"]) and request[:len(g["request"])] == g["request"] \
+                        and request[len(g["request"])] == g["reply"]:
+                    g["turns"].append(turn)
+                    g["request"], g["reply"] = request, _as_sent(m)
+                else:
+                    if g is not None:
+                        emit(g)
+                    group = {"turns": [turn], "request": request, "reply": _as_sent(m), "effort": ev.get("effort"),
+                             "level": level, "start": start}
+                    start = "continued"   # a row that breaks without a rewrite (the old builder, a new effort)
+            state.append(m)
+    if group is not None:
+        emit(group)
+    counts["rows"] = len(rows)
+    counts["rows_cleared"] = sum(1 for r in rows if r["level_cleared"])
+    return rows, dict(counts)
 
 
 def build_run(run_dir: Path) -> Path:
@@ -653,15 +801,16 @@ def build_run(run_dir: Path) -> Path:
     summ = results.get("summary") or {}
     cfg = results.get("config") or {}
     context = {"experiment": summ.get("experiment") or cfg.get("experiment"), "config_hash": summ.get("config_hash"),
-               "git_sha": summ.get("git_sha"), "model": summ.get("model") or (cfg.get("llm") or {}).get("model"),
-               "toolset": summ.get("toolset") or (cfg.get("agent") or {}).get("toolset", "ipython")}
+               "git_sha": summ.get("git_sha"), "model": summ.get("model") or (cfg.get("llm") or {}).get("model")}
     table = ["# Trace index", "",
              f"experiment `{context['experiment']}` | config `{context['config_hash']}` | git `{context['git_sha']}` | "
-             f"model `{context['model']}` | toolset `{context['toolset']}`", "",
+             f"model `{context['model']}`", "",
              "| game | levels | actions | turns | tools used | act calls | resets | GAME_OVERs | repeats | "
              "beliefs | living code | wm checks | promotions | compactions | end | report | map |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     sft: list[dict[str, Any]] = []
+    sft_counts: Counter = Counter()
+    legacy_games = 0
     for game_id, run in sorted(runs.items()):
         game_dir = run_dir / "games" / game_id
         session = sessions.get(game_id, {})
@@ -678,7 +827,13 @@ def build_run(run_dir: Path) -> Path:
         a = analyze_game(events, rows, run, session, context)
         (game_dir / "trace.json").write_text(json.dumps(a, indent=1, default=str), encoding="utf-8")
         (game_dir / "report.md").write_text(render_report(a), encoding="utf-8")
-        sft += sft_levels(events, run, context, rows)
+        if any(e.get("wire_sha") for e in events):
+            got, counts = sft_wire(events, run, context, f"games/{game_id}")
+            sft += got
+            sft_counts.update(counts)
+        else:   # a transcript from before the wire fields
+            sft += sft_levels(events, run, context, rows)
+            legacy_games += 1
         acts = a["actions"]
         tools = a["context"].get("tool_counts") or {}
         table.append(
@@ -693,8 +848,19 @@ def build_run(run_dir: Path) -> Path:
     with (run_dir / "sft_levels.jsonl").open("w", encoding="utf-8") as fh:
         for r in sft:
             fh.write(json.dumps(r, default=str, ensure_ascii=False) + "\n")
-    table += ["", f"SFT export: `sft_levels.jsonl`, {len(sft)} level rows, "
-                  f"{sum(1 for r in sft if r['level_cleared'])} cleared."]
+    c = sft_counts
+    frames = list((run_dir / "games").glob("*/frames/*.png"))
+    table += ["", (f"SFT export: `sft_levels.jsonl`, {len(sft)} rows, {sum(1 for r in sft if r['level_cleared'])} on "
+                   f"cleared levels.")]
+    if c:
+        table.append(f"From the wire: {c['turns']} replies, {c['verified']} rebuilt exactly "
+                     f"({100 * c['verified'] / max(1, c['turns']):.1f}%), {c['trainable']} trained, {c['flagged']} "
+                     f"flagged out (train false), {c['turns_dropped']} after the last level or on levels with no "
+                     f"action, {c['rows_without_target']} rows dropped with nothing to train; {len(frames)} pictures "
+                     f"({sum(f.stat().st_size for f in frames) / 1e6:.1f} MB).")
+    if legacy_games:
+        table.append(f"{legacy_games} games without wire fields (older transcripts): one row per level from the "
+                     f"message log, not exactly what the model saw.")
     out = run_dir / "trace.md"
     out.write_text("\n".join(table) + "\n", encoding="utf-8")
     return out

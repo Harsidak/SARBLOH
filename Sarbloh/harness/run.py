@@ -4,7 +4,8 @@
     python -m harness.run --local ...       # local: an already running OpenAI-compatible server (llama.cpp)
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
-LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md).
+LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md),
+reports and the SFT export; config ``tracing`` off (always on the competition rerun) skips the transcripts and all of it.
 """
 
 from __future__ import annotations
@@ -41,9 +42,9 @@ def is_competition_rerun() -> bool:
 
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
-    """Scale the compaction settings to the served window. At 128k they stay as configured (16384 reserve, 16000
-    kept, compact above 40000); smaller windows get at most a quarter each, and a turn's output never exceeds the
-    reserve."""
+    """Scale the compaction settings to the served window. From 128k up they stay as configured (16384 reserve,
+    6000 kept, compact above 120000 or window - reserve, whichever is lower); smaller windows get at most a quarter
+    each, and a turn's output never exceeds the reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]
     comp["reserve_tokens"] = min(comp["reserve_tokens"], window // 4)
@@ -51,7 +52,9 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
     if comp.get("trigger_tokens") and comp["trigger_tokens"] < 2 * comp["keep_recent_tokens"]:
         raise ValueError(f"compaction.trigger_tokens {comp['trigger_tokens']} < 2x keep_recent_tokens "
                          f"{comp['keep_recent_tokens']}: every compaction would leave the context near the trigger")
-    agent["max_tokens_per_turn"] = min(agent["max_tokens_per_turn"], comp["reserve_tokens"])
+    cap = agent["max_tokens_per_turn"]
+    agent["max_tokens_per_turn"] = ({k: min(v, comp["reserve_tokens"]) for k, v in cap.items()} if isinstance(cap, dict)
+                                    else min(cap, comp["reserve_tokens"]))
 
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
@@ -61,7 +64,7 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
-    if scheduler is not None:  # E111: this game's LLM calls run only while it holds a scheduler slot
+    if scheduler is not None:  # this game's LLM calls run only while it holds a scheduler slot
         from harness.scheduler import ScheduledLLM
 
         llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
@@ -70,14 +73,13 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
     session_ref: dict[str, Any] = {}
     host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
                    tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
-                   max_actions_per_cell=cfg.get("max_actions_per_cell"),
                    stop_after_levels=cfg.get("stop_after_levels"))
-    e008 = cfg["agent"].get("toolset") == "e008" and cfg["agent"]["tool_mode"] == "native"
-    task = prompts.task_message(game_id=game.game_id, max_actions=cfg["max_actions_per_game"],
-                                minutes=int(max(0, deadline - time.time()) // 60), toolset="game" if e008 else "ipython")
+    task = prompts.task_message(game_id=game.game_id, win_levels=game.number_of_levels,
+                                max_actions=cfg["max_actions_per_game"],
+                                minutes=int(max(0, deadline - time.time()) // 60))
     session = AgentSession(cfg=cfg["agent"], llm=llm, name=game.game_id.split("-")[0], session_dir=game_dir,
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
-                           global_harness_dir=run_dir / "global_harness", memory_root=run_dir / "memory")
+                           memory_root=run_dir / "memory", tracing=bool(cfg.get("tracing", True)))
     session_ref["s"] = session
     t0 = time.time()
     try:
@@ -111,7 +113,6 @@ def git_sha() -> str:
 
 def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, soft_end: float) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "global_harness").mkdir(exist_ok=True)
     t0 = time.time()
     stop_event = threading.Event()
     started = []
@@ -124,7 +125,7 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
     sched_cfg = cfg.get("scheduler") or {}
     scheduler = None
     workers = max(1, int(cfg["concurrency"]))
-    if sched_cfg.get("enabled"):  # E111: every game alive at once; the scheduler decides who is on the GPU
+    if sched_cfg.get("enabled"):  # every game alive at once; the scheduler decides who is on the GPU
         from harness.scheduler import PriorityScheduler
 
         scheduler = PriorityScheduler(int(sched_cfg.get("slots", 6)), int(sched_cfg.get("quantum_calls", 4)),
@@ -173,6 +174,9 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")
+    if not cfg.get("tracing", True):
+        print("[trace] tracing off: no transcripts, reports or SFT export", flush=True)
+        return summary
     try:
         print(f"[trace] step maps: {trace.build_run(run_dir)}", flush=True)
     except Exception as exc:  # noqa: BLE001 - the trace is a report; it must not fail the run
@@ -198,8 +202,6 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
         "config_hash": config_hash(cfg),
         "git_sha": git_sha(),
         "model": cfg["llm"].get("model"),
-        # what the sessions ran: a fenced (no native tools) fallback forces the one-tool REPL interface
-        "toolset": cfg["agent"].get("toolset") if cfg["agent"].get("tool_mode") == "native" else "ipython",
         "games": len(runs),
         "mean_score": round(statistics.mean(scores), 4) if scores else 0.0,
         "levels_completed": sum(r.levels_completed for r in runs),
@@ -211,10 +213,11 @@ def summarize(games: list[Any], sessions: dict[str, dict[str, Any]], cfg: dict[s
         "turns": agg("turns"), "tool_calls": agg("tool_calls"), "cell_errors": agg("cell_errors"),
         "native_calls": agg("native_calls"), "fenced_calls": agg("fenced_calls"), "compactions": agg("compactions"),
         "continuations": agg("continuations"),
-        # E008: memory and perception use
+        # memory and perception use
         "act_calls": agg("act_calls"), "act_arg_errors": agg("act_arg_errors"), "recalls": agg("recalls"),
         "hypothesis_events": agg("hypothesis_events"), "promotions": agg("promotions"),
-        "curator_runs": agg("curator_runs"), "curator_errors": agg("curator_errors"), "images_sent": agg("images_sent"),
+        "curator_runs": agg("curator_runs"), "curator_errors": agg("curator_errors"),
+        "skills_written": agg("skills_written"), "images_sent": agg("images_sent"),
         "llm": llm.usage.to_json(),
         "wall_s": round(wall_s, 1),
         "per_game": {r.game_id: {"score": round(r.final_score or 0.0, 3), "levels": r.levels_completed,
@@ -247,6 +250,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     run_dir = working_dir / "prime_run"
     os.environ.setdefault("RECORDINGS_DIR", str(run_dir / "recordings"))
     record = bool(cfg.get("record")) and not rerun  # rerun outputs are never seen; skip the disk writes
+    if rerun:
+        cfg["tracing"] = False   # the same reason; also set by the notebook
     working_dir.mkdir(parents=True, exist_ok=True)
     _print_env(cfg)
 
@@ -264,8 +269,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         server.start()
         cfg["llm"]["base_url"] = server.base_url
         cfg["llm"]["model"] = spec.served_model_name
-        cfg["agent"]["tool_mode"] = server.tool_mode
-        cfg["agent"]["vision"] = server.vision  # E008: images only when the served profile passed the image smoke test
+        if server.tool_mode != "native":
+            print(f"[server] WARNING: tool mode {server.tool_mode!r}: the agent needs native tool calls to act, so "
+                  "this run can only answer in ```python blocks and will not move", flush=True)
+        cfg["agent"]["vision"] = server.vision  # images only when the served profile passed the image smoke test
         fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
         if cfg["server"]["bench"] and not rerun:
             try:
@@ -301,7 +308,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             pd.DataFrame([["1_0", "1", True, 1]], columns=["row_id", "game_id", "end_of_game", "score"]).to_parquet(
                 working_dir / "submission.parquet", index=False)
     print("LEDGER_ROW " + json.dumps({k: summary.get(k) for k in (
-        "experiment", "config_hash", "git_sha", "model", "toolset", "server_profile", "tool_mode", "vision", "throughput",
+        "experiment", "config_hash", "git_sha", "model", "server_profile", "tool_mode", "vision", "throughput",
         "games",
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)
@@ -332,19 +339,11 @@ def local() -> None:
     ap.add_argument("--model", default="local")
     ap.add_argument("--minutes", type=float, default=10)
     ap.add_argument("--max-actions", type=int, default=30)
-    ap.add_argument("--tool-mode", default="native", choices=["native", "fenced"])
     ap.add_argument("--no-thinking", action="store_true")
-    ap.add_argument("--cell-cap", type=int, default=None, help="E004: max arc.step per cell")
-    ap.add_argument("--reflect-every", type=int, default=None, help="E004: forced harness write every N actions")
-    ap.add_argument("--experiment", default=None, help="default: E008_perception_memory_local, or "
-                    "E005_prime_fidelity_local with --toolset ipython")
+    ap.add_argument("--experiment", default="sarbloh_experimentation_local")
     ap.add_argument("--ctx", type=int, default=16384, help="context window of the local server (llama.cpp -c)")
-    ap.add_argument("--auto-refine", type=int, default=25, metavar="TURNS",
-                    help="host-driven harness refine every TURNS turns (+ after compaction); 0 = off")
-    ap.add_argument("--refine-cooldown-min", type=float, default=20.0)
     ap.add_argument("--out", default=str(REPO_ROOT / "runs" / "prime_local"))
-    ap.add_argument("--toolset", default="e008", choices=["e008", "ipython"])
-    ap.add_argument("--vision", action="store_true", help="E008: send the image (the server must take images, e.g. "
+    ap.add_argument("--vision", action="store_true", help="send the picture (the server must take images, e.g. "
                     "serve_llm.ps1 -Vision)")
     ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
@@ -353,18 +352,13 @@ def local() -> None:
     from harness.game.games import build_games, make_arcade
 
     cfg = build_config({
-        "experiment": a.experiment or ("E008_perception_memory_local" if a.toolset == "e008"
-                                       else "E005_prime_fidelity_local"), "max_actions_per_cell": a.cell_cap, "stop_after_levels": a.levels,
+        "experiment": a.experiment, "stop_after_levels": a.levels,
         "games": a.games, "concurrency": len(a.games), "game_wall_s": a.minutes * 60,
         "max_actions_per_game": a.max_actions, "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
-        "agent": {"tool_mode": a.tool_mode, "max_tokens_per_turn": a.max_tokens, "toolset": a.toolset,
-                  "vision": a.vision,
-                  "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000},
-                  "reflect_every_actions": a.reflect_every,
-                  "auto_refine": {"enabled": a.auto_refine > 0, "turn_interval": a.auto_refine or 25,
-                                  "cooldown_s": a.refine_cooldown_min * 60, "max_tokens": 4096}},
+        "agent": {"max_tokens_per_turn": a.max_tokens, "vision": a.vision,
+                  "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000}},
     })
     cfg["agent"]["context_window"] = a.ctx
     os.environ["ONLY_RESET_LEVELS"] = "true"

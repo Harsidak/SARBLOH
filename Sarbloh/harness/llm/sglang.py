@@ -1,4 +1,4 @@
-"""E109, E112: SGLang as a prebuilt runtime for the shared serving layer (``ModelSpec.runtimes``), model-free.
+"""SGLang as a prebuilt runtime for the shared serving layer (``ModelSpec.runtimes``), model-free.
 
 The wheelhouse is an offline Kaggle dataset: ``wheels/`` + ``requirements.lock`` (dfranzen/pennyroyal-v253), or the wheels
 and the lock flat at the dataset root (banwait13/sglangwheels, the same Pennyroyal v2.5.3 build); the lock pins sglang

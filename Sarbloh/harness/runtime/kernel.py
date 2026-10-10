@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from harness import sysmon
+
 PRIME_ROOT = Path(__file__).resolve().parents[2]  # holds rlm/ (upstream runtime) and harness/
 KERNEL_SKILLS = Path(__file__).resolve().parent / "skills"
 PROTOCOL_VERSION = 3
@@ -39,18 +41,49 @@ try:
     import numpy as np
 except Exception:
     np = None
-try:
-    import arc
-except Exception as _arc_exc:
-    arc = None
-if os.environ.get("PRIME_TOOLSET") == "e008":
-    import scene          # E008: the state is pushed after every act; the REPL reads it and cannot fetch the game
-    class _NoArc:
-        def __getattr__(self, name):
-            raise RuntimeError("there is no `arc` in this harness: the state is pushed to you after every act. "
-                               "Read it in `scene` (scene.objects, scene.ascii(...), scene.history(n)); act with "
-                               "the act tool.")
-    arc = _NoArc()
+from observation import observe   # the state, read-only and free
+from acting import act            # `await act([...])` makes moves; each costs one move
+class _NoArc:
+    def __getattr__(self, name):
+        raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
+                           "and make moves with `await act([...])`.")
+arc = _NoArc()
+_BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
+"""
+
+# Lists what the agent defined after boot (functions with their signatures, classes, modules, other values with their
+# type), as one JSON line. Read by the host after a compaction and at a level-up, never shown to a summarizer.
+NAMES_CODE = """
+import inspect as _inspect
+_names = {"functions": [], "classes": [], "values": [], "modules": []}
+for _k, _v in list(globals().items()):
+    if _k.startswith("_") or _k in _BOOT_NAMES:
+        continue
+    if _inspect.ismodule(_v):
+        _names["modules"].append(_k)
+    elif _inspect.isclass(_v):
+        _names["classes"].append(_k)
+    elif callable(_v):
+        try:
+            _sig = str(_inspect.signature(_v))
+        except (TypeError, ValueError):
+            _sig = "(...)"
+        _names["functions"].append(_k + (_sig if len(_sig) <= 80 else _sig[:77] + "...)"))
+    else:
+        _t = type(_v).__name__
+        _shape = getattr(_v, "shape", None)
+        if _shape is not None:
+            _t += str(tuple(_shape))
+        elif hasattr(_v, "__len__"):
+            try:
+                _t += f"[{len(_v)}]"
+            except Exception:
+                pass
+        _names["values"].append(f"{_k}: {_t}")
+print(json.dumps(_names))
+for _n in ("_names", "_k", "_v", "_sig", "_t", "_shape", "_inspect"):
+    globals().pop(_n, None)
+del _n
 """
 
 
@@ -61,6 +94,7 @@ class ExecResult:
     result: str | None = None
     error: str | None = None
     duration_s: float = 0.0
+    displays: list[dict[str, Any]] = field(default_factory=list)   # display events: dicts of MIME type -> payload
 
     def render(self, limit: int) -> str:
         parts: list[str] = []
@@ -125,6 +159,8 @@ class Kernel:
             [self.python, "-m", "rlm.repl"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=str(self.session_dir), env=env, bufsize=0,
         )
+        # Under memory pressure the kernel's OOM killer takes a REPL first: it is restarted here, the server is not.
+        sysmon.set_oom_score_adj(self.proc.pid, sysmon.KERNEL_OOM_SCORE_ADJ)
         threading.Thread(target=self._read_events, args=(self.proc,), daemon=True, name="kernel-events").start()
         threading.Thread(target=self._read_stderr, args=(self.proc,), daemon=True, name="kernel-stderr").start()
         if not self._ready.wait(timeout_s):
@@ -198,7 +234,10 @@ class Kernel:
                 elif kind == "result":
                     res.result = ev.get("text")
                 elif kind == "display":
-                    out.append(f"[display: {', '.join(ev.get('data', {}).keys())}]\n")
+                    data = ev.get("data") or {}
+                    res.displays.append(data)
+                    if not any(k.startswith("application/vnd.sarbloh.") for k in data):   # ours are host signals
+                        out.append(f"[display: {', '.join(data.keys())}]\n")
                 elif kind == "error":
                     tb = "".join(ev.get("traceback") or [])
                     res.error = tb or f"{ev.get('ename')}: {ev.get('evalue')}"
@@ -213,6 +252,17 @@ class Kernel:
         res.stdout = "".join(out)
         res.duration_s = time.monotonic() - t0
         return res
+
+    def user_names(self, timeout_s: float = 30.0) -> dict[str, list[str]] | None:
+        """The names the agent defined in the kernel since boot, by kind; None when the kernel cannot tell."""
+        if not self.alive():
+            return None
+        res = self.execute(NAMES_CODE, timeout_s=timeout_s)
+        try:
+            names = json.loads(res.stdout.strip().splitlines()[-1]) if res.status == "ok" else None
+        except (ValueError, IndexError):
+            return None
+        return names if isinstance(names, dict) else None
 
     # --- protocol plumbing -------------------------------------------------------------------------------
     def _send(self, proc: subprocess.Popen, obj: dict[str, Any]) -> None:

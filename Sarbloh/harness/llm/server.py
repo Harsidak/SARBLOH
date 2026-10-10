@@ -1,7 +1,7 @@
 """The model server on Kaggle (vLLM or SGLang), model-free: offline install, a profile chain, a tool-call smoke test and a watchdog. Everything
 model-specific (weights, flags, parsers, sampling) comes from a ``ModelSpec`` (gemma.py, qwen.py).
 
-Robustness, from E006 (three APIServer freezes; the fixed 2-restart budget ran out, then 900 s x 4 client retries
+Robustness, from a past run (three APIServer freezes; the fixed 2-restart budget ran out, then 900 s x 4 client retries
 blocked every game for about 30 minutes):
 - A freeze counts as a failure even when the process is alive: /metrics must answer, and its token counters must move
   while requests are running.
@@ -12,9 +12,12 @@ blocked every game for about 30 minutes):
 - Restarts are budgeted by remaining wall clock, not a fixed count. After ``fallback_after`` freezes on one profile,
   the watchdog moves to the next profile in the chain with the same tool mode.
 - Every server event is one line in server_events.jsonl.
-- Site-packages live in /tmp, not /kaggle/working (E006: 10+ GB of wheels made the output download hang).
+- Host memory (``harness.sysmon``): the server is marked never to be picked by the kernel's OOM killer, and the
+  watchdog writes a RAM/VRAM row (``ram``) every ``ram_every_s``; an exit records its code and the memory at that
+  moment. The 2026-10-04 run lost the server twice to an exit with no stack, most likely that killer (UNCONFIRMED).
+- Site-packages live in /tmp, not /kaggle/working (10+ GB of wheels once made the output download hang).
 
-E109: a prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
+A prebuilt runtime may bring its own interpreter (``python``) and server (``backend: "sglang"``, see sglang.py).
 The watchdog then reads ``sglang:*`` counters, and a /metrics that does not answer counts
 as a failure only when the health endpoint does not answer either.
 """
@@ -34,11 +37,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from harness import sysmon
 from harness.llm.client import ServerGate
 from harness.llm.spec import ModelSpec
 
 WATCHDOG = {"interval_s": 15.0, "failures_to_restart": 4, "freeze_after_s": 120.0, "fallback_after": 2,
-            "max_restarts": 8, "min_useful_s": 600.0}
+            "max_restarts": 8, "min_useful_s": 600.0, "ram_every_s": 60.0}
 # Prepared prebuilt runtimes (ModelSpec.runtimes), by name: unpacking one takes minutes, so every server in the
 # process (bench profiles, restarts) shares it.
 _RUNTIMES: dict[str, dict[str, Any]] = {}
@@ -108,7 +112,7 @@ def parse_metrics(text: str) -> dict[str, float]:
 def token_counters(m: dict[str, float]) -> tuple[float, float]:
     """(prompt + generation tokens so far, requests running) from vLLM or SGLang metrics; (0, 0) when absent.
     SGLang's ``prompt/generation_tokens_total`` only move when a request finishes, so one long thinking request
-    looked frozen and was killed (E109 ls20); ``sglang:realtime_tokens_total`` moves every decode step."""
+    looked frozen and was killed (an ls20 run); ``sglang:realtime_tokens_total`` moves every decode step."""
     tokens = sum(m.get(f"{p}:{k}", 0.0) for p in ("vllm", "sglang")
                  for k in ("prompt_tokens_total", "generation_tokens_total", "realtime_tokens_total"))
     running = m.get("vllm:num_requests_running", 0.0) + m.get("sglang:num_running_reqs", 0.0)
@@ -146,7 +150,7 @@ class LlmServer:
         self.freezes: dict[str, int] = {}
         self.startup_s: float | None = None
         self.image_probe: str | None = None  # the model's answer to the image smoke test (vision profiles)
-        self.backend = "vllm"                # E109: "sglang" when the running profile's runtime says so
+        self.backend = "vllm"                # "sglang" when the running profile's runtime says so
         self._stop = threading.Event()
         self._lock = threading.RLock()
 
@@ -172,19 +176,20 @@ class LlmServer:
         """The running profile accepts an image per prompt (and passed the image smoke test)."""
         return bool(self.profile) and self.spec.has_vision(self.profile)
 
-    def event(self, name: str, **detail: Any) -> None:
+    def event(self, name: str, echo: bool = True, **detail: Any) -> None:
         row = {"t": round(time.time(), 1), "event": name, "profile": self.profile, **detail}
         try:
             with self.events_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, default=str) + "\n")
         except OSError:
             pass
-        log(f"{name} {json.dumps(detail, default=str)[:600]}")
+        if echo:
+            log(f"{name} {json.dumps(detail, default=str)[:600]}")
 
     # --- install -----------------------------------------------------------------------------------------
     def libcuda_link_dir(self) -> Path | None:
         """FlashInfer JIT-links its sm120 NVFP4 GEMM with ``-lcuda``. The Kaggle image ships only the driver's
-        ``libcuda.so.1`` (no unversioned ``libcuda.so``, no CUDA stub), so ld fails (E003 v1: "cannot find -lcuda").
+        ``libcuda.so.1`` (no unversioned ``libcuda.so``, no CUDA stub), so ld fails (seen in the first run: "cannot find -lcuda").
         Give ld a ``libcuda.so`` symlink via LIBRARY_PATH."""
         if Path("/usr/local/cuda/lib64/stubs/libcuda.so").exists():
             return None
@@ -241,6 +246,9 @@ class LlmServer:
                     "VLLM_NO_USAGE_STATS": "1", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
                     "PYTHONFAULTHANDLER": "1"})
         if profile:
+            # One compile cache per profile: the text-only fallback reused the image profile's compiled graph and
+            # crashed in its first forward ("'NoneType' object has no attribute 'size'").
+            env["VLLM_CACHE_ROOT"] = str(self.site.parent / "vllm-cache" / profile)
             env.update(self.spec.profiles[profile].get("env") or {})
         return env
 
@@ -297,7 +305,7 @@ class LlmServer:
 
     def failure_excerpt(self, lines: int = 40) -> str:
         """The engine's own error lines from the last profile section. The plain tail is only the APIServer
-        traceback ("See root cause above"), which hid the real cause in E003 v1."""
+        traceback ("See root cause above"), which hid the real cause in the first run."""
         if not self.log_path.exists():
             return ""
         text = self.log_path.read_text(encoding="utf-8", errors="replace")
@@ -342,6 +350,9 @@ class LlmServer:
         self.event("launch", model_dir=str(model_dir))
         self.process = subprocess.Popen(cmd, env=self.env(profile), stdout=self.log_path.open("a", encoding="utf-8"),
                                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        # Its workers inherit the mark; the watchdog sets it again on the whole tree every ram_every_s.
+        self.event("oom_protect", pid=self.process.pid,
+                   ok=sysmon.set_oom_score_adj(self.process.pid, sysmon.SERVER_OOM_SCORE_ADJ))
 
     def wait_ready(self, timeout_s: float) -> bool:
         deadline = time.monotonic() + timeout_s
@@ -439,12 +450,12 @@ class LlmServer:
     def image_smoke(self) -> str:
         """One request with a small PNG (a red square): the server must accept the image part. The answer is logged,
         not judged: the check is that the multimodal path works, not the model's eyesight."""
-        from harness.agent.vision import data_url
+        from harness.agent.perception import data_url, render
 
         body: dict[str, Any] = {"model": self.spec.served_model_name, "temperature": 0.0, "max_tokens": 256,
                                 "messages": [{"role": "user", "content": [
                                     {"type": "text", "text": "What colour fills this image? Answer in one word."},
-                                    {"type": "image_url", "image_url": {"url": data_url([[8] * 16] * 16, upscale=4)}}]}]}
+                                    {"type": "image_url", "image_url": {"url": data_url(render([[8] * 16] * 16, 4))}}]}]}
         if self.spec.smoke_template_kwargs:
             body["chat_template_kwargs"] = dict(self.spec.smoke_template_kwargs)
         t = time.time()
@@ -530,7 +541,9 @@ class LlmServer:
                 return False
             profile = self.profile
             self.freezes[profile] = self.freezes.get(profile, 0) + 1
-            self.event("freeze_detected", reason=reason, count=self.freezes[profile])
+            code = self.process.poll() if self.process is not None else None
+            self.event("freeze_detected", reason=reason, count=self.freezes[profile], exit_code=code,
+                       ram=sysmon.snapshot())
             self.kill(reason, dump=True)
             self.event("freeze", reason=reason, count=self.freezes[profile], stacks=self.stack_dump())
             for candidate in self._fallbacks():
@@ -557,7 +570,7 @@ class LlmServer:
             return "exited"
         m = self.metrics()
         if m is None and self.backend != "vllm" and self.healthy(timeout=10):
-            m = {}  # E109: a server without (or with a slow) /metrics is alive if it answers /v1/models
+            m = {}  # a server without (or with a slow) /metrics is alive if it answers /v1/models
         if m is None:
             state["failures"] = state.get("failures", 0) + 1
             return "unresponsive" if state["failures"] >= self.wd["failures_to_restart"] else None
@@ -569,11 +582,24 @@ class LlmServer:
             return None
         return "frozen" if now - state.get("moved_at", now) >= self.wd["freeze_after_s"] else None
 
+    def memory_tick(self) -> None:
+        """One ``ram`` row (written, not printed), and the OOM mark set again on the server's whole tree."""
+        try:
+            pid = self.process.pid if self.process is not None and self.process.poll() is None else None
+            marked = sysmon.protect_tree(pid) if pid else 0
+            self.event("ram", echo=False, marked=marked, **sysmon.snapshot(pid))
+        except Exception as exc:  # noqa: BLE001 - logging must never stop the watchdog
+            self.event("ram_error", echo=False, error=repr(exc)[:300])
+
     def start_watchdog(self) -> None:
         def loop() -> None:
             state: dict[str, Any] = {}
             logged = False
+            ram_at = 0.0
             while not self._stop.wait(self.wd["interval_s"]):
+                if time.monotonic() - ram_at >= self.wd["ram_every_s"]:
+                    ram_at = time.monotonic()
+                    self.memory_tick()
                 if not logged:  # which counters the freeze detector actually sees on this build
                     m = self.metrics()
                     if m is not None:
@@ -586,4 +612,5 @@ class LlmServer:
                     state = {}
 
         self.event("watchdog_on", **self.wd)
+        self.memory_tick()
         threading.Thread(target=loop, name="server-watchdog", daemon=True).start()
