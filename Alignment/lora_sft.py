@@ -10,6 +10,11 @@ language model's linear layers only -> evaluate (loss, token accuracy, greedy ge
 save the adapter -> reload it into a fresh base and re-evaluate -> write ``result_card.json`` / ``result_card.md`` /
 ``loss.png`` with a PASS/FAIL verdict built from explicit checks.
 
+Long rows (Flash-Next on Azure, rows up to the harness's 131k context): ``device_map: "auto"`` spreads the layers over
+all GPUs (each holds ~1/N of the weights and of the saved activations); ``loss_chunk`` runs the LM head over target
+tokens in chunks; ``long_context`` swaps in qwen4_exp_long.py's training path for Flash-Next's sparse attention;
+``overlong: "drop"`` never cuts a row; ``save_every`` / ``resume`` / ``max_train_hours`` survive spot evictions.
+
 Data: JSONL, one conversation per line. Two shapes are accepted:
   * ``{"messages": [...], "tools": [...]}`` in OpenAI chat format, optionally with a system message first.
   * Prime's ``sft_levels.jsonl`` rows (``Sarbloh/harness/trace.py``): ``system`` and ``tools`` beside ``messages``.
@@ -55,16 +60,33 @@ DEFAULTS: dict[str, Any] = {
     "trust_remote_code": False,
     "allow_missing_weights": [r"(^|\.)mtp\.", r"lm_head"],  # regexes; any other missing weight is a hard FAIL
     "attn_implementation": None,      # None = transformers default
+    "device_map": None,               # None = one GPU; "split" = decoder layers in contiguous blocks over every GPU
+                                      # (loaded on CPU first, cpu_modules stay there); "auto" = transformers' own map
+    "split_devices": None,            # split: devices to use, e.g. ["cuda:0", "cpu"] (None = every visible GPU)
+    "cpu_modules": [],                # split: regexes of frozen modules kept on CPU (Flash-Next's 102 GB n-gram
+                                      # table: ["ngram_embedding"]); they compute on CPU, their output moves on
+    "gpu_weight_frac": 0.55,          # auto: share of each GPU's memory given to weights; the rest is for
+                                      # activations (a 131k-token row needs tens of GB)
+    "experts_implementation": None,   # MoE kernels, e.g. "grouped_mm" (None = transformers default)
+    "long_context": "auto",           # auto | on | off: Flash-Next (qwen4_exp) training path for 131k-token rows
+                                      # (qwen4_exp_long.py: vectorised sparse attention, no L x L mask)
+    "long_query_chunk": 1024,         # long_context: queries per sparse-attention chunk
+    "long_moe_chunk": 16384,          # long_context: tokens per MoE chunk
     # data
-    "data_path": "data/smoke3.jsonl",
+    "data_path": "data/smoke3.jsonl",  # a file, a glob, or a list of them (e.g. one sft_levels.jsonl per run)
     "eval_path": None,                # None = evaluate on the training examples (the smoke test's overfit check)
     "max_samples": None,              # conversations taken from data_path (in file order)
     "filter_cleared": False,          # Prime rows: keep level_cleared only
+    "select": "all",                  # all | best_run: per (game, level) keep only the rows of the run (input file)
+                                      # that cleared it with the best rhae (ties: fewest actions)
     "images": "placeholder",          # placeholder | error
-    "max_seq_len": 4096,              # longer examples lose context from the left; targets are never cut
+    "max_seq_len": 4096,
+    "overlong": "left",               # left: a longer example loses context from the left (targets never cut);
+                                      # drop: it is skipped and counted (no example is ever cut)
     "mask_mode": "auto",              # auto | whole | per_turn
     "turns": "all",                   # all | last (only the last assistant turn of each conversation is a target)
     "template_kwargs": {},            # passed to apply_chat_template, e.g. {"enable_thinking": true}
+    "row_template_kwargs": True,      # also apply a row's own template_kwargs (wire rows carry reasoning_effort)
     # LoRA
     "lora_r": 16,
     "lora_alpha": 32,
@@ -85,6 +107,15 @@ DEFAULTS: dict[str, Any] = {
     "gradient_checkpointing": True,
     "seed": 0,
     "log_every": 1,
+    "loss_chunk": 4096,               # target tokens per LM-head chunk (logits never materialised for the whole row);
+                                      # None = the model's own forward with logits_to_keep
+    "save_every": None,               # steps between resumable checkpoints in output_dir/checkpoint (spot VMs)
+    "resume": False,                  # continue from output_dir/checkpoint if it exists
+    "max_train_hours": None,          # stop training cleanly (and save) after this many hours
+    "eval_max_examples": None,        # cap the eval set (each eval example is a full forward)
+    "examples_cache": None,           # a .jsonl path: tokenised examples are written there once and reused while the
+                                      # data files, tokenizer and data settings are unchanged (build on a CPU box, not
+                                      # on rented GPUs)
     # evaluation and checks
     "gen_samples": 3,                 # greedy generations before/after on the eval set (0 = off)
     "gen_max_new_tokens": 256,
@@ -118,11 +149,13 @@ class Stats:
     per_turn_renders: int = 0
     left_truncated: int = 0
     dropped_too_long: int = 0
+    dropped_not_best_run: int = 0     # select best_run: rows of a (game, level) from a worse run
+    input_files: int = 0
     dropped_no_target: int = 0
     images_replaced: int = 0
     header_in_loss: int = 0           # turns where no generation prompt matched: the role header is trained too
-    boundary_straddles: int = 0       # tokens spanning prompt/target: excluded from the loss, should be 0
-    tokenization_mismatches: int = 0  # prompt tokenised alone != prefix of the full tokenisation
+    boundary_straddles: int = 0       # tokens spanning prompt/target (impossible since piecewise tokenisation)
+    tokenization_mismatches: int = 0  # examples whose piecewise tokens differ from the whole text's
     errors: list[str] = field(default_factory=list)
 
 
@@ -143,6 +176,12 @@ def make_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         raise ValueError(f"turns {cfg['turns']!r}")
     if cfg["images"] not in ("placeholder", "error"):
         raise ValueError(f"images {cfg['images']!r}")
+    if cfg.get("select", "all") not in ("all", "best_run"):
+        raise ValueError(f"select {cfg['select']!r}")
+    if cfg["overlong"] not in ("left", "drop"):
+        raise ValueError(f"overlong {cfg['overlong']!r}")
+    if cfg["long_context"] not in ("auto", "on", "off"):
+        raise ValueError(f"long_context {cfg['long_context']!r}")
     return cfg
 
 
@@ -160,6 +199,39 @@ def _parse_set(items: list[str]) -> dict[str, Any]:
 
 
 # --- data ---------------------------------------------------------------------------------------------------------
+def data_files(spec: str | Path | list) -> list[Path]:
+    """A path, a glob, or a list of them -> existing files, in order, each once."""
+    import glob
+    out: list[Path] = []
+    for item in (spec if isinstance(spec, (list, tuple)) else [spec]):
+        hits = sorted(glob.glob(str(item), recursive=True)) if any(c in str(item) for c in "*?[") else [str(item)]
+        if not hits:
+            raise DataError(f"{item}: no files match")
+        out += [Path(h) for h in hits if Path(h) not in out]
+    return out
+
+
+def select_best_runs(rows: list[dict[str, Any]], stats: Stats) -> list[dict[str, Any]]:
+    """Per (game_id, level): keep the rows of the one input file (run) that cleared it best: highest rhae, then
+    fewest actions, then the earlier file. Levels no run cleared keep all their rows (filter_cleared drops them)."""
+    best: dict[tuple, tuple] = {}
+    for r in rows:
+        if "game_id" not in r or not r.get("level_cleared"):
+            continue
+        key = (r["game_id"], r.get("level"))
+        score = (float(r.get("rhae") or 0.0), -(r.get("actions") or 10 ** 9), -r["_file"])
+        if key not in best or score > best[key][0]:
+            best[key] = (score, r["_file"])
+    out = []
+    for r in rows:
+        key = (r.get("game_id"), r.get("level"))
+        if key in best and r["_file"] != best[key][1]:
+            stats.dropped_not_best_run += 1
+            continue
+        out.append(r)
+    return out
+
+
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     rows = []
     with open(path, encoding="utf-8") as fh:
@@ -247,9 +319,9 @@ def normalize_record(row: dict[str, Any], idx: int, cfg: dict[str, Any], stats: 
                 calls.append(call)
             if calls:
                 out["tool_calls"] = calls
-            if not out["content"] and not calls and not out.get("reasoning_content"):
-                raise DataError(f"{where}: empty assistant message")
             out["train"] = bool(m.get("train", True))
+            if not out["content"] and not calls and not out.get("reasoning_content") and out["train"]:
+                raise DataError(f"{where}: empty assistant message")   # as context (train false) it is what was sent
             open_calls = len(calls)
         elif role == "tool":
             prev = msgs[-1]["role"] if msgs else None
@@ -266,11 +338,24 @@ def normalize_record(row: dict[str, Any], idx: int, cfg: dict[str, Any], stats: 
         raise DataError(f"{rid}: no assistant message")
     if not any(m["role"] == "user" for m in msgs[:first_asst]):
         raise DataError(f"{rid}: no user message before the first assistant message")
-    return {"id": rid, "tools": tools, "messages": msgs}
+    conv = {"id": rid, "tools": tools, "messages": msgs}
+    if cfg.get("row_template_kwargs", True) and isinstance(row.get("template_kwargs"), dict) and row["template_kwargs"]:
+        conv["template_kwargs"] = dict(row["template_kwargs"])
+    return conv
 
 
-def load_conversations(path: str | Path, cfg: dict[str, Any], stats: Stats, limit: int | None) -> list[dict]:
-    rows = load_jsonl(path)
+def load_conversations(path: str | Path | list, cfg: dict[str, Any], stats: Stats, limit: int | None) -> list[dict]:
+    rows = []
+    files = data_files(path)
+    stats.input_files += len(files)
+    for k, f in enumerate(files):
+        for r in load_jsonl(f):
+            r["_file"] = k
+            if "id" not in r and "game_id" in r and len(files) > 1:
+                r["id"] = f"{f.parent.name}/{r['game_id']}/L{r['level']}" + (f"/t{r['turns'][0]}" if r.get("turns") else "")
+            rows.append(r)
+    if cfg.get("select", "all") == "best_run":
+        rows = select_best_runs(rows, stats)
     if cfg["filter_cleared"]:
         rows = [r for r in rows if r.get("level_cleared", True)]
     convs = []
@@ -325,25 +410,36 @@ def target_span(tok, msgs, tools, i: int, cfg: dict[str, Any], stats: Stats) -> 
 
 
 def tokenize_spans(tok, text: str, spans: list[tuple[int, int]], stats: Stats) -> tuple[list[int], list[int]]:
-    """Tokenise text once; label the tokens that start inside a target span [a, b)."""
-    enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
-    ids, offs = enc["input_ids"], enc["offset_mapping"]
-    labels = [IGNORE] * len(ids)
-    for a, b in spans:
-        for t, (s, e) in enumerate(offs):
-            if a <= s < b:
-                labels[t] = ids[t]
-            elif s < a < e:
-                stats.boundary_straddles += 1
-        prompt_ids = tok(text[:a], add_special_tokens=False)["input_ids"]
-        if ids[: len(prompt_ids)] != prompt_ids:
-            stats.tokenization_mismatches += 1
+    """Tokenise text piece by piece at the target spans [a, b) and label the span pieces, as inference does: the server
+    tokenises the prompt, then the model emits the target's tokens. No token can straddle a prompt/target boundary.
+    An example whose pieces tokenise differently from the whole text (a merge across a boundary, e.g. two newlines after
+    an empty think block) counts as a tokenization mismatch (reported, not an error)."""
+    ids: list[int] = []
+    labels: list[int] = []
+    pos = 0
+    for a, b in sorted(spans):
+        for piece, train in ((text[pos:a], False), (text[a:b], True)):
+            if piece:
+                p = tok(piece, add_special_tokens=False)["input_ids"]
+                ids += p
+                labels += p if train else [IGNORE] * len(p)
+        pos = b
+    if text[pos:]:
+        p = tok(text[pos:], add_special_tokens=False)["input_ids"]
+        ids += p
+        labels += [IGNORE] * len(p)
+    if tok(text, add_special_tokens=False)["input_ids"] != ids:
+        stats.tokenization_mismatches += 1
     return ids, labels
 
 
-def _fit(ids: list[int], labels: list[int], max_len: int, stats: Stats) -> tuple[list[int], list[int]] | None:
+def _fit(ids: list[int], labels: list[int], max_len: int, stats: Stats,
+         overlong: str = "left") -> tuple[list[int], list[int]] | None:
     if len(ids) <= max_len:
         return ids, labels
+    if overlong == "drop":
+        stats.dropped_too_long += 1
+        return None
     first = next((t for t, l in enumerate(labels) if l != IGNORE), len(ids))
     if len(ids) - first > max_len:
         stats.dropped_too_long += 1
@@ -352,7 +448,15 @@ def _fit(ids: list[int], labels: list[int], max_len: int, stats: Stats) -> tuple
     return ids[-max_len:], labels[-max_len:]
 
 
+def conv_cfg(conv: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    """cfg with the row's own template kwargs (e.g. its reasoning_effort) on top of the global ones."""
+    if not conv.get("template_kwargs"):
+        return cfg
+    return {**cfg, "template_kwargs": {**cfg["template_kwargs"], **conv["template_kwargs"]}}
+
+
 def build_examples(tok, conv: dict[str, Any], cfg: dict[str, Any], stats: Stats) -> list[Example]:
+    cfg = conv_cfg(conv, cfg)
     msgs, tools, cid = conv["messages"], conv["tools"], conv["id"]
     turns = [i for i, m in enumerate(msgs) if m["role"] == "assistant" and m.get("train", True)]
     if cfg["turns"] == "last":
@@ -385,7 +489,7 @@ def build_examples(tok, conv: dict[str, Any], cfg: dict[str, Any], stats: Stats)
             stats.per_turn_renders += 1
     out = []
     for ids, labels, src in raw:
-        fitted = _fit(ids, labels, cfg["max_seq_len"], stats)
+        fitted = _fit(ids, labels, cfg["max_seq_len"], stats, cfg.get("overlong", "left"))
         if fitted is None:
             continue
         ids, labels = fitted
@@ -401,8 +505,47 @@ def build_examples(tok, conv: dict[str, Any], cfg: dict[str, Any], stats: Stats)
     return out
 
 
+_CACHE_KEYS = ("max_samples", "filter_cleared", "select", "images", "max_seq_len", "overlong",
+               "mask_mode", "turns", "template_kwargs", "row_template_kwargs")
+
+
+def cache_key(cfg: dict[str, Any], tok) -> str:
+    import hashlib
+    h = hashlib.sha256(json.dumps({k: cfg[k] for k in _CACHE_KEYS}, sort_keys=True, default=str).encode())
+    for spec in (cfg["data_path"], cfg["eval_path"]):   # file contents, not paths or times: a cache built on one
+        for f in (data_files(spec) if spec else []):     # machine stays valid on another with the same files
+            h.update(hashlib.sha256(f.read_bytes()).digest())
+    h.update((getattr(tok, "chat_template", "") or "").encode())
+    h.update(str(len(tok)).encode())
+    return h.hexdigest()[:16]
+
+
+def save_examples(path: Path, key: str, train_ex: list[Example], eval_ex: list[Example] | None, stats: Stats) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"key": key, "stats": asdict(stats), "train": len(train_ex),
+                             "eval": None if eval_ex is None else len(eval_ex)}) + "\n")
+        for e in train_ex + (eval_ex or []):
+            fh.write(json.dumps(asdict(e)) + "\n")
+    tmp.replace(path)
+
+
+def load_examples(path: Path, key: str) -> tuple[list[Example], list[Example] | None, Stats] | None:
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as fh:
+        head = json.loads(fh.readline())
+        if head.get("key") != key:
+            return None
+        rows = [Example(**json.loads(line)) for line in fh if line.strip()]
+    n = head["train"]
+    return rows[:n], (rows[n:] if head["eval"] is not None else None), Stats(**head["stats"])
+
+
 def generation_prompt(tok, conv: dict[str, Any], cfg: dict[str, Any], stats: Stats) -> tuple[str, str] | None:
     """(prompt, reference) for the conversation's last trained assistant turn."""
+    cfg = conv_cfg(conv, cfg)
     msgs = conv["messages"]
     turns = [i for i, m in enumerate(msgs) if m["role"] == "assistant" and m.get("train", True)]
     if not turns:
@@ -481,6 +624,19 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
     kw["dtype" if (major, minor) >= (4, 56) else "torch_dtype"] = dtype
     if cfg["attn_implementation"]:
         kw["attn_implementation"] = cfg["attn_implementation"]
+    if cfg.get("experts_implementation"):
+        kw["experts_implementation"] = cfg.get("experts_implementation")
+    long = long_context_on(mcfg, cfg)
+    if long:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import qwen4_exp_long
+        qwen4_exp_long.enable(cfg.get("long_query_chunk"), cfg.get("long_moe_chunk"))
+    if cfg.get("device_map") == "auto" and not cfg["load_in_4bit"]:
+        kw["device_map"] = "auto"
+        if torch.cuda.is_available():
+            kw["max_memory"] = {i: int(torch.cuda.get_device_properties(i).total_memory * cfg.get("gpu_weight_frac", 0.55))
+                                for i in range(torch.cuda.device_count())}
+            kw["max_memory"]["cpu"] = 2 ** 40
     if cfg["load_in_4bit"]:
         from transformers import BitsAndBytesConfig
         kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
@@ -490,14 +646,150 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
     missing = list(info.get("missing_keys") or [])
     allowed = [re.compile(p) for p in cfg["allow_missing_weights"]]
     bad = [k for k in missing if not any(p.search(k) for p in allowed)]
-    if not cfg["load_in_4bit"] and torch.cuda.is_available():
+    split = None
+    if cfg.get("device_map") == "split" and not cfg["load_in_4bit"]:
+        split = place_split(model, cfg.get("split_devices"), cfg.get("cpu_modules") or [])
+    elif not cfg["load_in_4bit"] and not cfg.get("device_map") and torch.cuda.is_available():
         model.to("cuda")
     model.config.use_cache = False
-    load = {"class": type(model).__name__, "architecture": arch, "missing_keys": missing[:50],
+    if getattr(model.config, "text_config", None) is not None:
+        model.config.text_config.use_cache = False
+    placement: dict[str, int] = {}
+    for p in model.parameters():
+        placement[str(p.device)] = placement.get(str(p.device), 0) + p.numel()
+    load = {"class": type(model).__name__, "architecture": arch, "long_context": long, "split": split,
+            "placement_params": placement, "missing_keys": missing[:50],
             "unexpected_keys": list(info.get("unexpected_keys") or [])[:50], "missing_not_allowed": bad[:50],
             "params": sum(p.numel() for p in model.parameters()),
             "param_dtypes": sorted({str(p.dtype) for p in model.parameters()})}
     return model, load
+
+
+def _move(obj, dev):
+    import torch
+    if torch.is_tensor(obj):
+        return obj.to(dev, non_blocking=True)
+    if isinstance(obj, tuple):
+        return tuple(_move(o, dev) for o in obj)
+    if isinstance(obj, list):
+        return [_move(o, dev) for o in obj]
+    if isinstance(obj, dict):
+        return {k: _move(v, dev) for k, v in obj.items()}
+    return obj
+
+
+def split_plan(sizes: list[int], rest: int, n: int) -> list[int]:
+    """Device index per layer: contiguous blocks, every device used (when layers >= devices), the first device
+    carrying ``rest`` (what lives outside the layers), each block closing once its bytes pass the per-device share."""
+    if n <= 1 or len(sizes) <= 1:
+        return [0] * len(sizes)
+    n = min(n, len(sizes))
+    target = (sum(sizes) + rest) / n
+    plan, d, load_ = [], 0, float(rest)
+    for i, sz in enumerate(sizes):
+        layers_left, devices_left = len(sizes) - i, n - 1 - d
+        if d < n - 1 and plan and plan[-1] == d and (load_ + sz / 2 > target or layers_left <= devices_left):
+            d, load_ = d + 1, 0.0
+        plan.append(d)
+        load_ += sz
+    return plan
+
+
+def place_split(model, devices: list | None, cpu_modules: list[str]) -> dict[str, Any]:
+    """Model parallelism without accelerate: the decoder layers go to the devices in contiguous blocks balanced by
+    bytes (everything outside the layers - embeddings, final norm, head, vision tower - goes to the first device and
+    counts against it); modules matching ``cpu_modules`` stay on CPU as ordinary tensors (they must be frozen: their
+    module computes on CPU). A forward pre-hook on every placed block moves its inputs to its device, so activations
+    flow GPU to GPU (and back to the first device for the head) and autograd follows. Returns the placement plan."""
+    import torch
+    import torch.nn as nn
+    if devices is None:
+        devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())] or ["cpu"]
+    devices = [torch.device(d) for d in devices]
+    keep = [re.compile(p) for p in cpu_modules]
+    kept = lambda name: any(k.search(name) for k in keep)  # noqa: E731
+    lists = [(n, m) for n, m in model.named_modules() if isinstance(m, nn.ModuleList) and n.endswith("layers")
+             and not re.search(r"visual|vision|(^|\.)mtp", n)]
+    if not lists:
+        raise RuntimeError("split: no decoder layer list found")
+    lname, layers = max(lists, key=lambda x: len(x[1]))
+
+    def nbytes(mod, prefix):
+        return sum(p.numel() * p.element_size() for n, p in mod.named_parameters(prefix=prefix) if not kept(n))
+    sizes = [nbytes(layer, f"{lname}.{i}") for i, layer in enumerate(layers)]
+    rest = nbytes(model, "") - sum(sizes)
+    plan = split_plan(sizes, rest, len(devices))
+
+    in_layers = re.compile(re.escape(lname) + r"\.\d+(\.|$)")
+    for name, sub in model.named_modules():
+        if in_layers.match(name) or kept(name):
+            continue
+        for k, v in list(sub._parameters.items()):
+            if v is not None:
+                v.data = v.data.to(devices[0])
+        for k, v in list(sub._buffers.items()):
+            if v is not None:
+                sub._buffers[k] = v.to(devices[0])
+    for i, layer in enumerate(layers):
+        for name, sub in layer.named_modules(prefix=f"{lname}.{i}"):
+            if kept(name):
+                continue
+            for k, v in list(sub._parameters.items()):
+                if v is not None and not kept(f"{name}.{k}"):
+                    v.data = v.data.to(devices[plan[i]])
+            for k, v in list(sub._buffers.items()):
+                if v is not None:
+                    sub._buffers[k] = v.to(devices[plan[i]])
+
+    def hook_for(dev):
+        def pre(mod, args, kwargs):
+            return _move(args, dev), _move(kwargs, dev)
+        return pre
+    for i, layer in enumerate(layers):
+        layer.register_forward_pre_hook(hook_for(devices[plan[i]]), with_kwargs=True)
+    cpu = torch.device("cpu")
+    for name, mod in model.named_modules():   # a kept module runs on CPU and hands its output back where its input was
+        if kept(name) and not any(kept(name.rsplit(".", j)[0]) for j in range(1, name.count(".") + 1)):
+            def kpre(m, args, kwargs):
+                src = next((t.device for t in list(args) + list(kwargs.values()) if torch.is_tensor(t)), None)
+                m._split_return_device = src
+                return _move(args, cpu), _move(kwargs, cpu)
+
+            def kpost(m, args, kwargs, out):
+                return _move(out, m._split_return_device) if m._split_return_device is not None else out
+            mod.register_forward_pre_hook(kpre, with_kwargs=True)
+            mod.register_forward_hook(kpost, with_kwargs=True)
+    for name, mod in model.named_modules():   # outside the layers: everything but the layers' ancestors
+        if name == "" or lname.startswith(name + ".") or in_layers.match(name) or name == lname or kept(name):
+            continue
+        mod.register_forward_pre_hook(hook_for(devices[0]), with_kwargs=True)
+    counts: dict[str, int] = {}
+    for i in plan:
+        counts[str(devices[i])] = counts.get(str(devices[i]), 0) + 1
+    gb = [0.0] * len(devices)
+    gb[0] += rest / 2 ** 30
+    for i, sz in enumerate(sizes):
+        gb[plan[i]] += sz / 2 ** 30
+    return {"layers": lname, "layers_per_device": counts, "weights_gb_per_device": [round(x, 2) for x in gb],
+            "cpu_modules": [n for n, _ in model.named_modules() if kept(n)][:8]}
+
+
+def long_context_on(mcfg, cfg: dict[str, Any]) -> bool:
+    """The Flash-Next long-context path: on for qwen4_exp under "auto", forced by "on" (which needs qwen4_exp)."""
+    is_q4 = getattr(mcfg, "model_type", None) == "qwen4_exp"
+    mode = cfg.get("long_context", "auto")
+    if mode == "on" and not is_q4:
+        raise RuntimeError(f"long_context 'on' needs a qwen4_exp model, got {getattr(mcfg, 'model_type', None)}")
+    return is_q4 and mode != "off"
+
+
+def input_device(model):
+    """Where token ids must go: the input embedding's device (the first GPU under a device_map)."""
+    import torch
+    try:
+        return model.get_input_embeddings().weight.device
+    except Exception:  # noqa: BLE001
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def lora_target_regex(model, cfg: dict[str, Any]) -> tuple[str, list[str]]:
@@ -577,13 +869,73 @@ def collate(batch: list[Example], pad_id: int, device) -> dict[str, Any]:
     return {"input_ids": ids.to(device), "labels": labels.to(device), "attention_mask": mask.to(device)}
 
 
-class LossFn:
-    """Summed next-token cross-entropy over target tokens, in fp32. With batch size 1 it asks the model for logits at
-    target positions only (``logits_to_keep`` as an index tensor), which saves ~vocab x seq_len x 4 bytes; the first
-    call checks that the model honours it and otherwise falls back to full logits."""
+def _ce_chunk(head, h, y, softcap):
+    """Summed fp32 cross-entropy and hit count of one chunk of hidden states (run under checkpoint: its
+    chunk x vocab logits are recomputed in backward instead of being kept)."""
+    import torch
+    import torch.nn.functional as F
+    logits = head(h).float()
+    if softcap:
+        logits = torch.tanh(logits / softcap) * softcap
+    return F.cross_entropy(logits, y, reduction="sum"), (logits.detach().argmax(-1) == y).sum()
 
-    def __init__(self) -> None:
+
+class LossFn:
+    """Summed next-token cross-entropy over target tokens, in fp32.
+
+    With batch size 1 and ``chunk`` set, the backbone returns hidden states and the LM head runs on the target
+    positions only, ``chunk`` at a time under checkpoint, so a 131k-token row never holds more than chunk x vocab
+    logits (one 131k x 248k fp32 logit matrix would be 130 GB). Otherwise it asks the model for logits at target
+    positions only (``logits_to_keep`` as an index tensor) and, if the model ignores that, for full logits. The first
+    chunked call is checked against the model's own logits on a few positions (``chunk_ok``)."""
+
+    def __init__(self, chunk: int | None = None) -> None:
         self.keep_ok: bool | None = None
+        self.chunk = chunk
+        self.chunk_ok: bool | None = None
+        self.chunk_check: dict[str, Any] | None = None
+
+    def _parts(self, model):
+        base = model.get_base_model() if hasattr(model, "get_base_model") else model
+        backbone = getattr(base, getattr(base, "base_model_prefix", "model"), None)
+        head = base.get_output_embeddings() if hasattr(base, "get_output_embeddings") else None
+        cfg = getattr(base.config, "text_config", None) or base.config
+        return backbone, head, getattr(cfg, "final_logit_softcapping", None)
+
+    def _chunked(self, model, b, sel, tgt, autocast):
+        import torch
+        from torch.utils.checkpoint import checkpoint
+        backbone, head, softcap = self._parts(model)
+        if backbone is None or head is None:
+            return None
+        with autocast():
+            hidden = backbone(input_ids=b["input_ids"], attention_mask=b["attention_mask"])[0]
+        idx = sel[0].nonzero().squeeze(-1)
+        h = hidden[0].index_select(0, idx.to(hidden.device)).to(head.weight.device)
+        y = tgt[0][idx].to(head.weight.device)
+        if self.chunk_ok is None:   # once: the head on hidden states must reproduce the model's own logits
+            with torch.no_grad(), autocast():
+                k = idx[-min(4, idx.numel()):]
+                ref = model(input_ids=b["input_ids"], attention_mask=b["attention_mask"], logits_to_keep=k).logits[0]
+                mine = head(h[-k.numel():])
+            if softcap:
+                mine = torch.tanh(mine.float() / softcap) * softcap
+            diff = float((ref.float() - mine.float().to(ref.device)).abs().max()) if ref.shape == mine.shape else None
+            scale = float(ref.float().abs().max())
+            self.chunk_ok = diff is not None and diff <= 1e-2 * max(scale, 1.0)
+            self.chunk_check = {"max_abs_diff": diff, "logit_scale": round(scale, 3)}
+            if not self.chunk_ok:
+                return None
+        loss, hits = 0.0, 0
+        for s in range(0, idx.numel(), self.chunk):
+            hs, ys = h[s:s + self.chunk], y[s:s + self.chunk]
+            with autocast():
+                if torch.is_grad_enabled():
+                    l, hit = checkpoint(_ce_chunk, head, hs, ys, softcap, use_reentrant=False)
+                else:
+                    l, hit = _ce_chunk(head, hs, ys, softcap)
+            loss, hits = loss + l, hits + int(hit)
+        return loss, hits
 
     def __call__(self, model, b: dict[str, Any], autocast) -> tuple[Any, int, int]:
         import torch
@@ -591,6 +943,10 @@ class LossFn:
         tgt = b["labels"][:, 1:]
         sel = tgt != IGNORE
         n = int(sel.sum())
+        if b["input_ids"].shape[0] == 1 and self.chunk and self.chunk_ok is not False:
+            got = self._chunked(model, b, sel, tgt, autocast)
+            if got is not None:
+                return got[0], n, got[1]
         if b["input_ids"].shape[0] == 1 and self.keep_ok is not False:
             idx = sel[0].nonzero().squeeze(-1)
             try:
@@ -665,6 +1021,10 @@ def generation_mode(model):
     so it is suspended while generating and restored afterwards (with the train/eval mode)."""
     was_training = model.training
     checkpointing = bool(getattr(model, "is_gradient_checkpointing", False))
+    long = sys.modules.get("qwen4_exp_long")
+    long_on = bool(long and long._STATE["patched"])
+    if long_on:
+        long.disable()       # the long-context path is training-only; generation uses the reference code + cache
     model.eval()
     model.config.use_cache = True
     if checkpointing:
@@ -675,6 +1035,8 @@ def generation_mode(model):
         model.config.use_cache = False
         if checkpointing:
             model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if long_on:
+            long.enable()
         model.train(was_training)
 
 
@@ -719,8 +1081,48 @@ def lr_lambda(warmup: int, total: int):
     return f
 
 
+def save_checkpoint(model, opt, sched, state: dict[str, Any], ckpt: Path) -> None:
+    """Adapter weights + optimizer + scheduler + loop state, written to a temp dir and swapped in, so a VM evicted
+    mid-save still leaves the previous checkpoint whole."""
+    import shutil
+    import torch
+    from peft import get_peft_model_state_dict
+    tmp = ckpt.with_name(ckpt.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    torch.save({"adapter": get_peft_model_state_dict(model), "opt": opt.state_dict(), "sched": sched.state_dict()},
+               tmp / "train_state.pt")
+    (tmp / "loop.json").write_text(json.dumps(state, default=str), encoding="utf-8")
+    old = ckpt.with_name(ckpt.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if ckpt.exists():
+        ckpt.rename(old)
+    tmp.rename(ckpt)
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def load_checkpoint(model, opt, sched, ckpt: Path) -> dict[str, Any] | None:
+    import torch
+    from peft import set_peft_model_state_dict
+    if not (ckpt / "loop.json").exists():
+        return None
+    blob = torch.load(ckpt / "train_state.pt", map_location="cpu", weights_only=False)
+    set_peft_model_state_dict(model, blob["adapter"])
+    opt.load_state_dict(blob["opt"])
+    sched.load_state_dict(blob["sched"])
+    return json.loads((ckpt / "loop.json").read_text(encoding="utf-8"))
+
+
+def memory_note() -> str:
+    import torch
+    if not torch.cuda.is_available():
+        return ""
+    peaks = [torch.cuda.max_memory_allocated(i) / 2 ** 30 for i in range(torch.cuda.device_count())]
+    return " peak GB " + "/".join(f"{p:.0f}" for p in peaks)
+
+
 def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, device, dtype, autocast,
-          loss_fn: LossFn, log) -> dict[str, Any]:
+          loss_fn: LossFn, log, ckpt: Path | None = None) -> dict[str, Any]:
     import torch
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=cfg["lr"], weight_decay=cfg["weight_decay"])
@@ -732,8 +1134,31 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
     rng = random.Random(cfg["seed"])
     history, nonfinite, step, t0, tokens_seen = [], 0, 0, time.time(), 0
     order: list[int] = []
+    resumed_from, stopped_early, prior_s = None, False, 0.0
+    if ckpt is not None and cfg["resume"]:
+        state = load_checkpoint(model, opt, sched, ckpt)
+        if state:
+            step, order, history = state["step"], state["order"], state["history"]
+            nonfinite, tokens_seen, prior_s = state["nonfinite"], state["tokens_seen"], state["seconds"]
+            rng.setstate((state["rng"][0], tuple(state["rng"][1]), state["rng"][2]))
+            resumed_from = step
+            log(f"resumed from checkpoint at step {step}/{total}")
+
+    def snapshot() -> None:
+        if ckpt is None:
+            return
+        st = rng.getstate()
+        save_checkpoint(model, opt, sched, {"step": step, "order": order, "history": history, "nonfinite": nonfinite,
+                                            "tokens_seen": tokens_seen, "seconds": prior_s + time.time() - t0,
+                                            "rng": [st[0], list(st[1]), st[2]], "total": total}, ckpt)
+        log(f"checkpoint saved at step {step}")
+
     model.train()
     while step < total:
+        if cfg["max_train_hours"] and (prior_s + time.time() - t0) / 3600 >= cfg["max_train_hours"]:
+            log(f"max_train_hours {cfg['max_train_hours']} reached at step {step}/{total}: stopping")
+            stopped_early = True
+            break
         window = []
         for _ in range(cfg["grad_accum"]):
             batch = []
@@ -774,15 +1199,21 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
         opt.zero_grad(set_to_none=True)
         sched.step()
         row = {"step": step + 1, "loss": loss_sum / max(n_window, 1), "lr": sched.get_last_lr()[0],
-               "grad_norm": gnorm, "elapsed_s": round(time.time() - t0, 2)}
+               "grad_norm": gnorm, "elapsed_s": round(prior_s + time.time() - t0, 2),
+               "tokens": sum(len(e.input_ids) for b in window for e in b)}
         history.append(row)
         if (step + 1) % cfg["log_every"] == 0 or step + 1 == total:
             log(f"step {row['step']}/{total} loss {row['loss']:.4f} lr {row['lr']:.2e} gnorm {gnorm:.3f} "
-                f"{row['elapsed_s']}s")
+                f"{row['tokens']} tok {row['elapsed_s']}s{memory_note()}")
         step += 1
-    secs = time.time() - t0
-    return {"steps": total, "warmup_steps": warmup, "history": history, "nonfinite_steps": nonfinite,
-            "seconds": round(secs, 1), "tokens_per_s": round(tokens_seen / max(secs, 1e-9), 1)}
+        if cfg["save_every"] and step % cfg["save_every"] == 0 and step < total:
+            snapshot()
+    if stopped_early:
+        snapshot()
+    secs = prior_s + time.time() - t0
+    return {"steps": step, "planned_steps": total, "warmup_steps": warmup, "history": history,
+            "nonfinite_steps": nonfinite, "seconds": round(secs, 1), "resumed_from": resumed_from,
+            "stopped_early": stopped_early, "tokens_per_s": round(tokens_seen / max(secs, 1e-9), 1)}
 
 
 def lora_moved(model) -> float:
@@ -931,10 +1362,25 @@ def _run(cfg: dict[str, Any], card: dict[str, Any], out: Path, log) -> None:
     stats = Stats()
     train_convs = load_conversations(cfg["data_path"], cfg, stats, cfg["max_samples"])
     eval_convs = load_conversations(cfg["eval_path"], cfg, Stats(), None) if cfg["eval_path"] else train_convs
-    train_ex = [e for c in train_convs for e in build_examples(tok, c, cfg, stats)]
-    eval_stats = Stats()
-    eval_ex = ([e for c in eval_convs for e in build_examples(tok, c, cfg, eval_stats)]
-               if cfg["eval_path"] else train_ex)
+    cached = None
+    if cfg["examples_cache"]:
+        key = cache_key(cfg, tok)
+        cached = load_examples(Path(cfg["examples_cache"]), key)
+    if cached is not None:
+        train_ex, eval_ex, stats = cached
+        eval_ex = eval_ex if eval_ex is not None else train_ex
+        log(f"examples from cache {cfg['examples_cache']} ({len(train_ex)} train)")
+    else:
+        t = time.time()
+        train_ex = [e for c in train_convs for e in build_examples(tok, c, cfg, stats)]
+        eval_stats = Stats()
+        eval_ex = ([e for c in eval_convs for e in build_examples(tok, c, cfg, eval_stats)]
+                   if cfg["eval_path"] else train_ex)
+        log(f"built {len(train_ex)} examples in {time.time() - t:.0f}s")
+        if cfg["examples_cache"]:
+            save_examples(Path(cfg["examples_cache"]), key, train_ex, eval_ex if cfg["eval_path"] else None, stats)
+    if cfg["eval_max_examples"] is not None:
+        eval_ex = eval_ex[: cfg["eval_max_examples"]]
     card["data"] = asdict(stats)
     card["data"]["eval_examples"] = len(eval_ex)
     card["data"]["sources"] = [e.source for e in train_ex][:50]
@@ -953,7 +1399,9 @@ def _run(cfg: dict[str, Any], card: dict[str, Any], out: Path, log) -> None:
     t = time.time()
     model, load = load_model(path, cfg, dtype)
     card["load"] = load
-    log(f"loaded {load['class']} ({load['params']:,} params, {load['param_dtypes']}) in {time.time() - t:.0f}s")
+    device = input_device(model)
+    log(f"loaded {load['class']} ({load['params']:,} params, {load['param_dtypes']}) in {time.time() - t:.0f}s; "
+        f"placement {load['placement_params']}; long_context {load['long_context']}")
     check(card, "weights", not load["missing_not_allowed"],
           f"{len(load['missing_keys'])} missing ({len(load['missing_not_allowed'])} not allowed), "
           f"{len(load['unexpected_keys'])} unexpected")
@@ -967,17 +1415,25 @@ def _run(cfg: dict[str, Any], card: dict[str, Any], out: Path, log) -> None:
           f"{lora['trainable_params']:,} params; non-LoRA trainable {lora['trainable_non_lora']}")
 
     autocast = make_autocast(dtype)
-    loss_fn = LossFn()
+    loss_fn = LossFn(cfg["loss_chunk"])
     pad = tok.pad_token_id
     card["eval_before"] = evaluate(model, eval_ex, pad, device, autocast, loss_fn)
     card["logits_to_keep"] = loss_fn.keep_ok
+    card["chunked_loss"] = {"ok": loss_fn.chunk_ok, **(loss_fn.chunk_check or {})}
+    if cfg["loss_chunk"]:
+        check(card, "chunked_loss", bool(loss_fn.chunk_ok),
+              f"LM head on hidden states vs model logits: {loss_fn.chunk_check}")
     log(f"eval before: loss {card['eval_before']['loss']:.4f} acc {card['eval_before']['token_accuracy']:.3f}")
     if prompts:
         card["generation_before"] = generate(model, tok, prompts, cfg, device, autocast)
 
-    card["training"] = train(model, train_ex, cfg, pad, device, dtype, autocast, loss_fn, log)
+    card["training"] = train(model, train_ex, cfg, pad, device, dtype, autocast, loss_fn, log,
+                             ckpt=out / "checkpoint" if (cfg["save_every"] or cfg["resume"]
+                                                         or cfg["max_train_hours"]) else None)
     if torch.cuda.is_available():
         card["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 2**30, 2)
+        card["peak_vram_gb_per_gpu"] = [round(torch.cuda.max_memory_allocated(i) / 2**30, 2)
+                                        for i in range(torch.cuda.device_count())]
     card["eval_after"] = evaluate(model, eval_ex, pad, device, autocast, loss_fn)
     log(f"eval after: loss {card['eval_after']['loss']:.4f} acc {card['eval_after']['token_accuracy']:.3f}")
     if prompts:
@@ -1020,7 +1476,8 @@ def _run(cfg: dict[str, Any], card: dict[str, Any], out: Path, log) -> None:
         from peft import PeftModel
         base, _ = load_model(path, cfg, dtype)
         re_model = PeftModel.from_pretrained(base, adapter_dir)
-        card["eval_reloaded"] = evaluate(re_model, eval_ex, pad, device, autocast, LossFn())
+        card["eval_reloaded"] = evaluate(re_model, eval_ex, pad, input_device(re_model), autocast,
+                                         LossFn(cfg["loss_chunk"]))
         r = card["eval_reloaded"]["loss"]
         log(f"eval reloaded: loss {r:.4f}")
         check(card, "reload_matches", abs(r - a) <= cfg["reload_tol"] * max(abs(a), 1e-3) + 1e-4,
