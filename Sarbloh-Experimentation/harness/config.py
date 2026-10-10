@@ -48,23 +48,21 @@ DEFAULT: dict[str, Any] = {
         "cell_timeout_s": 300.0,
         "tool_output_chars": 5000,     # upstream: 65536 per stream; ours is cut to fit small context windows
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
-        # upstream DEFAULT_COMPACTION_SETTINGS: compact when context > window - reserve; keep the newest 20k tokens.
-        # Ours: compact before SGLang KV-cache hits congestion cliff (trigger at 100k), keep newest 4k verbatim.
-        # After a compaction the first prompt's size is the floor: no new compaction until the context passes
-        # floor + floor_gap_tokens. The summary is at most summary_tokens long and replaces the previous one.
-        "compaction": {"reserve_tokens": 8192, "keep_recent_tokens": 4000, "trigger_tokens": 120000,
-                       "floor_gap_tokens": 8192, "summary_tokens": 1024, "in_context": True},
+        # No summary: the context is kept under cap_tokens by draining old messages in code (no model call). Above
+        # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
+        # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
+        # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
+        # trigger_tokens sits 20k below cap_tokens: one turn (8k reply, cell output, new board, picture) fits in that.
+        "compaction": {"reserve_tokens": 8192, "cap_tokens": 120000, "trigger_tokens": 100000,
+                       "keep_recent_tokens": 30000, "drain_target_tokens": 60000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
-        # every memory_full_every states, else only its changed sections. At the compaction trigger a drain (no model
-        # call) runs first: the newest keep_recent_tokens stay word for word; before them every board becomes a
-        # one-line stub, every ipython output is cut to drain_output_chars, every act result becomes a short move log
-        # (one cut line per step), and the thinking, the pictures and the memory messages go (a full memory goes
-        # back). A summary is made only when the drain would leave more than drain_max_fraction of the trigger.
-        # 0 = never drain.
+        # every memory_full_every states, else only its changed sections. A drain: before the word-for-word tail
+        # every board becomes a one-line stub, every ipython output is cut to drain_output_chars, every act result
+        # becomes a short move log (one cut line per step), and the thinking, the pictures and the memory messages
+        # go (a full memory goes back).
         "append_only": True,
         "memory_full_every": 10,
-        "drain_max_fraction": 0.35,
         "drain_output_chars": 400,
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
@@ -88,7 +86,7 @@ DEFAULT: dict[str, Any] = {
         "memory": {
             "lessons": True,           # the cross-game lessons graph
             "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
-            "curator_every_turns": 35,  # also at every level-up (before its memory is cleared) and after compactions
+            "curator_every_turns": 35,  # also at every level-up (before its memory is cleared)
             "curator_max_tokens": 1536,
             "recall_tokens": 1000,
             # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
