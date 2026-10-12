@@ -73,7 +73,7 @@ DEFAULTS: dict[str, Any] = {
     "long_query_chunk": 1024,         # long_context: queries per sparse-attention chunk
     "long_moe_chunk": 16384,          # long_context: tokens per MoE chunk
     # data
-    "data_path": "data/smoke3.jsonl",  # a file, a glob, or a list of them (e.g. one sft_levels.jsonl per run)
+    "data_path": "fixtures/smoke3.jsonl",  # a file, a glob, or a list of them (e.g. one sft_levels.jsonl per run)
     "eval_path": None,                # None = evaluate on the training examples (the smoke test's overfit check)
     "max_samples": None,              # conversations taken from data_path (in file order)
     "filter_cleared": False,          # Prime rows: keep level_cleared only

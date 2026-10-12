@@ -54,7 +54,7 @@ DEFAULTS: dict[str, Any] = {
     "attn_implementation": None,
     "init_adapter": None,             # adapter dir merged into the base before RL (e.g. the SFT output); also the ref
     # data (as lora_sft)
-    "data_path": "data/smoke3.jsonl",
+    "data_path": "fixtures/smoke3.jsonl",
     "eval_path": None,                # None = evaluate on the training prompts
     "max_samples": None,
     "filter_cleared": False,

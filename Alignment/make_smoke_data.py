@@ -1,4 +1,4 @@
-"""Writes data/smoke3.jsonl: three short, hand-written Prime-style tool trajectories for the pipeline smoke test.
+"""Writes fixtures/smoke3.jsonl: three short, hand-written Prime-style tool trajectories for the pipeline smoke test.
 
 They are not training data. They exercise every input shape the real exports have: a plain {"messages", "tools"} row
 with a system message, a Prime ``sft_levels.jsonl`` row (``system`` beside ``messages``, JSON-string tool arguments,
@@ -108,7 +108,7 @@ ROWS = [
 ]
 
 if __name__ == "__main__":
-    out = Path(__file__).parent / "data" / "smoke3.jsonl"
+    out = Path(__file__).parent / "fixtures" / "smoke3.jsonl"
     out.parent.mkdir(exist_ok=True)
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in ROWS), encoding="utf-8")
     print(f"wrote {out} ({len(ROWS)} rows)")
