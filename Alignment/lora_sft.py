@@ -52,6 +52,9 @@ from typing import Any
 IGNORE = -100
 
 DEFAULTS: dict[str, Any] = {
+    # backend
+    "backend": "torch",               # torch (GPU, this file) | tunix (TPU: Tunix + MaxText, lora_sft_tunix.py)
+    "tunix": {},                      # tunix backend settings (lora_sft_tunix.TUNIX_DEFAULTS)
     # model
     "model": "Qwen/Qwen3.5-2B",       # HF repo id (downloaded, needs internet) or a local directory (offline)
     "model_class": "auto",            # "auto" = config.architectures[0]; or a transformers class name
@@ -182,6 +185,8 @@ def make_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         raise ValueError(f"overlong {cfg['overlong']!r}")
     if cfg["long_context"] not in ("auto", "on", "off"):
         raise ValueError(f"long_context {cfg['long_context']!r}")
+    if cfg["backend"] not in ("torch", "tunix"):
+        raise ValueError(f"backend {cfg['backend']!r}")
     return cfg
 
 
@@ -1304,6 +1309,9 @@ def check(card: dict[str, Any], name: str, ok: bool, detail: str = "") -> None:
 # --- driver -------------------------------------------------------------------------------------------------------
 def run(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = make_config(overrides)
+    if cfg["backend"] == "tunix":
+        import lora_sft_tunix
+        return lora_sft_tunix.run(cfg)
     return run_with_card(cfg, _run, render_card)
 
 
@@ -1498,7 +1506,7 @@ def main(argv: list[str] | None = None) -> int:
     overrides = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
     overrides.update(_parse_set(args.set))
     card = run(overrides)
-    print(render_card(card))
+    print((Path(card["config"]["output_dir"]) / "result_card.md").read_text(encoding="utf-8"))
     return 0 if card["verdict"] == "PASS" else 1
 
 
