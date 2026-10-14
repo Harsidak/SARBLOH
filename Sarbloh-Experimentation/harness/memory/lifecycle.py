@@ -21,7 +21,7 @@ from harness.memory.store import append_jsonl, clip, read_jsonl
 from harness.memory.timeline import Timeline, render_row
 from harness.memory.working import WorkingMemory
 
-SCOPES = ("all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills")
+SCOPES = ("all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills")
 _OBJ = re.compile(r"\bobj(?:ect)?s?\s*#?(\d+)", re.IGNORECASE)
 
 
@@ -138,6 +138,8 @@ class GameMemory:
         if scope in ("all", "timeline"):
             rows = self.timeline.search(q) if q else self.timeline.rows[-30:]
             sections.append(("timeline", [render_row(r) for r in rows]))
+        if scope in ("all", "plan"):
+            sections.append(("plan", [self.working.plan] if self.working.plan and match(self.working.plan) else []))
         if scope in ("all", "hypotheses"):
             past = [h for lv in read_jsonl(self.dir / "levels.jsonl") for h in lv.get("hypotheses", [])]
             lines = [f"(level {h.get('level')}) {self.working.hyp_line(h)}" for h in past + self.working.hypotheses

@@ -37,9 +37,13 @@ DEFAULT: dict[str, Any] = {
     "agent": {
         "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
-        # The most a reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
-        # int for every level. Room for a world model of several hundred lines; the prompt asks for short thinking.
-        "max_tokens_per_turn": 8192,
+        # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
+        # int for every level. Room for a world model of several hundred lines. run.py caps it at reserve_tokens.
+        "max_tokens_per_turn": 12288,
+        # The thinking budget of a turn (a turn ends with a move). Once the replies since the last move have written
+        # this many tokens and the newest one made no move, a short note says to call the tool and move now, and the
+        # game gives its scheduler slot to a waiting game. A reply is never cut by it. 0 = off.
+        "turn_yield_tokens": 2048,
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
         # (prompts.EARLY_LEVELS), "later" after. None sends nothing (the template's default).
@@ -52,8 +56,8 @@ DEFAULT: dict[str, Any] = {
         # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
         # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
-        # trigger_tokens sits 20k below cap_tokens: one turn (8k reply, cell output, new board, picture) fits in that.
-        "compaction": {"reserve_tokens": 8192, "cap_tokens": 120000, "trigger_tokens": 100000,
+        # trigger_tokens sits 20k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 100000,
                        "keep_recent_tokens": 30000, "drain_target_tokens": 60000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
@@ -67,11 +71,11 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 4000,
-        # Experiment: only the newest ipython call's code is sent in full. When a new reply comes, the code of each
-        # older call longer than stub_code_min_lines becomes a short note naming what it defined (the kernel still
-        # holds it; `show_source("name")` prints it), and the system prompt says so. The transcript keeps the full code.
-        # Costs one turn of re-prefill per request (the reply before the newest one changes). False = as before.
-        "stub_old_code": True,
+        # Off: every ipython call keeps its code, so the prompt stays a prefix of the next one. On: only the newest
+        # call's code is sent in full; each older call longer than stub_code_min_lines becomes a short note naming
+        # what it defined (the kernel still holds it; `show_source("name")` prints it), and the system prompt says so.
+        # On costs one turn of re-prefill per request (the reply before the newest one changes).
+        "stub_old_code": False,
         "stub_code_min_lines": 20,
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
@@ -81,7 +85,7 @@ DEFAULT: dict[str, Any] = {
         "perception": {
             "image": True,             # the picture with every observation (only if "vision" is True)
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
-            "ascii": True,             # letter board: whole in the full view, changed region after an act
+            "ascii": False,            # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": True,      # object list with ids, hashes, containment, adjacency
             "briefing": True,          # briefing: MEASURED facts and GUESSES, in the full view
             "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
@@ -90,6 +94,9 @@ DEFAULT: dict[str, Any] = {
             "observation_tokens": 600,  # cap on the short view's text (chars / 4)
         },
         "memory": {
+            # The memory (goal, plan, hypotheses, findings, skills, lessons, questions) as messages in the context.
+            # Off: the agent still writes it with act() and reads it with `recall`; nothing is pushed into the prompt.
+            "in_context": False,
             "lessons": True,           # the cross-game lessons graph
             "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
             "curator_every_turns": 35,  # also at every level-up (before its memory is cleared)

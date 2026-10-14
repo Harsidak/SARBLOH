@@ -111,7 +111,7 @@ class AgentSession:
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
                       "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
-                      "memory_full": 0, "memory_updates": 0}
+                      "memory_full": 0, "memory_updates": 0, "turn_yields": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -142,6 +142,11 @@ class AgentSession:
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
         # Append-only context: the memory is a stored message; these track the sections as last shown.
         self.append_only = bool(cfg.get("append_only", True))
+        # Config memory.in_context: off, no memory message goes into the prompt (the agent reads it with `recall`).
+        self.memory_in_context = bool((cfg.get("memory") or {}).get("in_context", True))
+        # Config turn_yield_tokens: reply tokens written since the last move (the turn's thinking budget).
+        self.turn_yield_tokens = int(cfg.get("turn_yield_tokens") or 0)
+        self._turn_tokens = 0
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
         # Old code out of the context (config stub_old_code): only the newest ipython call's code is sent in full.
@@ -184,7 +189,7 @@ class AgentSession:
             self._log_event({"event": "memory_init", **self.memory.on_new_game()})
             self._append({"role": "user", "content": self.task})
             first = self._observation()
-            if self.append_only:
+            if self.append_only and self.memory_in_context:
                 self._append(self._memory_full())
             self._append(first)
             self._loop()
@@ -211,7 +216,7 @@ class AgentSession:
             tokens = self._context_tokens()
             if self._wants_drain(tokens):
                 self._drain(tokens, "threshold")
-            pinned = None if self.append_only else self._memory_message()
+            pinned = None if self.append_only or not self.memory_in_context else self._memory_message()
             msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
                                  reasoning_budget=self._reasoning_budget(), append_only=self.append_only)
             effort = self._effort()
@@ -235,6 +240,7 @@ class AgentSession:
             self.stats["output_tokens"] += reply.completion_tokens
             self.stats["prompt_tokens_last"] = reply.prompt_tokens
             self._turns_since_curate += 1
+            self._turn_tokens += reply.completion_tokens
 
             # 4) Parse reply for tool calls
             calls = self._calls(reply)
@@ -264,19 +270,24 @@ class AgentSession:
 
             # 5) If tool calls: execute each, then maybe run the curator
             if calls:
+                moves = self.stats["act_actions"]
                 for call in calls:
                     self._run_call(call, reply)
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._push(self._pending_obs)
                     self._pending_obs = None
+                if self.stats["act_actions"] > moves:
+                    self._turn_tokens = 0
+                elif self._over_turn_budget():
+                    self._yield_turn("act_now")
                 self._reset_if_level_up()
                 self._maybe_curate()
                 continue
 
-            # 6) the reply was cut off
-            if reply.finish_reason == "length":
-                self._push({"role": "user", "content": prompts.event_message("cut_off")})
+            # 6) the reply was cut off, or the turn's thinking budget is spent
+            if reply.finish_reason == "length" or self._over_turn_budget():
+                self._yield_turn("call_tool_now")
                 continue
             # 7) if No tool call: the model ended its turn.
             if self.arc.finished:
@@ -288,11 +299,27 @@ class AgentSession:
 
     def _push(self, msg: dict[str, Any]) -> None:
         """A new user message. Append-only: the memory sections that changed go in just before it."""
-        if self.append_only:
+        if self.append_only and self.memory_in_context:
             note = self._memory_note()
             if note is not None:
                 self._append(note)
         self._append(msg)
+
+    def _over_turn_budget(self) -> bool:
+        """The replies since the last move have written ``turn_yield_tokens`` or more (config; 0 = never)."""
+        return bool(self.turn_yield_tokens) and self._turn_tokens >= self.turn_yield_tokens
+
+    def _yield_turn(self, kind: str) -> None:
+        """The turn's thinking budget is spent (or the reply was cut off) with no move: a short note says to move now
+        (``act_now`` when the newest reply ran code, ``call_tool_now`` when it called no tool), the budget starts over,
+        and the game hands its scheduler slot to a waiting game (``ScheduledLLM.yield_turn``)."""
+        self.stats["turn_yields"] += 1
+        self._log_event({"event": "turn_yield", "kind": kind, "tokens": self._turn_tokens})
+        self._turn_tokens = 0
+        self._push({"role": "user", "content": prompts.event_message(kind, **self._left())})
+        give = getattr(self.llm, "yield_turn", None)
+        if callable(give):
+            give()
 
     def _stub_old_code(self) -> None:
         """Config ``stub_old_code``: a new reply with tool calls just came, so every older reply's long ipython code
@@ -338,7 +365,9 @@ class AgentSession:
 
     def _insert_memory(self) -> None:
         """After a rewrite (append-only): the full memory just before the newest user message, where the old builder
-        put it."""
+        put it. Nothing when the memory is kept out of the context."""
+        if not self.memory_in_context:
+            return
         msg = self._memory_full()
         self.messages.insert(max(context.chain_start(self.messages) - 1, 0), msg)
         self._log_event({"event": "message", **msg})
@@ -840,7 +869,9 @@ class AgentSession:
             self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
                                                cwd=str(self.kernel.session_dir), vision=self.vision,
-                                               old_code_stubbed=self.stub_old_code)
+                                               old_code_stubbed=self.stub_old_code,
+                                               board_text=bool(self.perception.get("ascii", True)),
+                                               memory_shown=self.append_only and self.memory_in_context)
         return self._system
 
     def _context_limits(self) -> tuple[int, int, int]:
@@ -928,8 +959,8 @@ class AgentSession:
         by step (``_drain_steps``) until the context is at most ``compaction.drain_target_tokens``; if even the smallest
         tail leaves it above that, the history is also trimmed back to the newest full state (``_trim_context``)."""
         target = int(self.cfg["compaction"].get("drain_target_tokens", 60000))
-        mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status()) if self.append_only \
-            else None
+        mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status()) \
+            if self.append_only and self.memory_in_context else None
         fixed = (len(self._system_prompt()) + (len(mem["content"]) if mem else 0) + 3) // 4
         drained, after, keep, chars = self.messages, tokens_before, 0, 0
         for keep, chars in self._drain_steps():
@@ -1014,7 +1045,7 @@ class AgentSession:
         dropped = len(self.messages)
         self.messages = []
         self._append({"role": "user", "_kind": "reset", "content": text + (f"\n\n{names}" if names else "")})
-        if self.append_only:
+        if self.append_only and self.memory_in_context:
             self._append(self._memory_full())
         self.messages.append(obs)   # logged when it was made
         self._snapshot(reason)

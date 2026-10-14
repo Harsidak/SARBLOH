@@ -233,6 +233,13 @@ class ScheduledLLM:
                 self._calls_in_quantum = 0
                 self._sched.handover(self._key, "quantum")
 
+    def yield_turn(self) -> None:
+        """The game spent its turn's thinking budget without a move: the slot goes to the best waiting game now (this
+        game queues again and may get it straight back)."""
+        if self._calls_in_quantum > 0:
+            self._calls_in_quantum = 0
+            self._sched.handover(self._key, "yield")
+
     def mark_cold(self) -> None:
         """The game's prompt was rewritten: its next ``chat`` hands the slot over first (if it has used it)."""
         self._cold = True

@@ -26,10 +26,11 @@ IPYTHON = _fn(
 
 RECALL = _fn(
     "recall",
-    "Search your memory. It is free. Use it to recall steps (\"#12\", \"12-20\", \"level 1\", or words), "
-    "hypotheses and findings of earlier levels, your goal history, lessons from other levels and games, and skills.",
+    "Search your memory. It is free. Use it for your steps (\"#12\", "
+    "\"12-20\", \"level 1\", or words), your plan, goal, hypotheses and findings, lessons from other levels and "
+    "games, and skills.",
     {"query": {"type": "string", "description": "A step, a range, \"level N\", or words; \"\" for the latest."},
-     "scope": {"type": "string", "enum": ["all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills"],
+     "scope": {"type": "string", "enum": ["all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills"],
                "description": "Where to search. Default all."}},
     ["query"])
 
