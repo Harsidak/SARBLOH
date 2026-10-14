@@ -5,7 +5,8 @@
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
 LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md),
-reports and the SFT export; config ``tracing`` off (always on the competition rerun) skips the transcripts and all of it.
+reports and the SFT export, and ``harness.speed`` into speed.md (where each turn's time went); config ``tracing`` off
+(always on the competition rerun) skips the transcripts and all of it.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + harness/ live in Sarbloh; the games
         sys.path.insert(0, str(_p))
 
 # pyrefly: ignore [missing-import]
-from harness import trace
+from harness import speed, trace
 from harness.agent import prompts
 from harness.config import build_config, config_hash
 
@@ -189,6 +190,10 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
         print(f"[trace] step maps: {trace.build_run(run_dir)}", flush=True)
     except Exception as exc:  # noqa: BLE001 - the trace is a report; it must not fail the run
         print(f"[trace] failed: {type(exc).__name__}: {exc}", flush=True)
+    try:
+        print(f"[speed] report: {speed.build(run_dir)}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a report; it must not fail the run
+        print(f"[speed] failed: {type(exc).__name__}: {exc}", flush=True)
     return summary
 
 

@@ -52,20 +52,27 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 from harness.agent import compaction, context, curator, perception, prompts
+# pyrefly: ignore [missing-import]
 from harness.agent.tools import game_tools
+# pyrefly: ignore [missing-import]
 from harness.game.arc_host import ArcHost
+# pyrefly: ignore [missing-import]
 from harness.llm.client import LLM, ContextOverflow
+# pyrefly: ignore [missing-import]
 from harness.memory.lifecycle import GameMemory
+# pyrefly: ignore [missing-import]
 from harness.runtime.kernel import Kernel
+# pyrefly: ignore [missing-import]
 from harness.runtime.skills import observation
 
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 # The append-only estimate of one picture: the 640-pixel map plus its panel at 32 pixels per token (patch 16, merge 2).
 IMAGE_TOKENS = 500
 DRAIN_MIN_KEEP = 2000   # the smallest tail a drain keeps word for word (tokens)
-_ACTION_NAMES = {0: "RESET", 1: "A1(up)", 2: "A2(down)", 3: "A3(left)", 4: "A4(right)", 5: "A5(space)",
-                 7: "A7(undo)"}
+_ACTION_NAMES = {0: "RESET", 1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "FIRE",
+                 7: "UNDO"}
 
 
 def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
