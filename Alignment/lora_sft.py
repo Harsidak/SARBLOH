@@ -63,6 +63,9 @@ DEFAULTS: dict[str, Any] = {
     "weights_format": "auto",         # auto | hf | nvfp4: nvfp4 = a modelopt NVFP4 Flash-Next checkpoint (RadixArk /
                                       # Kaggle): experts stay 4-bit, n-gram table fp8 (nvfp4_experts.py); auto picks it
                                       # when the checkpoint's quantization_config says modelopt NVFP4
+    "offload_expert_layers": 0,       # nvfp4 + split: the routed experts of the last N MoE layers stay in pinned CPU
+                                      # memory and stream to the GPU per forward (~1.4 GB each on Flash-Next; frees
+                                      # VRAM on a 96 GB card at a small speed cost)
     "trust_remote_code": False,
     "allow_missing_weights": [r"(^|\.)mtp\.", r"lm_head"],  # regexes; any other missing weight is a hard FAIL
     "attn_implementation": None,      # None = transformers default
@@ -657,6 +660,7 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
             raise ValueError("weights_format nvfp4 works with device_map None or 'split', without load_in_4bit")
         model, nv = nvfp4_experts.load(path, dtype, cls if cls is not AutoModelForCausalLM else None)
         info = {"missing_keys": nv["missing"], "unexpected_keys": nv["unexpected"]}
+        info["offloaded"] = nvfp4_experts.mark_offload(model, int(cfg.get("offload_expert_layers") or 0))
     else:
         model, info = cls.from_pretrained(path, **kw)
     missing = list(info.get("missing_keys") or [])
@@ -676,6 +680,7 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
     load = {"class": type(model).__name__, "architecture": arch, "long_context": long, "split": split,
             "placement_params": placement, "missing_keys": missing[:50],
             "unexpected_keys": list(info.get("unexpected_keys") or [])[:50], "missing_not_allowed": bad[:50],
+            "offloaded_expert_layers": len(info.get("offloaded") or []),
             "params": sum(p.numel() for p in model.parameters()),
             "param_dtypes": sorted({str(p.dtype) for p in model.parameters()})}
     return model, load
@@ -733,7 +738,10 @@ def place_split(model, devices: list | None, cpu_modules: list[str]) -> dict[str
         devices = [f"cuda:{i}" for i in range(torch.cuda.device_count())] or ["cpu"]
     devices = [torch.device(d) for d in devices]
     keep = [re.compile(p) for p in cpu_modules]
-    kept = lambda name: any(k.search(name) for k in keep)  # noqa: E731
+    computes_on_cpu = lambda name: any(k.search(name) for k in keep)  # noqa: E731
+    # streamed experts (nvfp4_experts.mark_offload): their weights stay on CPU, but they compute on the layer's GPU
+    offl = tuple(n + "." for n, m in model.named_modules() if getattr(m, "offload", None) is True)
+    kept = lambda name: computes_on_cpu(name) or (name + ".").startswith(offl) if offl else computes_on_cpu(name)  # noqa: E731
     lists = [(n, m) for n, m in model.named_modules() if isinstance(m, nn.ModuleList) and n.endswith("layers")
              and not re.search(r"visual|vision|(^|\.)mtp", n)]
     if not lists:
@@ -775,7 +783,8 @@ def place_split(model, devices: list | None, cpu_modules: list[str]) -> dict[str
         layer.register_forward_pre_hook(hook_for(devices[plan[i]]), with_kwargs=True)
     cpu = torch.device("cpu")
     for name, mod in model.named_modules():   # a kept module runs on CPU and hands its output back where its input was
-        if kept(name) and not any(kept(name.rsplit(".", j)[0]) for j in range(1, name.count(".") + 1)):
+        if computes_on_cpu(name) and not any(computes_on_cpu(name.rsplit(".", j)[0])
+                                             for j in range(1, name.count(".") + 1)):
             def kpre(m, args, kwargs):
                 src = next((t.device for t in list(args) + list(kwargs.values()) if torch.is_tensor(t)), None)
                 m._split_return_device = src
@@ -797,7 +806,8 @@ def place_split(model, devices: list | None, cpu_modules: list[str]) -> dict[str
     for i, sz in enumerate(sizes):
         gb[plan[i]] += sz / 2 ** 30
     return {"layers": lname, "layers_per_device": counts, "weights_gb_per_device": [round(x, 2) for x in gb],
-            "cpu_modules": [n for n, _ in model.named_modules() if kept(n)][:8]}
+            "cpu_modules": [n for n, _ in model.named_modules() if computes_on_cpu(n)][:8],
+            "streamed_experts": len(offl)}
 
 
 def long_context_on(mcfg, cfg: dict[str, Any]) -> bool:
