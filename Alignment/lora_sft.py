@@ -60,6 +60,9 @@ DEFAULTS: dict[str, Any] = {
     "model_class": "auto",            # "auto" = config.architectures[0]; or a transformers class name
     "dtype": "auto",                  # auto | bf16 | fp16 | fp32. auto: bf16 on sm80+, else fp32 (fp16 overflows Qwen)
     "load_in_4bit": False,            # QLoRA via bitsandbytes
+    "weights_format": "auto",         # auto | hf | nvfp4: nvfp4 = a modelopt NVFP4 Flash-Next checkpoint (RadixArk /
+                                      # Kaggle): experts stay 4-bit, n-gram table fp8 (nvfp4_experts.py); auto picks it
+                                      # when the checkpoint's quantization_config says modelopt NVFP4
     "trust_remote_code": False,
     "allow_missing_weights": [r"(^|\.)mtp\.", r"lm_head"],  # regexes; any other missing weight is a hard FAIL
     "attn_implementation": None,      # None = transformers default
@@ -647,7 +650,15 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
         kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                                        bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True)
         kw["device_map"] = {"": 0}
-    model, info = cls.from_pretrained(path, **kw)
+    if is_nvfp4(mcfg, cfg):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import nvfp4_experts
+        if cfg["load_in_4bit"] or cfg.get("device_map") == "auto":
+            raise ValueError("weights_format nvfp4 works with device_map None or 'split', without load_in_4bit")
+        model, nv = nvfp4_experts.load(path, dtype, cls if cls is not AutoModelForCausalLM else None)
+        info = {"missing_keys": nv["missing"], "unexpected_keys": nv["unexpected"]}
+    else:
+        model, info = cls.from_pretrained(path, **kw)
     missing = list(info.get("missing_keys") or [])
     allowed = [re.compile(p) for p in cfg["allow_missing_weights"]]
     bad = [k for k in missing if not any(p.search(k) for p in allowed)]
@@ -668,6 +679,16 @@ def load_model(path: str, cfg: dict[str, Any], dtype) -> tuple[Any, dict[str, An
             "params": sum(p.numel() for p in model.parameters()),
             "param_dtypes": sorted({str(p.dtype) for p in model.parameters()})}
     return model, load
+
+
+def is_nvfp4(mcfg, cfg: dict[str, Any]) -> bool:
+    fmt = cfg.get("weights_format", "auto")
+    if fmt not in ("auto", "hf", "nvfp4"):
+        raise ValueError(f"weights_format {fmt!r}")
+    q = getattr(mcfg, "quantization_config", None) or {}
+    q = q if isinstance(q, dict) else q.to_dict()
+    found = q.get("quant_method") == "modelopt" and q.get("quant_algo") == "NVFP4"
+    return fmt == "nvfp4" or (fmt == "auto" and found)
 
 
 def _move(obj, dev):

@@ -44,7 +44,7 @@ You play a multi-level grid puzzle game. Clear every level in as few moves as po
 
 Objective:
 The board is a 64x64 grid of colors. {legend}
-Work in a loop: look at the state, write Python to model the game and find the moves, send the moves, check the result. Rules and layouts can change between levels.
+Each turn is one cycle: read the newest state in code, update your model of the game, let your code pick the best move or sequence of moves, send it, and look at the result on the next turn.
 Keep your thinking short and plain. Put the work in the code."""
 
 # The colour legend, in the letters the board is written with (``observe()``).
@@ -55,7 +55,9 @@ LEGEND_LETTERS = ("Each color is written as one letter: W=white, w=light grey, g
 IPYTHON_BRIEFING = """The `ipython` tool:
 - Write as much Python as the job needs. A world model of several hundred lines is fine, and one call can hold all of it.
 - Never print the whole board. Print small summaries: object lists, positions, counts, or a small `obs.ascii(...)` window.
-- Make the moves from the same call as soon as your code has found them."""
+- Make the moves from the same call as soon as your code has found them. When your code has a sequence it trusts, send all of it in one `act()`.
+- You can call `act()` many times in one call, also inside a loop: make a move, read the board, choose the next move, and stop when a move changes nothing on the board or the level is done.
+- Print short results. The output is for deciding the next move."""
 
 # =====================================================================================================================
 # 2. System-prompt snippets (tools: ipython with act(), recall)
@@ -64,7 +66,7 @@ IPYTHON_BRIEFING = """The `ipython` tool:
 GAME_FACTS = """Game:
 You are playing an ARC-AGI-3 game with several levels. Nothing moves until you make a move. Nobody tells you the rules or the goal: you find them by looking, by moving and by writing code. Early levels teach one idea each, and later levels mix them. You win when every level is done.
 You work alone. Never ask a question.
-On the first one or two levels, spend a few moves to learn what the controls do and what wins. After that, model the game in Python, search the model, and send only the moves your code found.
+While you do not know what the controls do or what wins, send probes: a few moves chosen so the result tells your ideas apart. As soon as you know what the actions do and what the goal is, stop probing. Search your model and send the whole path.
 
 Controls:
 Every ARC-AGI-3 game uses the same actions. The status line shows which of them work in this game.
@@ -76,12 +78,18 @@ Every ARC-AGI-3 game uses the same actions. The status line shows which of them 
 Each game decides what these actions move. The change lines after your first moves show what each one does here.
 
 How to work:
-Think a little, then write code. Never work out positions, paths or the result of a move in your head. Each call usually does this:
-1. Read the board with `observe()`.
-2. Write or fix `step(state, move)`, your model of the game.
-3. Search it (breadth-first search or anything that fits) for the shortest path to the goal.
-4. Send that path with `act()`.
-5. Call `observe()` again and compare the board with what `step()` predicted. If they differ, fix the model and search again in the same call."""
+Think a little, then write code. Never work out positions, paths or the result of a move in your head. A good call does this:
+1. Read the board with `observe()`: the objects, and what changed with the last moves.
+2. Decide what change on the board you want next.
+3. Find the moves with code. When something must reach a target, write a breadth-first search over a `step(state, move)` model. When a full model is hard, write a loop that moves, reads the board and moves again until it gets there.
+4. Send the moves with `act()`.
+5. Read the board again. If it did not do what you expected, fix the model and try again in the same call.
+
+What to watch for:
+- Some games have no player. What you control may be a cursor, a selected object, a region or the whole board.
+- A long bar or a row of small blocks at the edge of the screen is usually a timer, a move counter or lives. It changes with every move. Do not click through it and do not count its change as progress. Check that the playing area changed.
+- When a bar shrinks with every move, count it into your plan: running out loses the level.
+- Describe the goal by objects (put the block on the target, match the colors), not by a fixed row or column."""
 
 READING_THE_STATE = """What you see:
 1. Every `act()` prints one line per move in your `ipython` output, for example:
@@ -137,12 +145,12 @@ Long results are cut, so ask for something narrow."""
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, ACT_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-{memory_where} Old messages are removed from time to time, so put anything you must keep into your memory. Write only what is new:
+{memory_where} Old messages are removed from time to time. The memory arguments of `act()` are optional: write only what you would need after that, in a few words.
 - `plan`: your next steps and why, in one or two sentences. It replaces the old plan.
 - `hypotheses`: rules you think the game follows. A new one needs `text`, the rule written concretely (objects, directions, counts), and gets an id such as "h3". To change one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Give step numbers in `evidence`.
 - `findings`: facts about this level, one short sentence each.
 - `goal`: what you think wins the level.
-At a level up, your verified hypotheses and findings become lessons and skills, your goal is kept, and the rest is cleared. Mark the rules that held as verified before the level ends."""
+At a level up, your verified hypotheses and findings become lessons and skills, your goal is kept, and the rest is cleared."""
 
 MEMORY_HIDDEN = "Your memory is not shown to you. Write to it with `act()`, and read it with `recall` when you need it."
 MEMORY_SHOWN = ("A [memory] block shows what you wrote with `act()`, and a [memory update] shows the parts that "
@@ -161,24 +169,30 @@ ENVIRONMENT = """Python packages: numpy. `observe` and `act` are already importe
 # =====================================================================================================================
 
 TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. {levels}You have at most {max_actions} moves and about {minutes} minutes for the whole game.
-The first state is below. This is level 1, so nothing is known yet. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, send a few moves with `act()` to test it, and start your `step()` model from what changed. Write a first plan and goal guess with that `act()`."""
+The first state is below. This is level 1, so nothing is known yet. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and send probe moves that test it. Use what changed to write your first model."""
 
 CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
 Your verified hypotheses and findings are now lessons, your goal is kept, and your plan, hypotheses and findings are empty.
-On the new level, run your model and search code from the last level on the new board. Keep the rules that worked. Try new objects with 1 or 2 moves and add what you see to your model."""
+Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel: run your model and search on the new board.
+Look for new objects or a changed layout. New objects usually bring a new rule this level needs: test them with a few moves. Check whether the goal is still the same.
+Then search and send the whole path."""
 
 NEW_SKILLS = "New skills from the level you just won: {names}. Read them with `recall` and scope \"skills\"."
 
 # The note for the level the agent is on, added to the messages that start a level.
-LEVEL_NOTE = "This is level {level}. Build or fix your `step()` model for this board, search it, and send the path it finds."
+LEVEL_NOTE = "This is level {level}."
 
 EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
 GAME_OVER = """GAME_OVER: this level is lost. Find the step that caused it in the change lines, fix your model, refute the hypothesis that led there, and send "reset" in that same `act()`. Your memory is kept."""
 
 WIN = "WIN: every level is done, and the game is complete."
+
+# Added to the state after moves, every turn.
+TURN_NOTE = ("Next: read what changed in code. If your code has a path it trusts, send all of it with one `act()`. "
+             "If the last moves did not do what you expected, fix the model first.")
 
 # The turn's thinking budget is spent with no move (config turn_yield_tokens). After a reply that ran code:
 ACT_NOW = ("Your thinking budget for this turn is spent and you have not moved. Your tool results above are still "

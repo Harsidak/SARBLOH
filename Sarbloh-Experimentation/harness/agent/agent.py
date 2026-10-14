@@ -602,6 +602,8 @@ class AgentSession:
         full_text = sc.text(full=True, **opts)
         text = full_text if full else sc.text(budget_tokens=int(p.get("observation_tokens", 800)),
                                               margin=int(p.get("crop_margin", 3)), **opts)
+        if not full:   # the state after moves: the same short direction every turn
+            text = f"{text}\n\n{prompts.TURN_NOTE}"
         try:
             observation.write(self.kernel.session_dir, {**sc.to_json(), "text": full_text})
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
