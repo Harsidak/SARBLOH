@@ -1458,9 +1458,9 @@ class Scene:
         return {v for r in self.rows for v in r}
 
     def text(self, full: bool = False, *, max_objects: int = 40, budget_tokens: int = 800, show_ascii: bool = True,
-             segmentation: bool = True, margin: int = 3) -> str:
+             segmentation: bool = True, margin: int = 3, short_objects: bool = True) -> str:
         """The full view (briefing, every object, the whole board), or after an act the short view: the objects in
-        the changed region and that region as letters, within ``budget_tokens`` (chars / 4)."""
+        the changed region (``short_objects``) and that region as letters, within ``budget_tokens`` (chars / 4)."""
         head = [f"[state after step #{self.step}]" if self.step is not None else "[state]"]
         if self.status:
             head[0] += " " + self.status
@@ -1494,7 +1494,7 @@ class Scene:
                 crops.append(txt)
                 shown |= {self.rows[r][c] for r in range(bx[0], bx[2] + 1) for c in range(bx[1], bx[3] + 1)}
         rows: list[str] = []
-        if segmentation and boxes:
+        if segmentation and short_objects and boxes:
             near = [o for o in self.objects if any(o.bbox[0] <= bx[2] and bx[0] <= o.bbox[2] and o.bbox[1] <= bx[3]
                                                    and bx[1] <= o.bbox[3] for bx in boxes)]
             near = [o for o in near if o.size < len(self.rows) * len(self.rows[0]) // 2][:max_objects]

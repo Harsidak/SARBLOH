@@ -6,8 +6,9 @@ What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
                         context is under ``drain_target_tokens``; the trigger sits far enough below ``cap_tokens``
                         that one turn cannot pass the cap. An overflow never ends the game: the first one
                         drains, the second trims in code (back to the newest full state, thinking only on the newest
-                        reply, old tool outputs as one-line placeholders), a third resets to the newest state. Every
-                        level-up resets the context in code: the level-up message and the new level's full state.
+                        reply, old tool outputs as one-line placeholders), a third resets to the newest state. A
+                        level-up adds its message and the new level's full state (config ``level_up_reset`` on:
+                        the context is reset to them instead).
 - L2 REPL            -> one persistent ``rlm.repl`` kernel per session (``Kernel``).
 - L3 disk state      -> ``transcript.jsonl`` (full history, survives every rewrite) and the game's memory
                         (``harness.memory``). Append-only (the default): a stored message, in full after every
@@ -81,6 +82,46 @@ def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return context.merge_users(messages)
 
 
+def system_prompt(cfg: dict[str, Any]) -> str:
+    """The system prompt for the agent config ``cfg``: the same for every game, so the run can pre-warm it."""
+    p = cfg.get("perception") or {}
+    return prompts.game_system(act_max=int(cfg.get("act_max_actions", 5)),
+                               vision=bool(cfg.get("vision")) and bool(p.get("image", True)),
+                               code_hidden=bool(cfg.get("hide_code", True)),
+                               board_text=bool(p.get("ascii", True)),
+                               short_objects=bool(p.get("short_objects", True)),
+                               observe_view=bool(p.get("observe_view", True)),
+                               memory_shown=bool(cfg.get("append_only", True))
+                               and bool((cfg.get("memory") or {}).get("in_context", True)))
+
+
+def effort_kwargs(cfg: dict[str, Any], level: int) -> dict[str, str] | None:
+    """The chat template's reasoning effort on ``level`` (1-based; config ``reasoning_effort``)."""
+    eff = cfg.get("reasoning_effort") or {}
+    value = eff.get("early") if level <= prompts.EARLY_LEVELS else eff.get("later")
+    if value not in (None, "xhigh", "medium", "low"):
+        raise ValueError(f"reasoning_effort {value!r}: the chat template takes xhigh, medium or low")
+    return {"reasoning_effort": value} if value else None
+
+
+def prewarm(cfg: dict[str, Any], llm: Any) -> int:
+    """One 1-token request per reasoning effort the run uses, with the shared system prompt and tools, so the server's
+    prefix cache already holds them when the games start. Returns the requests sent; a failure only skips it."""
+    system, tools, sent, seen = system_prompt(cfg), game_tools(), 0, []
+    for level in (1, prompts.EARLY_LEVELS + 1):   # the early and the later effort
+        kwargs = effort_kwargs(cfg, level)
+        if kwargs in seen:
+            continue
+        seen.append(kwargs)
+        try:
+            llm.chat([{"role": "system", "content": system}, {"role": "user", "content": "."}], tools=tools,
+                     max_tokens=1, timeout_s=120.0, template_kwargs=kwargs)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001 - only a cache warm-up
+            print(f"[prewarm] failed: {exc!r}", flush=True)
+    return sent
+
+
 class AgentSession:
     tracing = True
     _frames = 0
@@ -129,6 +170,7 @@ class AgentSession:
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
         self.vision = bool(cfg.get("vision")) and bool(self.perception.get("image", True))
+        self.old_images = bool(self.perception.get("old_images", True))   # off: only the newest picture is sent
         self.tracker = perception.Tracker()
         self._objects: list[Any] = []            # objects of the newest frame, ids stable within the level
         self._obs_rows: list[list[int]] | None = None   # the grid of the last observation pushed (crop baseline)
@@ -182,7 +224,7 @@ class AgentSession:
         try:
             self.kernel.start()
             self._log_event({"event": "system_prompt", "content": self._system_prompt(), "tools": self.tools,
-                             "vision": self.vision, "append_only": self.append_only,
+                             "vision": self.vision, "append_only": self.append_only, "old_images": self.old_images,
                              "reasoning_budget": self._reasoning_budget()})
             # The memory is the pinned block; the first state comes with the task.
             self._log_event({"event": "memory_init", **self.memory.on_new_game()})
@@ -217,7 +259,8 @@ class AgentSession:
                 self._drain(tokens, "threshold")
             pinned = None if self.append_only or not self.memory_in_context else self._memory_message()
             msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
-                                 reasoning_budget=self._reasoning_budget(), append_only=self.append_only)
+                                 reasoning_budget=self._reasoning_budget(), append_only=self.append_only,
+                                 old_images=self.old_images)
             effort = self._effort()
 
             # 3) send the current message to LLM and handles a context overflow (drain, trim, reset), llm failures and time outs
@@ -395,14 +438,12 @@ class AgentSession:
     def _effort(self) -> dict[str, str] | None:
         """The chat template's reasoning effort for the level the agent is on (config ``reasoning_effort``). A change
         alters the first line of the system prompt, so the whole prompt is prefilled again once."""
-        eff = self.cfg.get("reasoning_effort") or {}
-        value = eff.get("early") if self._level() <= prompts.EARLY_LEVELS else eff.get("later")
-        if value not in (None, "xhigh", "medium", "low"):
-            raise ValueError(f"reasoning_effort {value!r}: the chat template takes xhigh, medium or low")
+        kwargs = effort_kwargs(self.cfg, self._level())
+        value = (kwargs or {}).get("reasoning_effort")
         if value != self._effort_sent:
             self._effort_sent = value
             self._log_event({"event": "reasoning_effort", "level": self._level(), "value": value})
-        return {"reasoning_effort": value} if value else None
+        return kwargs
 
     def _max_tokens(self) -> int:
         """The most this reply may write (config ``max_tokens_per_turn``): "early" on the levels that get the long
@@ -507,7 +548,9 @@ class AgentSession:
                 failed = True
             text = res.render(self.cfg["tool_output_chars"])
             if any(observation.MIME in d for d in res.displays):
-                text += "\n" + self._observe_called()
+                self.stats["observe_calls"] += 1
+                if self.perception.get("observe_view", True):   # off: observe() is read in code, nothing is pushed
+                    text += "\n" + self._observe_called()
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
                              "acts": len(cell["acts"])})
@@ -603,7 +646,8 @@ class AgentSession:
                 "segmentation": bool(p.get("segmentation", True))}
         full_text = sc.text(full=True, **opts)
         text = full_text if full else sc.text(budget_tokens=int(p.get("observation_tokens", 800)),
-                                              margin=int(p.get("crop_margin", 3)), **opts)
+                                              margin=int(p.get("crop_margin", 3)),
+                                              short_objects=bool(p.get("short_objects", True)), **opts)
         if not full:   # the state after moves: the same short direction every turn
             text = f"{text}\n\n{prompts.TURN_NOTE}"
         try:
@@ -680,7 +724,6 @@ class AgentSession:
     def _observe_called(self) -> str:
         """``observe()`` ran in ipython: the full view goes in after this reply's tool results, once per state. The
         returned note is added to the cell's output."""
-        self.stats["observe_calls"] += 1
         where = f"step #{self._last_step}" if self._last_step is not None else "the game start"
         if self._pending_obs is not None and self._pending_obs.get("_full"):
             return f"[observe: the full state at {where} follows in the next message]"
@@ -910,12 +953,7 @@ class AgentSession:
     # --- context: system prompt, drain ----------------------------------------------------------------------
     def _system_prompt(self) -> str:
         if self._system is None:
-            self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
-                                               act_max=int(self.cfg.get("act_max_actions", 5)),
-                                               cwd=str(self.kernel.session_dir), vision=self.vision,
-                                               code_hidden=self.hide_code,
-                                               board_text=bool(self.perception.get("ascii", True)),
-                                               memory_shown=self.append_only and self.memory_in_context)
+            self._system = system_prompt(self.cfg)
         return self._system
 
     def _context_limits(self) -> tuple[int, int, int]:
@@ -954,19 +992,22 @@ class AgentSession:
             self._reset_context("overflow", prompts.event_message("compacted", level=self._level(), **self._left()))
 
     def _reset_if_level_up(self) -> None:
-        """After a reply whose act won a level: the new level starts from a clean context."""
+        """After a reply whose act won a level: the new level starts from a clean context (config ``level_up_reset``).
+        Off: nothing is rewritten; the level-up message is already in the act output and the new level's full state
+        follows it, so the prompt stays a prefix of the next one."""
         if self._level_up_text is None:
             return
         text, self._level_up_text = self._level_up_text, None
-        if not self.arc.finished:
+        if not self.arc.finished and self.cfg.get("level_up_reset", True):
             self._reset_context("level_up", text)
 
     def _reasoning_budget(self) -> int:
         return int(self.cfg.get("chain_reasoning_tokens", context.REASONING_BUDGET_TOKENS))
 
     def _estimate(self, m: dict[str, Any]) -> int:
-        """chars/4 of a message without its thinking; append-only counts its pictures too (every one is sent)."""
-        return compaction.estimate_tokens(m, reasoning=False, image_tokens=IMAGE_TOKENS if self.append_only else 0)
+        """chars/4 of a message without its thinking; append-only counts its pictures too when every one is sent."""
+        return compaction.estimate_tokens(m, reasoning=False,
+                                          image_tokens=IMAGE_TOKENS if self.append_only and self.old_images else 0)
 
     def _chain_reasoning_tokens(self, start: int) -> int:
         """chars/4 of the thinking that is still sent, in the messages from ``start`` on: the same rule as the request

@@ -89,8 +89,8 @@ READING_THE_STATE = """What you see:
 1. Every `act()` prints one line per move in your `ipython` output, for example:
    `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
    `#12` is the step number. `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
-2. After a reply that made moves, the next message has the new state: a status line, the last step and the objects in the area that changed{board_after}{picture_after}.
-3. At the start of each level, after old messages are shortened, and when you call `observe()`, you get the full state: a briefing and the list of objects{board_start}{picture_start}.
+2. After a reply that made moves, the next message has the new state: a status line, the last step{short_objects}{board_after}{picture_after}.
+3. At the start of each level{observe_full}, you get the full state: a briefing and the list of objects{board_start}{picture_start}.
 {board_note} {picture_help}
 How to read it:
 - Positions are rows and columns. `r10-12 c20-22` means rows 10 to 12 and columns 20 to 22. Row 0 is the top, and column 0 is the left.
@@ -300,11 +300,13 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 # =====================================================================================================================
 
 def game_system(*, act_max: int, vision: bool = True, code_hidden: bool = False, board_text: bool = False,
-                memory_shown: bool = False, **_: Any) -> str:
+                memory_shown: bool = False, short_objects: bool = True, observe_view: bool = True, **_: Any) -> str:
     """The system prompt (tools ipython with act(), recall), the same for every game. ``vision`` says whether pictures are
     sent; ``board_text`` whether the messages carry the board as letters (config ``perception.ascii``);
     ``memory_shown`` whether a [memory] block is in the messages (config ``memory.in_context``);
-    ``code_hidden`` adds the note that code is replaced once it has run (config ``hide_code``). Other arguments
+    ``code_hidden`` adds the note that code is replaced once it has run (config ``hide_code``); ``short_objects`` and
+    ``observe_view`` say whether the state after moves lists the changed objects and whether `observe()` also puts the
+    full state in the messages (config ``perception``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
     pictures = {"picture_after": ", and a picture of the whole board", "picture_start": ", and the picture",
                 "picture_ids": " and on the picture", "picture_help": PICTURE_HELP} if vision else \
@@ -316,8 +318,11 @@ def game_system(*, act_max: int, vision: bool = True, code_hidden: bool = False,
                        "`obs.objects` or a small `obs.ascii(...)` window.\n"}
     memory = MEMORY_SHOWN if memory_shown else MEMORY_HIDDEN
     old_code = OLD_CODE if code_hidden else ""
+    views = {"short_objects": " and the objects in the area that changed" if short_objects else "",
+             "observe_full": ", after old messages are shortened, and when you call `observe()`" if observe_view else
+             " and after old messages are shortened. `observe()` gives the same state in your code only"}
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, old_code=old_code,
-                           memory_where=memory, **pictures, **board)
+                           memory_where=memory, **pictures, **board, **views)
 
 
 def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:

@@ -710,6 +710,7 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
     system = system_ev.get("content") or ""
     vision = bool(system_ev.get("vision"))
     append_only = system_ev.get("append_only", True)
+    old_images = system_ev.get("old_images", True)
     budget = int(system_ev.get("reasoning_budget") or agent_context.REASONING_BUDGET_TOKENS)
     flags = _turn_flags(events)
     base = run.get("baseline_actions") or []
@@ -767,7 +768,8 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
                 if ev.get("reasoning") and not ev.get("reasoning_unsent"):
                     m["_reasoning"] = ev["reasoning"]
                 request = agent_context.build(system, state, None if append_only else pinned, vision=vision,
-                                              reasoning_budget=budget, append_only=append_only)
+                                              reasoning_budget=budget, append_only=append_only,
+                                              old_images=old_images)
                 verified = agent_context.digest(request) == ev.get("wire_sha")
                 counts["verified"] += verified
                 target = {k: v for k, v in _as_sent(m).items() if k != "reasoning"}

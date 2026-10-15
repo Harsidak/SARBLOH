@@ -306,6 +306,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             arcade = make_arcade("offline", environments_dir=str(COMPETITION_DIR / "environment_files"),
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
+        if cfg.get("prewarm_system"):
+            from harness.agent.agent import prewarm
+
+            print(f"[prewarm] {prewarm(cfg['agent'], llm)} system prompt request(s) cached", flush=True)
         summary = run_games(games, cfg, llm, run_dir, soft_end)
         summary.update({"server_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
                         "image_probe": server.image_probe,

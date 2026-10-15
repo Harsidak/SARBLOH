@@ -32,6 +32,9 @@ DEFAULT: dict[str, Any] = {
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
     "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0},
+    # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
+    # every game's first request (and each one after a drain) finds them in the server's prefix cache.
+    "prewarm_system": True,
     # --- agent: tools ipython (`observe()` reads, `await act([...])` moves) and recall (harness/agent/tools.py)
     "agent": {
         "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
@@ -56,8 +59,9 @@ DEFAULT: dict[str, Any] = {
         # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
         # trigger_tokens sits 20k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
+        # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
         "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 100000,
-                       "keep_recent_tokens": 30000, "drain_target_tokens": 60000},
+                       "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
         # every memory_full_every states, else only its changed sections. A drain: before the word-for-word tail
@@ -74,6 +78,9 @@ DEFAULT: dict[str, Any] = {
         # short note naming what it defined (the kernel still holds it; `show_source("name")` prints it), and the
         # system prompt says so. The thinking and the outputs stay. Off: every call keeps its code.
         "hide_code": True,
+        # On: every level-up resets the context to the level-up message and the new level's full state (the whole
+        # prompt is prefilled again). Off: both are appended and the old level stays until a drain.
+        "level_up_reset": False,
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test
@@ -81,6 +88,9 @@ DEFAULT: dict[str, Any] = {
         # after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
         "perception": {
             "image": True,             # the picture with every observation (only if "vision" is True)
+            # Every picture stays in the prompt (prefix-stable); off: only the newest is sent, older ones become a
+            # one-line stub, so each new picture makes the server prefill again from the previous one on.
+            "old_images": False,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": False,            # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": True,      # object list with ids, hashes, containment, adjacency
@@ -89,6 +99,10 @@ DEFAULT: dict[str, Any] = {
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)
             "observation_tokens": 600,  # cap on the short view's text (chars / 4)
+            "short_objects": False,    # the short view lists the objects in the changed region; off: status, last step
+            # observe() in ipython also pushes the full view (briefing, every object, picture) as a new message; off:
+            # observe() is read in code only and the full view comes at a level start and after a drain
+            "observe_view": False,
         },
         "memory": {
             # The memory (goal, plan, hypotheses, findings, skills, lessons, questions) as messages in the context.

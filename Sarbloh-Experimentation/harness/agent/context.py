@@ -5,7 +5,8 @@ the whole previous one and the server's prefix cache keeps it. On this hybrid mo
 change anywhere in the history makes the server prefill everything again from about that point: in the 2026-10-04
 run, every request after a new board reused ~0% of its prompt (3283 of 5599 requests) and requests inside a tool-call
 chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, a compaction, a level-up reset):
-- every reply keeps its thinking and every picture stays;
+- every reply keeps its thinking and every picture stays (config `old_images` off: only the newest picture is
+  sent, the older ones become a stub);
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
 - at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
@@ -334,13 +335,16 @@ def _text_of(m: dict[str, Any]) -> str:
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
           vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS,
-          append_only: bool = False) -> list[dict[str, Any]]:
-    """The request. Append-only: the system prompt and the stored conversation as it is, every thinking and every
-    picture included (the memory is already in it). Else: the memory joined to the front of the newest user message,
-    so everything before that message is the same as in the last request."""
+          append_only: bool = False, old_images: bool = True) -> list[dict[str, Any]]:
+    """The request. Append-only: the system prompt and the stored conversation as it is, every thinking included (the
+    memory is already in it), and every picture, or with ``old_images`` off only the newest one (the older ones become
+    a one-line stub, so the prompt changes from the previous picture on whenever a new one arrives). Else: the memory
+    joined to the front of the newest user message, so everything before that message is the same as in the last
+    request."""
     if append_only:
         msgs = all_reasoning(messages)
-        return merge_users([{"role": "system", "content": system}] + (msgs if vision else images(msgs, False)))
+        return merge_users([{"role": "system", "content": system}] +
+                           (msgs if vision and old_images else images(msgs, vision)))
     msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)
