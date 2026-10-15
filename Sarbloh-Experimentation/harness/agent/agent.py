@@ -138,6 +138,7 @@ class AgentSession:
         self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
         self._pinned_chars = 0
+        self._turn_plan: str | None = None   # the plan written in this reply's text, for the act record
         self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
         # Append-only context: the memory is a stored message; these track the sections as last shown.
@@ -268,11 +269,13 @@ class AgentSession:
             self._usage_tokens = reply.prompt_tokens
             self._usage_at = len(self.messages) - 1
 
-            # 5) If tool calls: execute each, then maybe run the curator
+            # 5) The memory sections written before the code (Plan:, Hypotheses:, Goal:, Findings:), then the tool calls
+            mem_note = self._write_memory(reply.content or "", calls[0]["raw"]["id"] if calls and calls[0]["native"]
+                                          else f"reply-t{self.stats['turns']}", self.stats["turns"])
             if calls:
                 moves = self.stats["act_actions"]
-                for call in calls:
-                    self._run_call(call, reply)
+                for n, call in enumerate(calls):
+                    self._run_call(call, reply, mem_note if n == 0 else "")
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._push(self._pending_obs)
@@ -469,7 +472,7 @@ class AgentSession:
                      "error": None}]
         return []
 
-    def _run_call(self, call: dict[str, Any], reply: Any = None) -> None:
+    def _run_call(self, call: dict[str, Any], reply: Any = None, mem_note: str = "") -> None:
         self.stats["tool_calls"] += 1
         counts = self.stats["tool_counts"]
         counts[call["name"]] = counts.get(call["name"], 0) + 1
@@ -510,6 +513,8 @@ class AgentSession:
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
                              "acts": len(cell["acts"])})
+        if mem_note:
+            text += "\n" + mem_note
         text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:
             msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
@@ -711,12 +716,7 @@ class AgentSession:
         if bad:
             raise ValueError(prompts.event_message("act_illegal", bad=", ".join(bad), legal=legal))
         level0 = arc.game.state.levels_completed
-        try:
-            wrote = mem.write_act(args, turn=turn, level=level0)   # raises on a bad hypothesis before any action
-        except ValueError as exc:
-            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
         self.stats["act_calls"] += 1
-        self._log_memory(wrote, call_id, turn)
         start = arc.game.action_count
         self._step_ref(call_id, turn, reply, args)
         lines, steps, stop, level_up, new_skills = [], [], None, False, []
@@ -790,15 +790,14 @@ class AgentSession:
                                              new_skills=new_skills, **self._left()))
         if s.engine_state.name == "GAME_OVER":
             out.append(prompts.event_message("game_over", **self._left()))
-        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": wrote["plan"],
+        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": self._turn_plan,
                         "stop": stop})
-        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": wrote["plan"],
-                         "goal": wrote["goal"], "hypotheses": wrote["hypotheses"], "findings": wrote["findings"],
+        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": self._turn_plan,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
                          "actions": [start, arc.game.action_count]})
         self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
         if done == 0 and stop:
-            raise RuntimeError(stop + " (your plan and memory writes were saved)")
+            raise RuntimeError(stop)
         if lines:
             self._last_change = lines[-1]
         self._pending_obs = self._observation()
@@ -812,6 +811,17 @@ class AgentSession:
             observation.append_history(self.kernel.session_dir, steps)
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
             self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
+
+    def _write_memory(self, text: str, call_id: str, turn: int) -> str:
+        """Writes the memory sections of the reply text before its code runs. Never refuses anything: lines it cannot
+        read are skipped and named in the returned note, which goes under the tool output ("" when all went in)."""
+        wrote = self.memory.write_text(text, turn=turn, level=self.arc.game.state.levels_completed)
+        self._turn_plan = wrote["plan"]
+        self._log_memory(wrote, call_id, turn)
+        if not wrote["skipped"]:
+            return ""
+        self._log_event({"event": "memory_skipped", "turn": turn, "call": call_id, "lines": wrote["skipped"]})
+        return "[memory: skipped " + "; ".join(wrote["skipped"]) + "]"
 
     def _log_memory(self, wrote: dict[str, Any], call_id: str, turn: int) -> None:
         level = self.arc.game.state.levels_completed

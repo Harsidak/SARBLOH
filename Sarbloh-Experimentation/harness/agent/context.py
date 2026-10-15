@@ -49,7 +49,7 @@ TITLES = {
     "lessons": "Lessons from earlier levels and games",
     "questions": "Open questions (from a review of your last steps)",
 }
-EMPTY = {"goal": "(none yet: write one with `act(..., goal=...)` as soon as you have a guess)",
+EMPTY = {"goal": "(none yet: write a Goal: line as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
 
 

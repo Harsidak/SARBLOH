@@ -2,10 +2,10 @@
 
 The REPL is the agent's only game tool: it models the game in code, searches the model and sends the moves it finds,
 in the same cell. Each call goes to the host (``AgentSession._host``, type ``arc.act``), which runs the moves exactly
-like the old act tool did: the same parsing, legality check, memory writes, change lines and stops (level up,
+like the old act tool did: the same parsing, legality check, change lines and stops (level up,
 GAME_OVER, game end). The change lines are printed; the host sends the new state after the reply.
 
-    r = await act(["4", "4", "1"], plan="push the block right, then up")
+    r = await act(["4", "4", "1"])
     r.lines        # one change line per move: "#12 A4(right): obj 4 R 3x3 moved right 3 -> ..."
     r.done         # moves made; r.stopped is why it stopped early ("level up", "GAME_OVER", ...) or None
     r.level_up, r.state
@@ -44,17 +44,13 @@ def _move(a: Any) -> str:
     return str(int(a))   # int, numpy int
 
 
-async def act(actions: Any, plan: str | None = None, hypotheses: list | None = None, findings: list | None = None,
-              goal: str | None = None, quiet: bool = False) -> ActResult:
-    """Make ``actions`` in order (each costs one move) and write your memory in the same call. Prints the change
-    lines unless ``quiet``. Raises RuntimeError when the call is refused (nothing is spent then)."""
+async def act(actions: Any, quiet: bool = False) -> ActResult:
+    """Make ``actions`` in order (each costs one move). Prints the change lines unless ``quiet``. Raises RuntimeError
+    when the call is refused (nothing is spent then)."""
     if isinstance(actions, (str, int)) or (isinstance(actions, tuple) and actions and not
                                            isinstance(actions[0], (tuple, list, str))):
         actions = [actions]
     args: dict[str, Any] = {"actions": [_move(a) for a in actions]}
-    for key, val in (("plan", plan), ("hypotheses", hypotheses), ("findings", findings), ("goal", goal)):
-        if val is not None:
-            args[key] = val
     reply = await _repl.host_request({"type": "arc.act", "args": args})
     if reply.get("status") != "ok":
         raise RuntimeError(str(reply.get("error") or "act failed"))

@@ -19,7 +19,7 @@ from typing import Any
 from harness.memory.lessons import LessonsGraph, SkillBook, shape_id
 from harness.memory.store import append_jsonl, clip, read_jsonl
 from harness.memory.timeline import Timeline, render_row
-from harness.memory.working import WorkingMemory
+from harness.memory.working import WorkingMemory, hypothesis_from_line, parse_memory_text
 
 SCOPES = ("all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills")
 _OBJ = re.compile(r"\bobj(?:ect)?s?\s*#?(\d+)", re.IGNORECASE)
@@ -107,6 +107,27 @@ class GameMemory:
         goal_changed = w.set_goal(args.get("goal") or "")
         w.save()
         return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None}
+
+    def write_text(self, text: str, *, turn: int, level: int) -> dict[str, Any]:
+        """The memory sections of a reply (see ``parse_memory_text``). Never raises: a line that cannot be read is
+        skipped and named in ``skipped``. Returns what ``write_act`` returns, plus ``skipped``."""
+        sec = parse_memory_text(text)
+        w = self.working
+        hyp, found, skipped = [], [], []
+        for line in sec.get("hypotheses", []):
+            try:
+                hyp += w.update_hypotheses([hypothesis_from_line(line)], turn=turn, level=level)
+            except (ValueError, TypeError) as exc:
+                skipped.append(f"{line[:60]!r} ({exc})")
+        found = w.add_findings(sec.get("findings"), turn=turn, level=level)
+        plan = sec.get("plan")
+        if plan:
+            w.set_plan(plan)
+        goal_changed = w.set_goal(sec.get("goal") or "")
+        if sec:
+            w.save()
+        return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None,
+                "skipped": skipped}
 
     def record_step(self, row: dict[str, Any]) -> None:
         self.timeline.append({"kind": "step", **row})

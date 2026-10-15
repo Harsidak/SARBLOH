@@ -1,7 +1,7 @@
 """Tool schemas the host offers the model.
 
 Two tools: ``ipython`` to think, compute and act (``observe()`` reads the state for free, ``await act([...])`` makes
-moves and writes the agent's plan, hypotheses, findings and goal), and ``recall`` to search memory and skills. Code and
+moves), and ``recall`` to search memory and skills. The agent writes its memory as text before the code. Code and
 moves share one tool so the agent can model the game, search its model and send the path in one call. The handlers live
 in ``harness.agent.agent.AgentSession`` (``act()`` is a host request answered by ``_tool_act``).
 """
@@ -16,19 +16,14 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 IPYTHON = _fn(
     "ipython",
-    "Your one tool for the game: run Python to read the board, model the game, search for a path and make the moves. "
-    "Variables, functions and imports stay for the whole game, across levels, so reuse your code and change it when "
-    "the game shows something new. `obs = observe()` gives the current state, read-only and free. "
-    "`await act([\"4\", \"4\", \"1\"], plan=...)` makes moves, each costing one move, and prints one change line "
-    "per move. The full reference is in your instructions under \"`ipython` in detail\" and \"`act()` in detail\".",
+    "Run Python: read the board with `observe()`, model the game and make moves with `await act([...])`. "
+    "See \"The `ipython` tool\" in your instructions.",
     {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
     ["code"])
 
 RECALL = _fn(
     "recall",
-    "Search your memory. It is free. Use it for your steps (\"#12\", "
-    "\"12-20\", \"level 1\", or words), your plan, goal, hypotheses and findings, lessons from other levels and "
-    "games, and skills.",
+    "Search your memory and skills. See \"`recall` in detail\" in your instructions.",
     {"query": {"type": "string", "description": "A step, a range, \"level N\", or words; \"\" for the latest."},
      "scope": {"type": "string", "enum": ["all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills"],
                "description": "Where to search. Default all."}},

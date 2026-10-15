@@ -30,6 +30,57 @@ def _evidence(raw: Any) -> list[int]:
     return sorted(set(out))
 
 
+_SECTION = re.compile(r"^\s*[#*_]*\s*(plan|hypothes[ie]s|findings?|goal)\s*[*_]*\s*:\s*[*_]*\s*(.*)$", re.IGNORECASE)
+_FENCE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_NEW = re.compile(r"^\s*new\s*[:.-]\s*", re.IGNORECASE)
+_EVIDENCE = re.compile(r"\s*[(\[]\s*(#\s*\d+(?:\s*,\s*#?\s*\d+)*)\s*[)\]]\s*$")
+
+
+def parse_memory_text(text: str) -> dict[str, Any]:
+    """The memory sections the agent writes in its reply before the code: "Plan:", "Hypotheses:", "Goal:" and
+    "Findings:", each on its own line, with one list item per line under Hypotheses and Findings. A blank line or a
+    code block ends a section; text outside the sections is ignored. Returns only the sections that were written:
+    {"plan": str, "goal": str, "hypotheses": [str], "findings": [str]}."""
+    found: dict[str, list[str]] = {}
+    key = None
+    for line in _FENCE.sub("\n\n", text or "").splitlines():
+        m = _SECTION.match(line)
+        if m:
+            key = m.group(1).lower()
+            key = "hypotheses" if key.startswith("hypothes") else "findings" if key.startswith("finding") else key
+            found.setdefault(key, [])
+            line = m.group(2)
+        elif key is None:
+            continue
+        elif not line.strip():
+            key = None
+            continue
+        item = _BULLET.sub("", line).strip()
+        if item and item.lower().strip(".") not in ("none", "(none)", "no change", "unchanged", "same"):
+            found[key].append(item)
+    out: dict[str, Any] = {}
+    for k, items in found.items():
+        if k in ("plan", "goal"):
+            if items:
+                out[k] = " ".join(items)
+        elif items:
+            out[k] = items
+    return out
+
+
+def hypothesis_from_line(line: str) -> Any:
+    """A hypothesis line from the reply as an item for ``update_hypotheses``: "new: text", "h2 refuted: text" or
+    "h2 verified", with optional step numbers at the end, as "(#12, #14)"."""
+    line = _NEW.sub("", line)
+    m = _EVIDENCE.search(line)
+    if not m:
+        return line
+    ev = _evidence(m.group(1))
+    item = parse_hypothesis(line[:m.start()])
+    return {**item, "evidence": ev}
+
+
 def parse_hypothesis(item: Any) -> dict[str, Any]:
     """{"id"?, "text", "status", "evidence"} from a dict or a string such as "h2 verified: A1 moves the block up"."""
     if isinstance(item, dict):
