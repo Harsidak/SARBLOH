@@ -49,7 +49,7 @@ DEFAULT: dict[str, Any] = {
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
         # (prompts.EARLY_LEVELS), "later" after. None sends nothing (the template's default).
-        "reasoning_effort": {"early": "low", "later": "medium"},
+        "reasoning_effort": {"early": "medium", "later": "medium"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
         "tool_output_chars": 5000,     # upstream: 65536 per stream; ours is cut to fit small context windows
@@ -58,9 +58,9 @@ DEFAULT: dict[str, Any] = {
         # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
         # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
-        # trigger_tokens sits 20k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
+        # trigger_tokens sits 30k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
         # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
-        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 100000,
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 90000,
                        "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
@@ -77,7 +77,7 @@ DEFAULT: dict[str, Any] = {
         # On: once an ipython call has run, its code is never sent back, the newest call's included. It becomes a
         # short note naming what it defined (the kernel still holds it; `show_source("name")` prints it), and the
         # system prompt says so. The thinking and the outputs stay. Off: every call keeps its code.
-        "hide_code": True,
+        "hide_code": False,
         # On: every level-up resets the context to the level-up message and the new level's full state (the whole
         # prompt is prefilled again). Off: both are appended and the old level stays until a drain.
         "level_up_reset": False,
@@ -90,7 +90,7 @@ DEFAULT: dict[str, Any] = {
             "image": True,             # the picture with every observation (only if "vision" is True)
             # Every picture stays in the prompt (prefix-stable); off: only the newest is sent, older ones become a
             # one-line stub, so each new picture makes the server prefill again from the previous one on.
-            "old_images": False,
+            "old_images": True,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": False,            # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": True,      # object list with ids, hashes, containment, adjacency

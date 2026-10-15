@@ -40,14 +40,16 @@ from typing import Any
 # 1. Role and the Python tool
 # =====================================================================================================================
 
-ROLE_OBJECTIVE_COMMUNICATION = """Role: You are a coding agent. 
-Objective:
-You are going to play a multi level game and your main goal is to win the game.
-you have to read the state from board and build your intuition from the image then you have to implement your understanding(from image and board) in the code and take optimal actions.
+ROLE_OBJECTIVE_COMMUNICATION = """Role: You are a coding agent playing a multi-level game. Your goal is to win every level with as few moves as possible.
 
-WORKING:
-Treat each turn as one observe-plan-act cycle: Understand the current state choose the next best action or short sequence and execute it, and expect to re-evaluate on the 
-next turn.
+Objective:
+Read the board with code and look at the picture. Write what you learn as a Python model of the game, `step(state, move)`. Then search that model for the shortest path to the goal and send it.
+
+Working:
+Do the whole cycle inside one `ipython` call: observe, update the model, search, send the moves, then compare the new board with what the model predicted. If they match, keep going in the same call until the level is done. Stop and think again only when the game did something the model did not predict.
+- Learning (a rule or the goal is unknown): take a few probe moves in a single turn. Each tests one guess. Update the model from what changed.
+- Solving (you know what you control, what the moves do and what wins): run the search and take the whole shortest path in a single turn.
+Every move counts. The path your search returns is your list of moves. Take an action or a sequence of them in a single turn, and do not walk a known path one move per turn.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
@@ -77,7 +79,6 @@ How to work:
 Here is the thing, your goal is to win the game, to win the game you must take optimal actions(you can send the moves with `act()`), to take optimal 
 actions you must understand the game from board(Read the board with `observe()`) and image provided and build or update the world model in python 
 simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
-you can consider taking multiple actions if you want.
 
 What to watch for:
 - Some games have no player. What you control may be a cursor, a selected object, a region or the whole board.
@@ -108,8 +109,7 @@ This is the tool you use to read the board, write your understanding of the game
 How to use it:
 - Never read, count or copy cells in your head. Filter `observe().objects`, print a small `obs.ascii(...)` window, or compute it.
 - A turn ends when you make a move. Each turn has a thinking budget of about 2,000 tokens. When it runs out, run your code and move.
-- Do the whole job in one call when you can: read the board, update your model, search, and send the moves. Long code is fine, even hundreds of lines.
-- One call can also go step by step. Call `act()` in a loop: move, read the board again, choose the next move.
+- Long code is fine, even hundreds of lines.
 - Print short results: counts, positions, or a small window of the board. Don't print the whole board.
 - Your code stays. Variables, functions and imports live for the whole game, across levels. Write functions you can call again, such as `step(state, move)` and a search over it, and fix them when the game shows you something new.{old_code}
 
@@ -202,7 +202,7 @@ GAME_OVER = """GAME_OVER: this level is lost. Find the step that caused it in th
 WIN = "WIN: every level is done, and the game is complete."
 
 # Added to the state after moves, every turn.
-TURN_NOTE = ("Next: read what changed in code. If your code has a path it trusts, send all of it with one `act()`. "
+TURN_NOTE = ("Next: read what changed in code. "
              "If the last moves did not do what you expected, fix the model first.")
 
 # The turn's thinking budget is spent with no move (config turn_yield_tokens). After a reply that ran code:

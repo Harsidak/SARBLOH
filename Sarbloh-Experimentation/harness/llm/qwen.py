@@ -6,8 +6,8 @@ vLLM 0.19 wheelhouse with prefix caching and a 65k window, first with one image 
 the game after every act), then text only if the image start or the image smoke test fails. The vision tower is in the
 checkpoint's config (checked 2026-10-01); image serving on vLLM 0.19 FP8 is UNCONFIRMED until the first Kaggle start.
 
-Flags: qwen3_coder tool parser, qwen3 reasoning parser. Sampling follows the Duck: thinking on, temperature 0.6 /
-top_p 0.95 / top_k 20. The serving bench (v3) measured ``qwen_fp8`` at 388 tok/s over 10 streams with a 0.63 prefix hit rate.
+Flags: qwen3_coder tool parser, qwen3 reasoning parser. Sampling: thinking on, temperature 1.0 /
+top_p 0.95 / top_k 20 (the model card's thinking mode). The serving bench (v3) measured ``qwen_fp8`` at 388 tok/s over 10 streams with a 0.63 prefix hit rate.
 
 The Flash-Next profiles (Keith Tyser's pinned runtime, ``qwen4_exp`` MoE) stay defined but are not in the chain:
 The serving bench (v4) killed ``qwen_flash_pc_64k`` (KV cache does not fit) and ``qwen_flash_pc`` (8.7% prefix hits), and the Flash-Next
@@ -155,7 +155,9 @@ SPEC = ModelSpec(
     profiles=PROFILES,
     # Qwen3.8-27B-FP8 with images, then the same without (a failed image start or image smoke test).
     profile_chain=["qwen_fp8_vision", "qwen_fp8"],
-    llm={"temperature": 0.6, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
+    # Qwen model card, thinking mode for general tasks: temperature 1.0, top_p 0.95, top_k 20 (min_p 0 is the server
+    # default). Its presence_penalty 1.5 is left out: the agent writes code, where repeated tokens are normal.
+    llm={"temperature": 1.0, "top_p": 0.95, "top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     smoke_template_kwargs={"enable_thinking": False},  # the Duck's smoke test: thinking could exhaust max_tokens
     runtimes={"flash_next": flash_next_runtime,
               "sglang": sglang.runtime(SGLANG_WHEELS, precache_datasets=(NVFP4,))},
