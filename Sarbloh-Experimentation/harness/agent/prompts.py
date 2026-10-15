@@ -19,8 +19,9 @@ level up) also get ``LEVEL_NOTE``. After a compaction the message is only "conti
 The system prompt is the API contract only. ``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED``, which includes ``act()``, +
 ``RECALL_DETAILED``) gives every argument, limit, refusal and return format, taken from ``tools.py``, ``agent.py``
 (``_tool_act``, ``_tool_recall``), ``runtime/skills/observation.py`` and ``agent/perception.py``. If those change,
-change these. The memory is not shown in the prompt (config ``memory.in_context``): the agent writes it with ``act()``
-and reads it with ``recall``.
+change these. The agent writes its memory as four variables in its kernel (GOAL, PLAN, HYPOTHESES, FINDINGS; the host
+saves them, ``AgentSession._read_memory``) and reads it with ``recall`` or in the [memory] block (config
+``memory.in_context``).
 
 Style (owner rule, 2026-10-02, tightened 2026-10-14): short, simple sentences written as instructions to a human. Say
 what to do, not how carefully to do it: no "do not rush", "take your time" or "investigate first", because every such
@@ -45,7 +46,7 @@ You are going to play a multi level game and your main goal is to win the game.
 you have to read the state from board and build your intuition from the image then you have to implement your understanding(from image and board) in the code and take optimal actions.
 
 Your world model:
-Keep a short world model of the game and update it every time the board shows you something new. It has five parts:
+Keep a world model of the game and update it whenever necessary. It has five parts:
 1. Objects: what is on the board, which object you control, which are walls, targets, keys or counters.
 2. Actions: what each move does to which object.
 3. Goal: what you think wins the level, written with objects (put the block on the target, match the colors).
@@ -109,6 +110,8 @@ IPYTHON_TOOL_DETAILED = """The `ipython` tool:
 This is the tool you use to read the board, write your understanding of the game as code, and make moves. You give it Python in its one argument, `code`. It runs the code and shows you what the code printed. Top-level `await` works.
 
 How to use it:
+- Never read, count or copy cells in your head. Filter `observe().objects`, print a small `obs.ascii(...)` window, or compute it.
+- A turn ends when you make a move. Each turn has a thinking budget of about 2,000 tokens. When it runs out, run your code and move.
 - Do the whole job in one call when you can: read the board, update your model, search, and send the moves. Long code is fine, even hundreds of lines.
 - One call can also go step by step. Call `act()` in a loop: move, read the board again, choose the next move.
 - Print short results: counts, positions, or a small window of the board. Don't print the whole board.
@@ -121,11 +124,11 @@ What you can call inside it:
    - `obs.ascii(r0, c0, r1, c1)`: a window of the board with row and column labels. Print it.
    - `obs.change`: the newest change line. `obs.history`: the last 20 steps, as dicts with `i`, `level`, `action`, `change` and `state`.
    - `obs.briefing`, `obs.step`, `obs.status`, `obs.background` and `obs.legend`.
-2. `r = await act(actions, plan=None, hypotheses=None, findings=None, goal=None, quiet=False)` makes moves in the game. Every move counts.
+2. `r = await act(actions, quiet=False)` makes moves in the game. Every move counts.
    - `actions` is a list of 1 to {act_max} moves, made in order: "1" to "5", "7", "6 r c" (row first, for example "6 12 40") and "reset". A tuple (6, r, c) works too. For example ["1", "1", "4"] or ["6 12 40"].
-   - `plan`, `hypotheses`, `findings` and `goal` are optional memory writes, explained under "Your memory".
    - Do not forget `await`: without it nothing happens.
-   - Only the legal moves in the status line work. The whole call is refused before any move, with nothing spent, if there are more than {act_max} moves, if a move is not legal or cannot be read, or if a hypothesis is malformed. The refusal is a `RuntimeError` in your code. Fix it and call again.
+   - "reset" costs a move and throws away the level's progress. Use it after GAME_OVER or when the level is stuck.
+   - Only the legal moves in the status line work. The whole call is refused before any move, with nothing spent, if there are more than {act_max} moves or if a move is not legal or cannot be read. The refusal is a `RuntimeError` in your code. Fix it and call again.
    - The moves stop early at a level up, at GAME_OVER, or when the game ends. After a level up `act()` refuses for the rest of that call, so you see the new level first.
    - It prints `act: 3 of 3 actions done` (plus `; stopped: <reason>`) and one change line per move. A click is written `A6(r12,c40)`, and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
    - It returns `r` with `r.lines`, `r.done`, `r.stopped`, `r.level_up` and `r.state`. Call `observe()` after it to compare the board with your model.
@@ -150,27 +153,29 @@ you can access these in detail by using the `recall` tool, scope "skills", and s
 RECALL_DETAILED = """`recall` in detail:
 - `query` (required): "#12" (one step), "12-20" (a range), "level 1", or words such as "red block". "" gives the latest.
 - `scope` (optional, default "all"): "timeline" (your steps), "plan", "hypotheses", "findings", "goal", "lessons" (from earlier levels and games), "skills", or "all".
+- Scope "skills" or "lessons" gives advice from earlier levels and games.
 Long results are cut, so ask for something narrow."""
 
 TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, RECALL_DETAILED])
 
 MEMORY = """Your memory:
-{memory_where} Old messages are removed from time to time. The memory arguments of `act()` are optional: write only what you would need after that, in a few words.
-- `plan`: your next steps and why, in one or two sentences. It replaces the old plan.
-- `hypotheses`: rules you think the game follows. A new one needs `text`, the rule written concretely (objects, directions, counts), and gets an id such as "h3". To change one, give its `id`, for example {{"id": "h2", "status": "refuted", "evidence": [14]}}. Give step numbers in `evidence`.
-- `findings`: facts about this level, one short sentence each.
-- `goal`: what you think wins the level.
-At a level up, your verified hypotheses and findings become lessons and skills, your goal is kept, and the rest is cleared."""
+Your earlier thinking and tool outputs stay in the messages, and old messages are removed from time to time. {memory_where}
+Your memory is four variables in your `ipython` kernel. Change them in your code when they change, and they are saved after every call and before every `act()`:
+- `GOAL`: text, what you think wins the level.
+- `PLAN`: text, your next steps and why, in one or two sentences.
+- `HYPOTHESES`: a dict from a rule, written concretely (objects, directions, counts), to "open", "verified" or "refuted". For example `HYPOTHESES["1 moves obj 4 up by 5 cells"] = "verified"`.
+- `FINDINGS`: a list of facts about this level, one short text each.
+The tool output says what was saved. At a level up, your verified hypotheses and findings become lessons and skills, `GOAL` is kept, and `PLAN`, `HYPOTHESES` and `FINDINGS` are emptied."""
 
-MEMORY_HIDDEN = "Your memory is not shown to you. Write to it with `act()`, and read it with `recall` when you need it."
-MEMORY_SHOWN = ("A [memory] block shows what you wrote with `act()`, and a [memory update] shows the parts that "
-                "changed. `recall` searches it too.")
+MEMORY_HIDDEN = "Print the variables, or use `recall`, when you need your memory."
+MEMORY_SHOWN = ("A [memory] block shows your plan, hypotheses, goal and findings, and a [memory update] shows the parts "
+                "that changed. `recall` searches them too.")
 
-RULES = """Rules:
-- Never read, count or copy cells in your head. Use `ipython`: filter `observe().objects`, print a small `obs.ascii(...)` window, or compute it.
-- A turn ends when you make a move. Each turn has a thinking budget of about 2,000 tokens. When it runs out, run your code and move.
-- "reset" costs a move and throws away the level's progress. Use it after GAME_OVER or when the level is stuck.
-- `recall` with scope "skills" or "lessons" gives advice from earlier levels and games."""
+OLD_CODE = (" All the code you write lives in your ipython kernel, and it is not shown back to you: once a call has "
+            "run, its code is replaced by a note listing what it defined. Those names are still in the kernel, so call "
+            "them directly. Start every function and class with a one-line docstring saying what it does and what it "
+            "returns: the note keeps that line, so later you know what each one does without reading its code. "
+            "`show_source(\"name\")` prints the full code of one when you need to change it.")
 
 ENVIRONMENT = """Python packages: numpy. `observe` and `act` are already imported. The working directory of `ipython` is your own folder for this game."""
 
@@ -208,16 +213,13 @@ TURN_NOTE = ("Next: read what changed in code. If your code has a path it trusts
 ACT_NOW = ("Your thinking budget for this turn is spent and you have not moved. Your tool results above are still "
            "valid, so do not start over. Send your moves now with `await act([...])`.")
 # After a reply that called no tool (or was cut off at the length limit):
-CALL_TOOL_NOW = ("You spent this turn's thinking budget without calling a tool. Stop thinking and call `ipython` now: "
-                 "run your code and send your moves with `await act([...])`.")
+CALL_TOOL_NOW = ("You spent this turn's thinking budget without calling a tool. you can use the tools provided")
 
 COMPACTED = "continue"
 
-ACT_TOO_MANY = ("You sent {sent} moves, but one `act()` takes at most {act_max}. Nothing was run and no move was "
-                "spent. Send them in calls of at most {act_max}.")
+ACT_TOO_MANY = ("You sent {sent} moves, but one `act()` takes at most {act_max}. Nothing was run")
 
-ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal} (and "
-               "\"reset\").")
+ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal}")
 
 ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like `await act([\"1\", \"4\"])` "
                 "or `await act([\"6 12 40\"])`.")
@@ -236,14 +238,13 @@ SNIPPETS: dict[str, str] = {
     "READING_THE_STATE": READING_THE_STATE,
     "TOOLS_DETAILED": TOOLS_DETAILED,
     "MEMORY": MEMORY,
-    "RULES": RULES,
     "ENVIRONMENT": ENVIRONMENT,
 }
 
 # The system prompt carries only the contract the agent cannot discover: the game, how to read the state, the tools,
-# the memory, the rules and the environment. Advice on how to play is in the skills (``harness/agent/skills/*.md``),
+# the memory and the environment. Advice on how to play is in the skills (``harness/agent/skills/*.md``),
 # which the agent reads with `recall`.
-SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "READING_THE_STATE", "TOOLS_DETAILED", "MEMORY", "RULES", "ENVIRONMENT"]
+SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "READING_THE_STATE", "TOOLS_DETAILED", "MEMORY", "ENVIRONMENT"]
 
 # The message per situation.
 EVENT_SNIPPETS: dict[str, str] = {
@@ -302,12 +303,12 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 # 5. Interface used by agent.py and run.py
 # =====================================================================================================================
 
-def game_system(*, act_max: int, vision: bool = True, old_code_stubbed: bool = False, board_text: bool = False,
+def game_system(*, act_max: int, vision: bool = True, code_hidden: bool = False, board_text: bool = False,
                 memory_shown: bool = False, **_: Any) -> str:
     """The system prompt (tools ipython with act(), recall), the same for every game. ``vision`` says whether pictures are
     sent; ``board_text`` whether the messages carry the board as letters (config ``perception.ascii``);
     ``memory_shown`` whether a [memory] block is in the messages (config ``memory.in_context``);
-    ``old_code_stubbed`` adds the note that old calls' code is replaced (config ``stub_old_code``). Other arguments
+    ``code_hidden`` adds the note that code is replaced once it has run (config ``hide_code``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
     pictures = {"picture_after": ", and a picture of the whole board", "picture_start": ", and the picture",
                 "picture_ids": " and on the picture", "picture_help": PICTURE_HELP} if vision else \
@@ -318,8 +319,7 @@ def game_system(*, act_max: int, vision: bool = True, old_code_stubbed: bool = F
          "board_note": "The board itself is not written in the messages. Read cells in code: `observe().board`, "
                        "`obs.objects` or a small `obs.ascii(...)` window.\n"}
     memory = MEMORY_SHOWN if memory_shown else MEMORY_HIDDEN
-    old_code = (" Only your newest call is shown with its code. Older calls show a short note naming what they defined, "
-                "and those names still work.") if old_code_stubbed else ""
+    old_code = OLD_CODE if code_hidden else ""
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, old_code=old_code,
                            memory_where=memory, **pictures, **board)
 

@@ -12,10 +12,10 @@ chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, 
   included, so the agent carries on mid-thought; before them the old boards become one-line stubs, the ipython outputs
   are cut short, act results become a short move log (one cut line per step), and the thinking, the old pictures and
   the memory messages go; a full memory goes back in. If that is not enough, the history is trimmed;
-- with ``stub_old_code`` on (an experiment), when a new reply arrives the code of every older ipython call longer than
-  a few lines becomes a short note (``code_note``: the names it defined; the code itself is still in the kernel). Only
-  the newest call's code is sent in full. This changes the reply before the newest one, so the server prefills about
-  one turn again, not the whole prompt.
+- with ``hide_code`` on (the default), each reply's ipython code becomes a short note as soon as the reply is stored
+  (``code_note``: the names it defined; the code itself is still in the kernel), so no code is ever sent back, the
+  newest call's included. The thinking and the outputs stay. The note is stored before any request, so the prompt
+  stays a prefix of the next one.
 
 The old builder (``append_only`` off): the memory is built once per user message and joined to the front of the newest
 one; only the newest image is kept (older image parts become a one-line text stub); thinking is sent back only within
@@ -254,11 +254,29 @@ def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return f"{node.name}({sig if len(sig) <= 60 else sig[:57] + '...'})"
 
 
+def _described(node: ast.AST, name: str, src: list[str]) -> str:
+    """``name`` plus what the agent wrote about it: the first line of its docstring, else the comment lines just
+    above it (above its decorators)."""
+    text = (ast.get_docstring(node) or "").strip().splitlines()[:1]
+    if not text:
+        i = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])]) - 2
+        above = []
+        while i >= 0 and src[i].strip().startswith("#"):
+            above.insert(0, src[i].strip().lstrip("#").strip())
+            i -= 1
+        text = [" ".join(a for a in above if a)]
+    about = text[0] if text and text[0] else ""
+    if len(about) > 120:
+        about = about[:117] + "..."
+    return f"{name}: {about}" if about else name
+
+
 def code_note(code: str) -> str:
-    """The note that stands in for an old ipython call's code: its size, the names it defined at the top level
-    (functions with their arguments, classes, variables) and how to read the code again from the kernel. It is
-    Python comments, so the call still reads as code."""
-    lines = len(code.splitlines())
+    """The note that stands in for an ipython call's code: its size, the names it defined at the top level
+    (functions with their arguments and classes, each with its docstring or the comment above it, and variables)
+    and how to read the code again from the kernel. It is Python comments, so the call still reads as code."""
+    src = code.splitlines()
+    lines = len(src)
     defs, classes, values = [], [], []
     try:
         tree = ast.parse(code)
@@ -266,32 +284,34 @@ def code_note(code: str) -> str:
         tree = None
     for node in (tree.body if tree is not None else []):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            defs.append(_signature(node))
+            defs.append(_described(node, _signature(node), src))
         elif isinstance(node, ast.ClassDef):
-            classes.append(node.name)
+            classes.append(_described(node, node.name, src))
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for t in targets:
                 for n in ast.walk(t):
                     if isinstance(n, ast.Name) and n.id not in values and not n.id.startswith("_"):
                         values.append(n.id)
-    out = [f"# [code removed to save space: this call ran {lines} lines; the output below is what it printed]"]
+    out = [f"# [All the code you write lives in your ipython kernel. This call's code ({lines} lines) ran there and "
+           "is not shown again; the output below is what it printed.]"]
     if tree is None:
         out.append("# it did not parse, so it defined nothing")
     if defs:
-        out.append("# defined functions: " + ", ".join(defs))
+        out += ["# defined functions:"] + [f"#   {d}" for d in defs]
     if classes:
-        out.append("# defined classes: " + ", ".join(classes))
+        out += ["# defined classes:"] + [f"#   {c}" for c in classes]
     if values:
         out.append("# set variables: " + ", ".join(values[:30]) + (" ..." if len(values) > 30 else ""))
     if defs or classes or values:
-        out.append('# They are all still in your kernel. show_source("name") prints the current code of one.')
+        out.append('# They are all still in your kernel: call them as they are, no import needed. '
+                   'show_source("name") prints the current code of one.')
     return "\n".join(out)
 
 
-def stub_code(m: dict[str, Any], min_lines: int) -> dict[str, Any] | None:
-    """An old reply with the code of each ipython call of more than ``min_lines`` lines replaced by ``code_note``;
-    None when nothing changes. Short calls (an act, a quick check) stay as they are."""
+def stub_code(m: dict[str, Any]) -> dict[str, Any] | None:
+    """A reply with the code of each ipython call replaced by ``code_note``; None when it has no ipython code.
+    Other tools stay as they are."""
     calls, changed = [], False
     for tc in m.get("tool_calls") or []:
         fn = tc.get("function") or {}
@@ -300,7 +320,7 @@ def stub_code(m: dict[str, Any], min_lines: int) -> dict[str, Any] | None:
         except ValueError:
             args = None
         code = args.get("code") if isinstance(args, dict) and fn.get("name") == "ipython" else None
-        if isinstance(code, str) and len(code.splitlines()) > min_lines:
+        if isinstance(code, str):
             tc = {**tc, "function": {**fn, "arguments": json.dumps({**args, "code": code_note(code)})}}
             changed = True
         calls.append(tc)

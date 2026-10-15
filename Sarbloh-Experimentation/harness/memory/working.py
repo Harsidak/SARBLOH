@@ -1,6 +1,7 @@
 """The agent's working memory: #2 plan, #3 hypotheses, #5 open questions, #6 findings, #7 goal.
 
-The agent writes plan, hypotheses, findings and goal through ``act()`` in the REPL; the curator writes the open questions.
+The agent writes plan, hypotheses, findings and goal as four variables in its kernel (``KERNEL_VARS``); the host
+copies them here after every ipython call and before every ``act()`` (``sync``). The curator writes the open questions.
 The host checks the shape of what is written and judges nothing: a hypothesis is "verified" because the agent says so.
 Every block is rendered under its token cap (chars / 4); a block over its cap loses its oldest lines, which stay in
 the file and in ``recall``.
@@ -15,6 +16,9 @@ from typing import Any
 from harness.memory.store import clip, fit_lines, read_json, write_json
 
 STATUSES = ("proposed", "verified", "refuted")
+KERNEL_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")   # the memory variables in the agent's kernel
+# A hypothesis status as the agent writes it in HYPOTHESES -> as stored ("open" is shown for "proposed").
+_KERNEL_STATUS = {"open": "proposed", "proposed": "proposed", "verified": "verified", "refuted": "refuted"}
 _HYP_STR = re.compile(r"^\s*(?:(h\d+)\b[\s:.-]*)?(?:\[?(proposed|verified|refuted)\]?\b[\s:.-]*)?(.*)$", re.IGNORECASE | re.DOTALL)
 
 
@@ -28,57 +32,6 @@ def _evidence(raw: Any) -> list[int]:
         for n in re.findall(r"\d+", str(x)):
             out.append(int(n))
     return sorted(set(out))
-
-
-_SECTION = re.compile(r"^\s*[#*_]*\s*(plan|hypothes[ie]s|findings?|goal)\s*[*_]*\s*:\s*[*_]*\s*(.*)$", re.IGNORECASE)
-_FENCE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
-_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
-_NEW = re.compile(r"^\s*new\s*[:.-]\s*", re.IGNORECASE)
-_EVIDENCE = re.compile(r"\s*[(\[]\s*(#\s*\d+(?:\s*,\s*#?\s*\d+)*)\s*[)\]]\s*$")
-
-
-def parse_memory_text(text: str) -> dict[str, Any]:
-    """The memory sections the agent writes in its reply before the code: "Plan:", "Hypotheses:", "Goal:" and
-    "Findings:", each on its own line, with one list item per line under Hypotheses and Findings. A blank line or a
-    code block ends a section; text outside the sections is ignored. Returns only the sections that were written:
-    {"plan": str, "goal": str, "hypotheses": [str], "findings": [str]}."""
-    found: dict[str, list[str]] = {}
-    key = None
-    for line in _FENCE.sub("\n\n", text or "").splitlines():
-        m = _SECTION.match(line)
-        if m:
-            key = m.group(1).lower()
-            key = "hypotheses" if key.startswith("hypothes") else "findings" if key.startswith("finding") else key
-            found.setdefault(key, [])
-            line = m.group(2)
-        elif key is None:
-            continue
-        elif not line.strip():
-            key = None
-            continue
-        item = _BULLET.sub("", line).strip()
-        if item and item.lower().strip(".") not in ("none", "(none)", "no change", "unchanged", "same"):
-            found[key].append(item)
-    out: dict[str, Any] = {}
-    for k, items in found.items():
-        if k in ("plan", "goal"):
-            if items:
-                out[k] = " ".join(items)
-        elif items:
-            out[k] = items
-    return out
-
-
-def hypothesis_from_line(line: str) -> Any:
-    """A hypothesis line from the reply as an item for ``update_hypotheses``: "new: text", "h2 refuted: text" or
-    "h2 verified", with optional step numbers at the end, as "(#12, #14)"."""
-    line = _NEW.sub("", line)
-    m = _EVIDENCE.search(line)
-    if not m:
-        return line
-    ev = _evidence(m.group(1))
-    item = parse_hypothesis(line[:m.start()])
-    return {**item, "evidence": ev}
 
 
 def parse_hypothesis(item: Any) -> dict[str, Any]:
@@ -175,6 +128,91 @@ class WorkingMemory:
             added.append(f)
         return added
 
+    def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
+        """Copies the kernel's memory variables (``KERNEL_VARS``; a missing one is left alone): GOAL and PLAN are text,
+        HYPOTHESES a dict {rule: "open" | "verified" | "refuted"} (a list counts as all "open"), FINDINGS a list of
+        text. Memory mirrors them: what the agent deleted there is deleted here. A value of the wrong type is not
+        copied and is named in ``errors``. Returns what changed: ``plan`` and ``goal`` (the new text, or None),
+        ``hypotheses`` (one event per new or changed one), ``findings`` (added), ``removed`` (texts), ``errors``."""
+        out: dict[str, Any] = {"plan": None, "goal": None, "hypotheses": [], "findings": [], "removed": [],
+                               "errors": []}
+        for name, attr in (("PLAN", "plan"), ("GOAL", "goal")):
+            if name not in values:
+                continue
+            v = "" if values[name] is None else values[name]
+            if not isinstance(v, str):
+                out["errors"].append(f"{name} must be text, not {type(v).__name__}")
+            elif v.strip() != getattr(self, attr):
+                setattr(self, attr, v.strip())
+                out[attr] = v.strip()
+        if "HYPOTHESES" in values:
+            v = values["HYPOTHESES"]
+            if isinstance(v, list):
+                v = {x: "open" for x in v}
+            if not isinstance(v, dict):
+                out["errors"].append(f"HYPOTHESES must be a dict {{rule: status}}, not {type(v).__name__}")
+            else:
+                self._sync_hypotheses(v, out, turn=turn, level=level)
+        if "FINDINGS" in values:
+            v = values["FINDINGS"]
+            if isinstance(v, str):
+                v = [v]
+            if not isinstance(v, list):
+                out["errors"].append(f"FINDINGS must be a list of text, not {type(v).__name__}")
+            else:
+                old = {f["text"].lower(): f for f in self.findings}
+                kept: list[dict[str, Any]] = []
+                for x in v:
+                    text = str(x).strip()
+                    if not text or any(f["text"].lower() == text.lower() for f in kept):
+                        continue
+                    f = old.get(text.lower())
+                    if f is None:
+                        f = {"text": text, "evidence": [], "level": level, "turn": turn}
+                        out["findings"].append(f)
+                    kept.append(f)
+                out["removed"] += [f["text"] for f in self.findings if f not in kept]
+                self.findings = kept
+        return out
+
+    def _sync_hypotheses(self, rules: dict[Any, Any], out: dict[str, Any], *, turn: int, level: int) -> None:
+        old = {h["text"].lower(): h for h in self.hypotheses}
+        kept: list[dict[str, Any]] = []
+        for text, status in rules.items():
+            text = str(text).strip()
+            if not text or any(h["text"].lower() == text.lower() for h in kept):
+                continue
+            word = (str(status or "open").strip().lower().split() or ["open"])[0].strip(":,.;")
+            st = _KERNEL_STATUS.get(word)
+            h = old.get(text.lower())
+            if st is None:
+                out["errors"].append(f'HYPOTHESES[{text[:40]!r}] is {str(status)[:20]!r}: use "open", "verified" '
+                                     f'or "refuted"')
+                if h is not None:
+                    kept.append(h)
+                continue
+            if h is None:
+                h = {"id": f"h{self.next_h}", "text": text, "status": st, "evidence": [], "level": level, "turn": turn,
+                     "history": [[turn, st]]}
+                self.next_h += 1
+                out["hypotheses"].append({**{k: h[k] for k in ("id", "text", "status", "evidence")},
+                                          "prev_status": None})
+            elif h["status"] != st:
+                prev, h["status"] = h["status"], st
+                h["history"].append([turn, st])
+                out["hypotheses"].append({**{k: h[k] for k in ("id", "text", "status", "evidence")},
+                                          "prev_status": prev})
+            kept.append(h)
+        out["removed"] += [h["text"] for h in self.hypotheses if h not in kept]
+        self.hypotheses = kept
+
+    def kernel_values(self) -> dict[str, Any]:
+        """The memory as the kernel variables hold it (to put them back after a kernel restart)."""
+        shown = {v: k for k, v in _KERNEL_STATUS.items() if k != "proposed"}
+        return {"GOAL": self.goal, "PLAN": self.plan,
+                "HYPOTHESES": {h["text"]: shown.get(h["status"], h["status"]) for h in self.hypotheses},
+                "FINDINGS": [f["text"] for f in self.findings]}
+
     def set_goal(self, text: str) -> bool:
         text = str(text or "").strip()
         if not text or text == self.goal:
@@ -204,7 +242,8 @@ class WorkingMemory:
     # --- reads ---------------------------------------------------------------------------------------------
     def hyp_line(self, h: dict[str, Any]) -> str:
         ev = f" (evidence {', '.join('#' + str(e) for e in h['evidence'][:8])})" if h.get("evidence") else ""
-        return f"{h['id']} [{h['status']}] {h['text']}{ev}"
+        status = "open" if h["status"] == "proposed" else h["status"]   # the word the agent writes
+        return f"{h['id']} [{status}] {h['text']}{ev}"
 
     def blocks(self) -> dict[str, str]:
         """Rendered blocks under their caps; empty blocks are ""."""

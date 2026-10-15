@@ -71,12 +71,10 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 4000,
-        # Off: every ipython call keeps its code, so the prompt stays a prefix of the next one. On: only the newest
-        # call's code is sent in full; each older call longer than stub_code_min_lines becomes a short note naming
-        # what it defined (the kernel still holds it; `show_source("name")` prints it), and the system prompt says so.
-        # On costs one turn of re-prefill per request (the reply before the newest one changes).
-        "stub_old_code": False,
-        "stub_code_min_lines": 20,
+        # On: once an ipython call has run, its code is never sent back, the newest call's included. It becomes a
+        # short note naming what it defined (the kernel still holds it; `show_source("name")` prints it), and the
+        # system prompt says so. The thinking and the outputs stay. Off: every call keeps its code.
+        "hide_code": True,
         "max_consecutive_llm_failures": 6,
         "limits": {"max_turns": 400, "max_output_tokens": 3_000_000},
         "vision": False,               # set by run.py: True when the served profile passed the image smoke test

@@ -2,7 +2,7 @@
 
 The runtime keeps every cell's code in ``linecache`` under ``<cell-N>`` (``rlm/repl.py``), so ``inspect.getsource``
 works for functions and classes; for a variable (or anything else) the newest cell that assigned the name is searched.
-Used when old calls' code is replaced by a short note in the context (config ``stub_old_code``).
+Used when ipython code is replaced by a short note in the context (config ``hide_code``).
 """
 
 from __future__ import annotations

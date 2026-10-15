@@ -138,7 +138,6 @@ class AgentSession:
         self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
         self._pinned_chars = 0
-        self._turn_plan: str | None = None   # the plan written in this reply's text, for the act record
         self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
         # Append-only context: the memory is a stored message; these track the sections as last shown.
@@ -150,9 +149,8 @@ class AgentSession:
         self._turn_tokens = 0
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
-        # Old code out of the context (config stub_old_code): only the newest ipython call's code is sent in full.
-        self.stub_old_code = bool(cfg.get("stub_old_code", False))
-        self.stub_code_min_lines = int(cfg.get("stub_code_min_lines", 20))
+        # Code out of the context (config hide_code): every ipython call's code becomes a note once it has run.
+        self.hide_code = bool(cfg.get("hide_code", True))
         self.memory = GameMemory(memory_root or (session_dir / "memory"), arc.game.game_id, cfg.get("memory") or {})
         arc.on_step = lambda ev: self._log_event(ev)
 
@@ -263,19 +261,17 @@ class AgentSession:
             self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                          finish=reply.finish_reason, turn=self.stats["turns"], **trace)
             if native:
-                self._stub_old_code()
+                self._hide_code()
             # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
             # while it is still sent (until the next user message), so completion_tokens would overcount.
             self._usage_tokens = reply.prompt_tokens
             self._usage_at = len(self.messages) - 1
 
-            # 5) The memory sections written before the code (Plan:, Hypotheses:, Goal:, Findings:), then the tool calls
-            mem_note = self._write_memory(reply.content or "", calls[0]["raw"]["id"] if calls and calls[0]["native"]
-                                          else f"reply-t{self.stats['turns']}", self.stats["turns"])
+            # 5) The tool calls (each ipython call saves the memory variables of the kernel)
             if calls:
                 moves = self.stats["act_actions"]
-                for n, call in enumerate(calls):
-                    self._run_call(call, reply, mem_note if n == 0 else "")
+                for call in calls:
+                    self._run_call(call, reply)
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._push(self._pending_obs)
@@ -324,17 +320,18 @@ class AgentSession:
         if callable(give):
             give()
 
-    def _stub_old_code(self) -> None:
-        """Config ``stub_old_code``: a new reply with tool calls just came, so every older reply's long ipython code
-        becomes a short note (``context.stub_code``); the kernel still holds what it defined (``show_source``). Each
-        change is logged, so the trace can rebuild the requests."""
-        if not self.stub_old_code:
+    def _hide_code(self) -> None:
+        """Config ``hide_code``: a new reply with tool calls was just stored, so its ipython code (the calls run from
+        ``calls``, parsed before) becomes a short note (``context.stub_code``) before any request sends it back; the
+        kernel still holds what it defined (``show_source``). The newest reply is the only one still to change, so
+        the prompt stays a prefix of the next one. Each change is logged, so the trace can rebuild the requests."""
+        if not self.hide_code:
             return
-        for i in range(len(self.messages) - 2, -1, -1):
+        for i in range(len(self.messages) - 1, -1, -1):
             m = self.messages[i]
             if m["role"] != "assistant" or not m.get("tool_calls") or m.get("_code_stubbed"):
                 continue
-            new = context.stub_code(m, self.stub_code_min_lines)
+            new = context.stub_code(m)
             if new is None:
                 continue
             self.messages[i] = new
@@ -472,7 +469,7 @@ class AgentSession:
                      "error": None}]
         return []
 
-    def _run_call(self, call: dict[str, Any], reply: Any = None, mem_note: str = "") -> None:
+    def _run_call(self, call: dict[str, Any], reply: Any = None) -> None:
         self.stats["tool_calls"] += 1
         counts = self.stats["tool_counts"]
         counts[call["name"]] = counts.get(call["name"], 0) + 1
@@ -499,11 +496,12 @@ class AgentSession:
                                  "error": str(exc)[:500], "args": call["args"]})
         else:
             timeout = max(10.0, min(self.cfg["cell_timeout_s"], self.deadline - time.time()))
-            self._cell = {"call_id": call_id, "turn": turn, "reply": reply, "acts": [], "closed": None}
+            self._cell = {"call_id": call_id, "turn": turn, "reply": reply, "acts": [], "closed": None, "memory": []}
             try:
                 res = self.kernel.execute(call["code"], timeout_s=timeout)
             finally:
                 cell, self._cell = self._cell, None
+            self._read_memory(cell)
             if res.status != "ok":
                 self.stats["cell_errors"] += 1
                 failed = True
@@ -513,8 +511,7 @@ class AgentSession:
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
                              "acts": len(cell["acts"])})
-        if mem_note:
-            text += "\n" + mem_note
+            text += self._memory_receipt(cell["memory"])
         text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
         if call["native"]:
             msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
@@ -790,9 +787,9 @@ class AgentSession:
                                              new_skills=new_skills, **self._left()))
         if s.engine_state.name == "GAME_OVER":
             out.append(prompts.event_message("game_over", **self._left()))
-        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": self._turn_plan,
+        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": mem.working.plan or None,
                         "stop": stop})
-        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": self._turn_plan,
+        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": mem.working.plan or None,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
                          "actions": [start, arc.game.action_count]})
         self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
@@ -812,16 +809,51 @@ class AgentSession:
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
             self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
 
-    def _write_memory(self, text: str, call_id: str, turn: int) -> str:
-        """Writes the memory sections of the reply text before its code runs. Never refuses anything: lines it cannot
-        read are skipped and named in the returned note, which goes under the tool output ("" when all went in)."""
-        wrote = self.memory.write_text(text, turn=turn, level=self.arc.game.state.levels_completed)
-        self._turn_plan = wrote["plan"]
+    def _read_memory(self, cell: dict[str, Any]) -> None:
+        """After an ipython call: copies the kernel's memory variables into memory (the cell's ``memory`` notes get what
+        changed). A variable the kernel lost (a restart) or the agent deleted is put back from memory."""
+        try:
+            values = self.kernel.memory_values()
+        except Exception as exc:  # noqa: BLE001 - reading the memory must never fail a call
+            values = None
+            self._log_event({"event": "memory_read_error", "error": repr(exc)[:300]})
+        if values is None:
+            return
+        self._sync_memory(values, cell)
+        lost = {k: v for k, v in self.memory.working.kernel_values().items() if k not in values}
+        if lost:
+            self.kernel.set_memory(lost)
+            self._log_event({"event": "memory_restored", "names": sorted(lost)})
+
+    def _sync_memory(self, values: Any, cell: dict[str, Any]) -> None:
+        """The memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS) into memory. Never refuses: a value of the wrong type
+        is kept out and named in the cell's notes."""
+        call_id, turn = cell["call_id"], cell["turn"]
+        wrote = self.memory.sync(values if isinstance(values, dict) else {}, turn=turn,
+                                 level=self.arc.game.state.levels_completed)
         self._log_memory(wrote, call_id, turn)
-        if not wrote["skipped"]:
-            return ""
-        self._log_event({"event": "memory_skipped", "turn": turn, "call": call_id, "lines": wrote["skipped"]})
-        return "[memory: skipped " + "; ".join(wrote["skipped"]) + "]"
+        saved = [k for k in ("plan", "goal") if wrote[k] is not None]
+        for h in wrote["hypotheses"]:
+            saved.append(f"{h['id']} " + ("new" if h["prev_status"] is None else
+                                          "open" if h["status"] == "proposed" else h["status"]))
+        if wrote["findings"]:
+            saved.append(f"{len(wrote['findings'])} finding{'s' if len(wrote['findings']) > 1 else ''} added")
+        if wrote["removed"]:
+            saved.append(f"{len(wrote['removed'])} removed")
+            self._log_event({"event": "memory_removed", "turn": turn, "call": call_id, "texts": wrote["removed"]})
+        if wrote["errors"]:
+            self._log_event({"event": "memory_error", "turn": turn, "call": call_id, "errors": wrote["errors"]})
+        cell["memory"].append((saved, wrote["errors"]))
+
+    @staticmethod
+    def _memory_receipt(notes: list[tuple[list[str], list[str]]]) -> str:
+        """A line naming what the call saved to memory and one naming what it could not save ("" for neither)."""
+        saved = [x for done, _ in notes for x in done]
+        errors = list(dict.fromkeys(e for _, errs in notes for e in errs))
+        text = f"\n[memory saved: {', '.join(saved)}]" if saved else ""
+        if errors:
+            text += f"\n[memory not saved: {'; '.join(errors)}. The old value is kept.]"
+        return text
 
     def _log_memory(self, wrote: dict[str, Any], call_id: str, turn: int) -> None:
         level = self.arc.game.state.levels_completed
@@ -881,7 +913,7 @@ class AgentSession:
             self._system = prompts.game_system(game_id=self.arc.game.game_id, win_levels=self.arc.game.number_of_levels,
                                                act_max=int(self.cfg.get("act_max_actions", 5)),
                                                cwd=str(self.kernel.session_dir), vision=self.vision,
-                                               old_code_stubbed=self.stub_old_code,
+                                               code_hidden=self.hide_code,
                                                board_text=bool(self.perception.get("ascii", True)),
                                                memory_shown=self.append_only and self.memory_in_context)
         return self._system
@@ -1098,6 +1130,9 @@ class AgentSession:
         cell = self._cell
         if cell is None:
             raise RuntimeError("act() works only inside an ipython call")
+        args = dict(args)
+        if "memory" in args:   # the memory variables, saved before the moves run
+            self._sync_memory(args.pop("memory"), cell)
         if cell["closed"]:
             raise RuntimeError(f"not run, nothing spent: {cell['closed']} in this cell already. Read the new state "
                                "in your next reply before you move again.")

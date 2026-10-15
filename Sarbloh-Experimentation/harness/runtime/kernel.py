@@ -44,11 +44,17 @@ except Exception:
 from observation import observe   # the state, read-only and free
 from acting import act            # `await act([...])` makes moves; each costs one move
 from source import show_source    # the code of a name defined in an earlier cell
+from acting import memory_values as _memory_values
 class _NoArc:
     def __getattr__(self, name):
         raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
                            "and make moves with `await act([...])`.")
 arc = _NoArc()
+# The agent's memory: it changes these in its code; the host copies them after every call and before every act().
+GOAL = ""
+PLAN = ""
+HYPOTHESES = {}
+FINDINGS = []
 _BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
 """
 
@@ -264,6 +270,23 @@ class Kernel:
         except (ValueError, IndexError):
             return None
         return names if isinstance(names, dict) else None
+
+    def memory_values(self, timeout_s: float = 30.0) -> dict[str, Any] | None:
+        """The memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS) as JSON values; a deleted one is missing. None when
+        the kernel cannot tell."""
+        if not self.alive():
+            return None
+        res = self.execute("print(json.dumps(_memory_values()))", timeout_s=timeout_s)
+        try:
+            values = json.loads(res.stdout.strip().splitlines()[-1]) if res.status == "ok" else None
+        except (ValueError, IndexError):
+            return None
+        return values if isinstance(values, dict) else None
+
+    def set_memory(self, values: dict[str, Any], timeout_s: float = 30.0) -> bool:
+        """Puts memory variables back (after a restart lost them, or when the agent deleted one)."""
+        code = "\n".join(f"{k} = {v!r}" for k, v in values.items())
+        return self.alive() and self.execute(code, timeout_s=timeout_s).status == "ok"
 
     # --- protocol plumbing -------------------------------------------------------------------------------
     def _send(self, proc: subprocess.Popen, obj: dict[str, Any]) -> None:

@@ -12,13 +12,33 @@ GAME_OVER, game end). The change lines are printed; the host sends the new state
     obs = observe()   # the state after the moves
 
 A move is "1".."5", "7", "reset", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c).
+
+Each call also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS), so the host saves them before the
+moves run; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in memory.
 """
 
 from __future__ import annotations
 
+import json
+import sys
 from typing import Any
 
 from rlm import repl as _repl
+
+MEMORY_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")
+
+
+def _plain(v: Any) -> Any:
+    try:
+        return json.loads(json.dumps(v, default=str))
+    except (TypeError, ValueError):   # e.g. tuple keys
+        return repr(v)
+
+
+def memory_values() -> dict[str, Any]:
+    """The memory variables of the agent's namespace as JSON values; a deleted one is left out."""
+    ns = sys.modules["__main__"].__dict__
+    return {k: _plain(ns[k]) for k in MEMORY_VARS if k in ns}
 
 
 class ActResult:
@@ -50,11 +70,13 @@ async def act(actions: Any, quiet: bool = False) -> ActResult:
     if isinstance(actions, (str, int)) or (isinstance(actions, tuple) and actions and not
                                            isinstance(actions[0], (tuple, list, str))):
         actions = [actions]
-    args: dict[str, Any] = {"actions": [_move(a) for a in actions]}
+    args: dict[str, Any] = {"actions": [_move(a) for a in actions], "memory": memory_values()}
     reply = await _repl.host_request({"type": "arc.act", "args": args})
     if reply.get("status") != "ok":
         raise RuntimeError(str(reply.get("error") or "act failed"))
     res = ActResult(reply.get("result") or {})
+    if res.level_up:
+        sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES={}, FINDINGS=[])
     if not quiet:
         print(res.text)
     return res
