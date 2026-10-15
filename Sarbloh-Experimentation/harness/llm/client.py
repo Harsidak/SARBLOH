@@ -151,6 +151,8 @@ class LLM:
             body["tool_choice"] = "auto"
         if cfg.get("chat_template_kwargs"):
             body["chat_template_kwargs"] = dict(cfg["chat_template_kwargs"])
+        if template_kwargs and self.spec is not None:
+            template_kwargs = self.spec.template_kwargs(template_kwargs)
         if template_kwargs:
             body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), **template_kwargs}
         if thinking is not None:

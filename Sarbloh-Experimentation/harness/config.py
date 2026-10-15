@@ -119,7 +119,7 @@ DEFAULT: dict[str, Any] = {
         },
     },
     # --- model ---------------------------------------------------------------------------------------------
-    # "gemma" | "qwen" | "qwen_flash_next". Picks harness/llm/<name>.py: weights, server profiles, parsers, sampling and
+    # "gemma" | "qwen" | "qwen_flash_next" | "nemotron". Picks harness/llm/<name>.py: weights, server profiles, parsers, sampling and
     # thinking policy all come from there (build_config merges them under the overrides below).
     "model": "qwen",
     "llm": {
