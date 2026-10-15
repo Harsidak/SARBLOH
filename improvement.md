@@ -11,7 +11,7 @@ This document tracks iterative performance, game-by-game results, and comparativ
 | Exp # | Date / Timestamp | Run Directory | Wall Time | Levels Won | Mean Score | Total Actions | Level Velocity | Score Multiplier vs Exp 1 |
 |---|---|---|---|---|---|---|---|---|
 | **1 (Baseline)** | 2026-10-15 15:11 | `runs/kaggle_sarbloh-experimentation_20261015_151105` | 28.0 min (1,680.9s) | **19 / 108** | **5.7449** | 1,682 | 40.72 lev/hr | **1.0x (Baseline)** |
-| **2** | *(Pending)* | | | | | | | *(Target: 3.0x - 5.0x)* |
+| **2** | 2026-10-16 00:32 | `runs/kaggle_sarbloh-experimentation_20261016_003252` | 31.5 min (1,892.2s) | **2 / 108** | **0.4233** | 158 | 3.81 lev/hr | **0.074x (-92.6%)** |
 | **3** | *(Pending)* | | | | | | | |
 
 ---
@@ -56,52 +56,57 @@ This document tracks iterative performance, game-by-game results, and comparativ
 
 ---
 
-## 3. Experiment 2 — Comparative Benchmark *(Template)*
+## 3. Experiment 2 — Comparative Benchmark
 
-- **Timestamp**: *(TBD)*
-- **Experiment Config**: `experimentation_45min_15games`
-- **Changes Deployed**: *(TBD — e.g. Anti-starvation scheduler aging, hypothesis status normalization, oscillation breaker, goal prompt guardrails)*
+- **Timestamp**: 2026-10-16 00:32:52
+- **Run Directory**: `runs/kaggle_sarbloh-experimentation_20261016_003252`
+- **Experiment Config**: `experimentation_45min_15games` (Wall Time: 31.5 minutes / 1,892.2s)
+- **Model / Infrastructure**: `intel-qwen3.8-flash-next-w4a16-autoround` via SGLang + EAGLE speculative decoding
+- **Summary**: 15 games evaluated, **2 levels** completed out of 108, Mean Score **0.4233**, Total Actions: **158**, Total Turns: **2,098**.
 
 ### Per-Game Breakdown Table
 
 | Game ID | Levels Won | Score | Actions | Turns | State |
 |---|---|---|---|---|---|
-| `bp35-0a0ad940` | - / 9 | - | - | - | - |
-| `cn04-2fe56bfb` | - / 6 | - | - | - | - |
-| `ka59-38d34dbb` | - / 7 | - | - | - | - |
-| `lf52-271a04aa` | - / 10 | - | - | - | - |
-| `g50t-5849a774` | - / 7 | - | - | - | - |
-| `ls20-9607627b` | - / 7 | - | - | - | - |
-| `m0r0-492f87ba` | - / 6 | - | - | - | - |
-| `r11l-495a7899` | - / 6 | - | - | - | - |
-| `cd82-fb555c5d` | - / 6 | - | - | - | - |
-| `re86-8af5384d` | - / 8 | - | - | - | - |
-| `ar25-0c556536` | - / 8 | - | - | - | - |
-| `s5i5-18d95033` | - / 8 | - | - | - | - |
-| `lp85-305b61c3` | - / 8 | - | - | - | - |
-| `dc22-fdcac232` | - / 6 | - | - | - | - |
-| `ft09-0d8bbf25` | - / 6 | - | - | - | - |
+| `bp35-0a0ad940` | 0 / 9 | 0.00 | 4 | 77 | cancelled |
+| `cn04-2fe56bfb` | 0 / 6 | 0.00 | 8 | 283 | cancelled |
+| `ka59-38d34dbb` | 0 / 7 | 0.00 | 16 | 60 | cancelled |
+| `lf52-271a04aa` | 0 / 10 | 0.00 | 8 | 16 | cancelled |
+| `g50t-5849a774` | 0 / 7 | 0.00 | 12 | 158 | cancelled |
+| `ls20-9607627b` | 1 / 7 | 3.57 | 21 | 48 | cancelled |
+| `m0r0-492f87ba` | 0 / 6 | 0.00 | 5 | 186 | cancelled |
+| `r11l-495a7899` | 0 / 6 | 0.00 | 5 | 236 | cancelled |
+| `cd82-fb555c5d` | 0 / 6 | 0.00 | 23 | 149 | cancelled |
+| `re86-8af5384d` | 0 / 8 | 0.00 | 1 | 111 | cancelled |
+| `ar25-0c556536` | 1 / 8 | 2.78 | 30 | 103 | cancelled |
+| `s5i5-18d95033` | 0 / 8 | 0.00 | 0 | 106 | cancelled |
+| `lp85-305b61c3` | 0 / 8 | 0.00 | 9 | 81 | cancelled |
+| `dc22-fdcac232` | 0 / 6 | 0.00 | 15 | 175 | cancelled |
+| `ft09-0d8bbf25` | 0 / 6 | 0.00 | 1 | 309 | cancelled |
 
 ### Head-to-Head Comparison: Exp 1 vs Exp 2
 
-| Game ID | Levels Won (Exp 1 $\rightarrow$ Exp 2) | Score (Exp 1 $\rightarrow$ Exp 2) | Action Efficiency $\Delta$ | Observations / Outcome |
+| Metric | Exp 1 (Baseline) | Exp 2 (Recent Run) | Delta / Change | Impact |
 |---|---|---|---|---|
-| `bp35-0a0ad940` | 0/9 $\rightarrow$ | 0.00 $\rightarrow$ | | |
-| `cn04-2fe56bfb` | 0/6 $\rightarrow$ | 0.00 $\rightarrow$ | | |
-| `ka59-38d34dbb` | 0/7 $\rightarrow$ | 0.00 $\rightarrow$ | | |
-| `lf52-271a04aa` | 0/10 $\rightarrow$ | 0.00 $\rightarrow$ | | |
-| `g50t-5849a774` | 0/7 $\rightarrow$ | 0.00 $\rightarrow$ | | |
-| `ls20-9607627b` | 1/7 $\rightarrow$ | 1.69 $\rightarrow$ | | |
-| `m0r0-492f87ba` | 1/6 $\rightarrow$ | 4.76 $\rightarrow$ | | |
-| `r11l-495a7899` | 1/6 $\rightarrow$ | 4.76 $\rightarrow$ | | |
-| `cd82-fb555c5d` | 2/6 $\rightarrow$ | 5.71 $\rightarrow$ | | |
-| `re86-8af5384d` | 2/8 $\rightarrow$ | 8.03 $\rightarrow$ | | |
-| `ar25-0c556536` | 2/8 $\rightarrow$ | 8.14 $\rightarrow$ | | |
-| `s5i5-18d95033` | 2/8 $\rightarrow$ | 8.33 $\rightarrow$ | | |
-| `lp85-305b61c3` | 3/8 $\rightarrow$ | 13.66 $\rightarrow$ | | |
-| `dc22-fdcac232` | 2/6 $\rightarrow$ | 14.29 $\rightarrow$ | | |
-| `ft09-0d8bbf25` | 3/6 $\rightarrow$ | 16.80 $\rightarrow$ | | |
-| **TOTALS / MEAN** | **19 $\rightarrow$** | **5.74 $\rightarrow$** | | |
+| **Levels Cleared** | **19 / 108** | **2 / 108** | **-17 (-89.5%)** | Severe drop |
+| **Mean Score** | **5.7449** | **0.4233** | **-5.3216 (-92.6%)** | Severe collapse |
+| **Total Actions** | 1,682 | 158 | -1,524 (-90.6%) | Agent stopped acting |
+| **Total Turns** | 638 | 2,098 | +1,460 (+228.8%) | Turns exploded |
+| **`act()` Calls** | 781 | 75 | -706 (-90.4%) | Model barely called `act()` |
+| **Idle Turns Share** | 43.7% | 96.7% | +53.0% | 96.7% of turns did 0 actions |
+| **Prompt Tokens** | 25,111,081 | 104,363,192 | +79,252,111 (4.15x) | Token waste exploded |
+| **Completion Tokens** | 1,097,651 | 657,874 | -439,777 | Output was brief confusion |
+| **Wait for Slot %** | 31.7% | 41.7% | +10.0% | High scheduler contention |
+
+### Root Cause Analysis of Experiment 2 Regression
+1. **The `hide_code: True` Blindness Trap**:
+   - `hide_code: True` stripped all assistant code from the context, replacing each cell with a stub comment `# [All the code you write lives in your ipython kernel...]`.
+   - Simultaneously, **99.2% of all execution cells (2,072 out of 2,088)** produced `[no output]` (because variables/functions were assigned or inspection had no explicit `print()`).
+   - The model saw alternating pairs of `[code stub comment]` and `[no output]`, causing acute context amnesia. It could not recall what it had defined, whether commands ran, or why output was missing.
+2. **Infinite Diagnostic Loops**:
+   - In games like `ft09` (309 turns, 1 action), `cn04` (283 turns, 8 actions), and `s5i5` (106 turns, 0 actions), the model spent hundreds of consecutive turns running probe prints (`print('hi')`, `print('hi2')`, `dir(obs)`), believing the kernel had died or hung.
+3. **Turn Inflation and Cache Bloat**:
+   - Each useless turn appended another user/assistant exchange to the context, swelling history to 80k+ tokens without making game progress, resulting in over 104 million prompt tokens.
 
 ---
 

@@ -45,14 +45,10 @@ Objective:
 You are going to play a multi level game and your main goal is to win the game.
 you have to read the state from board and build your intuition from the image then you have to implement your understanding(from image and board) in the code and take optimal actions.
 
-Your world model:
-Keep a world model of the game and update it whenever necessary. It has five parts:
-1. Objects: what is on the board, which object you control, which are walls, targets, keys or counters.
-2. Actions: what each move does to which object.
-3. Goal: what you think wins the level, written with objects (put the block on the target, match the colors).
-4. Unknowns: what you are not sure about yet.
-5. Plan: the moves you will send next and why.
-Before you send new moves, write your updated world model in a few lines. Put the same rules in your Python `step(state, move)` function, so your code can play the game without spending moves."""
+WORKING:
+Treat each turn as one observe-plan-act cycle: Understand the current state choose the next best action or short sequence and execute it, and expect to re-evaluate on the 
+next turn.
+"""
 
 # The colour legend, in the letters the board is written with (``observe()``).
 LEGEND_LETTERS = ("W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
@@ -136,7 +132,7 @@ What you can call inside it:
 4. `show_source("name")` prints the code of a function or class you defined in an earlier call. Read it before you change it.
 
 Methods you can use:
-- World model, `step(state, move)`: a function that returns the next state the way the game would. Used whenever you know some rules and want to plan without spending moves. Every search below runs on it.
+- World model, `step(state, move)`: a function that returns the next state the way the game would, used to plan without spending moves. Keep your model updated across 5 parts: (1) Objects (controlled avatar, walls, targets, keys, counters), (2) Actions (what each move does), (3) Goal (winning condition), (4) Unknowns (untested mechanics), and (5) Plan (next moves and reasoning). Every search below runs on it.
 - BFS (breadth-first search with `collections.deque` and a `seen` set): tries all 1-move paths, then all 2-move paths, so the first path that reaches the goal is a shortest one. Used when you move something to a target around walls and every move costs the same, and to check whether a goal can be reached at all.
 - Flood fill: spreads from one cell to every cell it can reach. Used to find what is reachable, which areas are closed off, and which cells form one room or one connected shape.
 - Shortest path with `heapq` (Dijkstra, or A* with a distance guess): takes the cheapest state first. Used when moves cost different amounts, such as slides or clicks, or when there are too many states for BFS.
