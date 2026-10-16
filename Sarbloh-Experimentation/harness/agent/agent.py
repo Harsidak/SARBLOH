@@ -88,8 +88,10 @@ def system_prompt(cfg: dict[str, Any]) -> str:
     return prompts.game_system(act_max=int(cfg.get("act_max_actions", 5)),
                                vision=bool(cfg.get("vision")) and bool(p.get("image", True)),
                                code_hidden=bool(cfg.get("hide_code", True)),
+                               thinking_dropped=cfg.get("reasoning_max_code_words") is not None,
                                board_text=bool(p.get("ascii", True)),
-                               short_objects=bool(p.get("short_objects", True)),
+                               short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
+                               segmentation=bool(p.get("segmentation", True)),
                                observe_view=bool(p.get("observe_view", True)),
                                memory_shown=bool(cfg.get("append_only", True))
                                and bool((cfg.get("memory") or {}).get("in_context", True)))
@@ -290,7 +292,7 @@ class AgentSession:
             native = bool(calls and calls[0]["native"])
             if native:
                 assistant["tool_calls"] = [c["raw"] for c in calls]
-            if reply.reasoning and (native or self.append_only):
+            if reply.reasoning and (native or self.append_only) and self._keeps_reasoning(calls):
                 assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
             estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
                 sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
@@ -362,6 +364,18 @@ class AgentSession:
         give = getattr(self.llm, "yield_turn", None)
         if callable(give):
             give()
+
+    def _keeps_reasoning(self, calls: list[dict[str, Any]]) -> bool:
+        """Config ``reasoning_max_code_words``: the reply's thinking is kept only when its ipython code is shorter than
+        that many words (no code at all included); otherwise the code alone is sent back."""
+        cap = self.cfg.get("reasoning_max_code_words")
+        if cap is None:
+            return True
+        words = sum(len((c.get("code") or "").split()) for c in calls if c["name"] == "ipython")
+        if words >= int(cap):
+            self.stats["reasoning_dropped"] = self.stats.get("reasoning_dropped", 0) + 1
+            return False
+        return True
 
     def _hide_code(self) -> None:
         """Config ``hide_code``: a new reply with tool calls was just stored, so its ipython code (the calls run from

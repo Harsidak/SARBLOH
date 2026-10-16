@@ -12,7 +12,8 @@ This document tracks iterative performance, game-by-game results, and comparativ
 |---|---|---|---|---|---|---|---|---|
 | **1 (Baseline)** | 2026-10-15 15:11 | `runs/kaggle_sarbloh-experimentation_20261015_151105` | 28.0 min (1,680.9s) | **19 / 108** | **5.7449** | 1,682 | 40.72 lev/hr | **1.0x (Baseline)** |
 | **2** | 2026-10-16 00:32 | `runs/kaggle_sarbloh-experimentation_20261016_003252` | 31.5 min (1,892.2s) | **2 / 108** | **0.4233** | 158 | 3.81 lev/hr | **0.074x (-92.6%)** |
-| **3** | *(Pending)* | | | | | | | |
+| **3** | 2026-10-16 02:42 | `runs/kaggle_sarbloh-experimentation_20261016_024252` | ~28-30 min | **18 / 108** | **6.2742** | 1,651 | ~38.0 lev/hr | **1.09x (+14.8x over Exp 2)** |
+| **4** | *(Pending)* | | | | | | | *(Target: 3.0x - 5.0x)* |
 
 ---
 
@@ -110,7 +111,56 @@ This document tracks iterative performance, game-by-game results, and comparativ
 
 ---
 
-## 4. Key Performance Indicators (KPIs) for Success
+## 4. Experiment 3 — Recovery & Baseline Surpassed
+
+- **Timestamp**: 2026-10-16 02:42:52 (downloaded from `kaggle_sarbloh-experimentation_20261016_024252`)
+- **Key Changes Tested**: `hide_code` disabled (full code visibility in context restored); `prompts.py` streamlined with `short_objects` and `observe_view` options.
+- **Summary**: 15 games evaluated, **18 levels cleared** out of 108, Mean Score **6.2742** (surpassing baseline 5.7449 by +9.2%, recovering 14.8x over Exp 2), Total Actions: **1,651**, Total Turns: **590** (2.80 actions/turn).
+
+### Per-Game Breakdown Table
+
+| Game ID | Levels Cleared | Score | Actions | Turns | State |
+|---|---|---|---|---|---|
+| `ar25-0c556536` | 2 / 8 | 8.33 | 174 | 47 | stopped |
+| `bp35-0a0ad940` | 0 / 9 | 0.00 | 71 | 29 | stopped |
+| `cd82-fb555c5d` | 2 / 6 | 8.59 | 115 | 51 | stopped |
+| `cn04-2fe56bfb` | 0 / 6 | 0.00 | 176 | 65 | wall_clock |
+| `dc22-fdcac232` | 2 / 6 | 14.29 | 168 | 72 | stopped |
+| `ft09-0d8bbf25` | 3 / 6 | 28.57 | 147 | 42 | stopped |
+| `g50t-5849a774` | 0 / 7 | 0.00 | 57 | 20 | stopped |
+| `ka59-38d34dbb` | 0 / 7 | 0.00 | 33 | 18 | stopped |
+| `lf52-271a04aa` | 1 / 10 | 1.82 | 21 | 19 | stopped |
+| `lp85-305b61c3` | 1 / 8 | 2.78 | 66 | 39 | stopped |
+| `ls20-9607627b` | 1 / 7 | 3.57 | 134 | 40 | wall_clock |
+| `m0r0-492f87ba` | 1 / 6 | 4.76 | 66 | 43 | stopped |
+| `r11l-495a7899` | 1 / 6 | 4.76 | 13 | 19 | stopped |
+| `re86-8af5384d` | 3 / 8 | 15.83 | 343 | 63 | stopped |
+| `s5i5-18d95033` | 1 / 8 | 0.81 | 67 | 23 | stopped |
+
+### Head-to-Head 3-Way Comparison
+
+| Game ID | Exp 1 (Baseline) | Exp 2 (Regression) | Exp 3 (Recent Run) | Exp 3 vs Baseline $\Delta$ |
+|---|---|---|---|---|
+| `ar25` | 2 lev (8.14) | 1 lev (2.78) | **2 lev (8.33)** | +0.19 pts |
+| `bp35` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts |
+| `cd82` | 2 lev (5.71) | 0 lev (0.00) | **2 lev (8.59)** | **+2.88 pts** |
+| `cn04` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts |
+| `dc22` | 2 lev (14.29) | 0 lev (0.00) | **2 lev (14.29)** | 0.00 pts |
+| `ft09` | 3 lev (16.80) | 0 lev (0.00) | **3 lev (28.57)** | **+11.77 pts** |
+| `g50t` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts |
+| `ka59` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts |
+| `lf52` | 0 lev (0.00) | 0 lev (0.00) | **1 lev (1.82)** | **+1 level (+1.82 pts)** |
+| `lp85` | 3 lev (13.66) | 0 lev (0.00) | **1 lev (2.78)** | -10.88 pts |
+| `ls20` | 1 lev (1.69) | 1 lev (3.57) | **1 lev (3.57)** | **+1.88 pts** |
+| `m0r0` | 1 lev (4.76) | 0 lev (0.00) | **1 lev (4.76)** | 0.00 pts |
+| `r11l` | 1 lev (4.76) | 0 lev (0.00) | **1 lev (4.76)** | 0.00 pts |
+| `re86` | 2 lev (8.03) | 0 lev (0.00) | **3 lev (15.83)** | **+1 level (+7.80 pts)** |
+| `s5i5` | 2 lev (8.33) | 0 lev (0.00) | **1 lev (0.81)** | -7.52 pts |
+| **TOTALS / MEAN** | **19 lev (5.74)** | **2 lev (0.42)** | **18 lev (6.27)** | **+0.53 pts (+9.2%)** |
+
+---
+
+## 5. Key Performance Indicators (KPIs) for Success
 
 To satisfy the **3x to 5x improvement** criterion:
 - **Mean Score Target**: $\ge 17.2$ (3x) to $\ge 28.7$ (5x) [Exp 1 baseline: 5.74]

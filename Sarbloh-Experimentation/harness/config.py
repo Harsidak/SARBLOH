@@ -74,6 +74,10 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 4000,
+        # A stored reply keeps its thinking only when its code is shorter than this many words (no code at all
+        # included): a reply that wrote real code is sent back as the code alone. Decided once, when the reply is
+        # stored, so the prompt stays a prefix of the next one. None: every reply keeps its thinking.
+        "reasoning_max_code_words": 200,
         # On: once an ipython call has run, its code is never sent back, the newest call's included. It becomes a
         # short note naming what it defined (the kernel still holds it; `show_source("name")` prints it), and the
         # system prompt says so. The thinking and the outputs stay. Off: every call keeps its code.
@@ -92,8 +96,8 @@ DEFAULT: dict[str, Any] = {
             # one-line stub, so each new picture makes the server prefill again from the previous one on.
             "old_images": True,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
-            "ascii": False,            # letter board in the message (whole, or the changed region); off: code reads it
-            "segmentation": True,      # object list with ids, hashes, containment, adjacency
+            "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
+            "segmentation": False,     # object list with ids, hashes, containment, adjacency
             "briefing": True,          # briefing: MEASURED facts and GUESSES, in the full view
             "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
