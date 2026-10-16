@@ -1,9 +1,9 @@
 """Tool schemas the host offers the model.
 
-Two tools: ``ipython`` to think, compute and act (``observe()`` reads the state for free, ``await act([...])`` makes
+Two tools: ``ipython`` to think, compute and act (``observe()`` reads the state for free, ``await play([...])`` makes
 moves), and ``recall`` to search memory and skills. The agent writes its memory as text before the code. Code and
 moves share one tool so the agent can model the game, search its model and send the path in one call. The handlers live
-in ``harness.agent.agent.AgentSession`` (``act()`` is a host request answered by ``_tool_act``).
+in ``harness.agent.agent.AgentSession`` (each move of ``play()`` is a host request answered by ``_tool_act``).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 IPYTHON = _fn(
     "ipython",
-    "Run Python: read the board with `observe()`, model the game and make moves with `await act([...])`. "
+    "Run Python: read the board with `observe()`, model the game and make moves with `await play(path, predict=...)`. "
     "See \"The `ipython` tool\" in your instructions.",
     {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
     ["code"])

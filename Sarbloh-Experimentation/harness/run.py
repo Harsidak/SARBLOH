@@ -270,16 +270,13 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
 
     from harness.llm import bench
     from harness.llm.client import LLM
-    from harness.llm.spec import get_spec
-    from harness.llm.server import LlmServer
     from harness.game.games import build_games, make_arcade
 
-    spec = get_spec(cfg["model"])
     soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
-    server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
     summary: dict[str, Any] = {}
+    server = None
     try:
-        server.start()
+        cfg, spec, server = _start_server(cfg, overrides, working_dir, soft_end, rerun)
         cfg["llm"]["base_url"] = server.base_url
         cfg["llm"]["model"] = spec.served_model_name
         if server.tool_mode != "native":
@@ -318,7 +315,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
                         "throughput": server.bench})
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
-        server.stop()
+        if server is not None:
+            server.stop()
         if not rerun:
             import pandas as pd  # Save & Run is not scored but must leave a valid submission file
 
@@ -330,6 +328,36 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)
     return summary
+
+
+def _start_server(cfg: dict[str, Any], overrides: dict[str, Any] | None, working_dir: Path, soft_end: float,
+                  rerun: bool) -> tuple[dict[str, Any], Any, Any]:
+    """The model server for ``cfg["model"]``; when every profile of its chain fails, the next model of
+    ``cfg["model_fallback"]`` (its config rebuilt with that model's spec defaults). Returns (config, spec, server)."""
+    from harness.llm.server import LlmServer
+    from harness.llm.spec import get_spec
+
+    tries = [(cfg["model"], None)] + [(f["model"], f.get("profile_chain")) for f in cfg.get("model_fallback") or []]
+    for n, (name, chain) in enumerate(tries):
+        if n:
+            over = dict(overrides or {})
+            over["model"] = name
+            over["server"] = {**(over.get("server") or {}), "profile_chain": chain}
+            cfg = build_config(over)
+            if rerun:
+                cfg["tracing"] = False
+            print(f"[server] every profile of {tries[n - 1][0]!r} failed; falling back to {name!r}", flush=True)
+        spec = get_spec(name)
+        server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
+        try:
+            server.start()
+            return cfg, spec, server
+        except RuntimeError as exc:
+            server.stop()
+            if n == len(tries) - 1:
+                raise
+            print(f"[server] {name!r} did not start: {str(exc)[:1500]}", flush=True)
+    raise RuntimeError("no model to start")   # unreachable: tries is never empty
 
 
 def _wait_for_gateway(base_url: str, timeout_s: float = 600.0) -> None:

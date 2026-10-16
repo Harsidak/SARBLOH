@@ -24,9 +24,18 @@ the next and keeps all thinking). The template has no "xhigh"/"low" effort, only
 "{reasoning effort: efficient}" line after the last user message); ``template_kwargs`` maps the harness's
 reasoning_effort onto it.
 
-Wheels: the card asks for SGLang 0.5.20; our Pennyroyal wheelhouse is 0.5.19. The chain tries a 0.5.20 wheelhouse
-first, then Pennyroyal (whether 0.5.19 knows this architecture is UNCONFIRMED). Licence OpenMDW-1.1: prize eligibility
-UNCONFIRMED.
+Wheels: the card asks for SGLang 0.5.20, and there is no 0.5.20 wheelhouse on Kaggle (banwait13/sglang0520wheels does
+not exist, checked 2026-10-16), so the chain runs on the Pennyroyal 0.5.19 wheels (banwait13/sglangwheels). Checked
+against that wheel (2026-10-16): every flag below is a ServerArgs field (the two Mamba-cache rounding flags too), and
+the ``nemotron_3`` reasoning parser and the ``qwen3_coder`` tool parser exist. But 0.5.19 does not know this
+checkpoint's names (``architectures: NemotronH_Omni_Reasoning_V3``, ``model_type: nemotron_h_omni``): it has the Nano
+Omni wrapper (``NemotronH_Nano_Omni_Reasoning_V3``, the same llm_config + RADIO vision_config + sound_config layout, its
+own config class) and NemotronHForCausalLM with LatentMoE. So the 0.5.19 profiles serve a symlinked copy of the weights
+whose config.json names the Nano Omni wrapper (``config_overrides``, ``server.patched_model_dir``). Whether the Super
+checkpoint loads and runs under it (weight names, the image processor, MTP) is UNCONFIRMED until the first start; the
+chain goes MTP + image, image without MTP, then text only, and the notebook falls back to another model after that.
+The 0.5.20 profiles stay defined, out of the chain, for when a 0.5.20 wheelhouse exists. Licence OpenMDW-1.1: prize
+eligibility UNCONFIRMED.
 """
 
 from __future__ import annotations
@@ -63,17 +72,18 @@ MTP5 = {"--speculative-algorithm": "EAGLE", "--speculative-num-steps": "5", "--s
 MTP3 = {**MTP5, "--speculative-num-steps": "3", "--speculative-num-draft-tokens": "4"}
 
 
-# The card's 0.5.20 Mamba-cache rounding flags: left out on 0.5.19, where they may not exist (UNCONFIRMED).
-NEW_IN_0520 = ("--enable-mamba-cache-stochastic-rounding", "--mamba-cache-philox-rounds")
+# SGLang 0.5.19 knows the Nano Omni wrapper, not this checkpoint's names: its config.json is patched to name it.
+NANO_OMNI = {"architectures": ["NemotronH_Nano_Omni_Reasoning_V3"], "model_type": "NemotronH_Nano_Omni_Reasoning_V3"}
 
 
 def _profile(runtime: str, vision: bool, *extra: dict[str, Any]) -> dict[str, Any]:
     flags: dict[str, Any] = dict(SGL)
     for e in extra:
         flags.update(e)
+    out = {"model_dataset": WEIGHTS, "runtime": runtime, "vision": vision, "env": {}, "flags": flags}
     if runtime == "sglang_pennyroyal":
-        flags = {k: v for k, v in flags.items() if k not in NEW_IN_0520}
-    return {"model_dataset": WEIGHTS, "runtime": runtime, "vision": vision, "env": {}, "flags": flags}
+        out["config_overrides"] = dict(NANO_OMNI)
+    return out
 
 
 PROFILES: dict[str, dict[str, Any]] = {
@@ -82,10 +92,11 @@ PROFILES: dict[str, dict[str, Any]] = {
     "nemotron_vision": _profile("sglang_0520", True),
     "nemotron": _profile("sglang_0520", False),
     "nemotron_pennyroyal_mtp5_vision": _profile("sglang_pennyroyal", True, MTP5),
+    "nemotron_pennyroyal_vision": _profile("sglang_pennyroyal", True),
     "nemotron_pennyroyal": _profile("sglang_pennyroyal", False),
 }
-# SGLang 0.5.20: MTP5 + image, MTP3, no MTP, text only; then the same on the 0.5.19 Pennyroyal wheels.
-CHAIN = list(PROFILES)
+# The 0.5.19 Pennyroyal wheels only (no 0.5.20 wheelhouse exists): MTP5 + image, image without MTP, text only.
+CHAIN = ["nemotron_pennyroyal_mtp5_vision", "nemotron_pennyroyal_vision", "nemotron_pennyroyal"]
 
 EFFORT = {"xhigh": {}, "medium": {}, "low": {"medium_effort": True}}
 

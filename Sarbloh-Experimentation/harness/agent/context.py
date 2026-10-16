@@ -59,7 +59,7 @@ def _section(blocks: dict[str, str], key: str) -> str:
 
 
 def pinned_message(blocks: dict[str, str], status: str) -> dict[str, Any]:
-    parts = ["[memory] Your memory, from what you wrote with `act()`. When a section changes, the new version is shown "
+    parts = ["[memory] Your memory, from the memory variables in your code. When a section changes, the new version is shown "
              "with the next state. It is not a message to answer.", f"## Game\n{status}"]
     for key in ORDER:
         text = _section(blocks, key)

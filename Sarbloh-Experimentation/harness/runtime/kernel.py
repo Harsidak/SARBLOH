@@ -42,16 +42,16 @@ try:
 except Exception:
     np = None
 from observation import observe   # the state, read-only and free
-from acting import act            # `await act([...])` makes moves; each costs one move
-from acting import play           # `await play(path, predict=step)`: moves until the first surprise
+from acting import play           # `await play(path, predict=step)`: the only way to move; stops at the first surprise
+from acting import act            # a stub: says act() is gone and to use play()
 from source import show_source    # the code of a name defined in an earlier cell
 from acting import memory_values as _memory_values
 class _NoArc:
     def __getattr__(self, name):
         raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
-                           "and make moves with `await act([...])`.")
+                           "and make moves with `await play([...])`.")
 arc = _NoArc()
-# The agent's memory: it changes these in its code; the host copies them after every call and before every act().
+# The agent's memory: it changes these in its code; the host copies them after every call and before every move.
 GOAL = ""
 PLAN = ""
 HYPOTHESES = {}

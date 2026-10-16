@@ -82,6 +82,21 @@ def find_model_dir(root: Path) -> Path:
     return hits[0].parent
 
 
+def patched_model_dir(src: Path, overrides: dict[str, Any], dest: Path) -> Path:
+    """A copy of the weights folder ``src`` made of symlinks, except ``config.json``, which gets ``overrides`` merged
+    into its top level: a profile's ``config_overrides`` (e.g. an architecture name an older server knows). The
+    weights are not copied; /kaggle/input is read-only, so the patched folder lives under ``dest``."""
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True)
+    for item in src.iterdir():
+        if item.name != "config.json":
+            (dest / item.name).symlink_to(item.resolve(), target_is_directory=item.is_dir())
+    config = json.loads((src / "config.json").read_text(encoding="utf-8"))
+    config.update(overrides)
+    (dest / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
+    return dest
+
+
 def _request(url: str, payload: dict | None = None, timeout: float = 30) -> bytes:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -327,6 +342,10 @@ class LlmServer:
     # --- process -----------------------------------------------------------------------------------------
     def launch(self, profile: str) -> None:
         model_dir = find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
+        overrides = self.spec.profiles[profile].get("config_overrides")
+        if overrides:
+            model_dir = patched_model_dir(model_dir, overrides, self.site.parent / "model-dirs" / profile)
+            self.event("config_patched", overrides=overrides)
         rt = self.runtime(profile) or {}
         python = rt.get("python") or sys.executable
         serve = rt.get("serve", DEFAULT_SERVE)

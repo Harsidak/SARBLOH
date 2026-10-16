@@ -1,27 +1,26 @@
-"""``act()``: make game moves from Python. Pre-imported by the kernel.
+"""``play()``: make game moves from Python. Pre-imported by the kernel.
 
 The REPL is the agent's only game tool: it models the game in code, searches the model and sends the moves it finds,
-in the same cell. Each call goes to the host (``AgentSession._host``, type ``arc.act``), which runs the moves exactly
-like the old act tool did: the same parsing, legality check, change lines and stops (level up,
-GAME_OVER, game end). The change lines are printed; the host sends the new state after the reply.
+in the same cell. ``play()`` is the only way to move: it sends the moves one at a time, each as a host request
+(``AgentSession._host``, type ``arc.act``) that runs it exactly like the old act tool did (the same parsing, legality
+check, change lines and stops: level up, GAME_OVER, game end), and it stops early at the first move that did not do
+what the agent predicted or that changed nothing on the board.
 
-    r = await act(["4", "4", "1"])
+    r = await play(["4", "4", "1"])                 # moves, no check
+    r = await play(path, predict=step)              # stops at the first move step() got wrong
     r.lines        # one change line per move: "#12 A4(right): obj 4 R 3x3 moved right 3 -> ..."
-    r.done         # moves made; r.stopped is why it stopped early ("level up", "GAME_OVER", ...) or None
-    r.level_up, r.state
-    obs = observe()   # the state after the moves
-
-    r = await play(path, predict=step)   # one move at a time; stops at the first move step() got wrong
-    r.surprise     # None, or the move and the cells that differ
+    r.done, r.stopped, r.surprise, r.level_up, r.state
+    r.obs          # the state after the last move
 
 A move is "1".."5", "7", "reset", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c).
 
-Each call also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS), so the host saves them before the
-moves run; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in memory.
+Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS), so the host saves them before the
+move runs; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in memory.
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import sys
 from typing import Any
@@ -29,6 +28,7 @@ from typing import Any
 from rlm import repl as _repl
 
 MEMORY_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")
+_PLAY_IDS = itertools.count(1)   # numbers each play() call, so the trace can group its moves
 
 
 def _plain(v: Any) -> Any:
@@ -45,7 +45,7 @@ def memory_values() -> dict[str, Any]:
 
 
 class ActResult:
-    """What one ``act()`` call did."""
+    """What one host move request did."""
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.text: str = data.get("text") or ""
@@ -67,24 +67,24 @@ def _move(a: Any) -> str:
     return str(int(a))   # int, numpy int
 
 
-async def act(actions: Any, quiet: bool = False, via: str | None = None) -> ActResult:
-    """Make ``actions`` in order (each costs one move). Prints the change lines unless ``quiet``. Raises RuntimeError
-    when the call is refused (nothing is spent then). ``via`` names the helper that called it, for the trace."""
-    if isinstance(actions, (str, int)) or (isinstance(actions, tuple) and actions and not
-                                           isinstance(actions[0], (tuple, list, str))):
-        actions = [actions]
-    args: dict[str, Any] = {"actions": [_move(a) for a in actions], "memory": memory_values()}
-    if via:
-        args["via"] = via
+async def _act(actions: list[Any], **extra: Any) -> ActResult:
+    """Send ``actions`` to the host (each costs one move); ``extra`` goes with them (``predicted``, ``path_len``).
+    Raises RuntimeError when the request is refused (nothing is spent then). Not shown to the agent: ``play()``
+    is its only way to move."""
+    args: dict[str, Any] = {"actions": [_move(a) for a in actions], "memory": memory_values(), **extra}
     reply = await _repl.host_request({"type": "arc.act", "args": args})
     if reply.get("status") != "ok":
         raise RuntimeError(str(reply.get("error") or "act failed"))
     res = ActResult(reply.get("result") or {})
     if res.level_up:
         sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES={}, FINDINGS=[])
-    if not quiet:
-        print(res.text)
     return res
+
+
+async def act(*_: Any, **__: Any) -> None:
+    """Gone: kept only so an old habit gets a clear message instead of a NameError."""
+    raise RuntimeError("act() is gone: make moves with `await play(path)` (a list of moves, made one at a time). "
+                       "Add `predict=` to check each move against your model. Nothing was spent.")
 
 
 # --- play(): a whole plan, stopped at the first surprise ----------------------------------------------------------
@@ -162,16 +162,30 @@ def _surprise_text(res: PlayResult, obs: Any) -> str:
     return f"{head} {len(cells)} cells differ: {listed}{more}\nthe board now:\n{obs.ascii(r0, c0, r1, c1)}"
 
 
+SURPRISE_NOTE = ("One rule in your model was wrong at this move. Fix only that rule in `step()`, then search again "
+                 "from the board now and call `play()` with the new path.")
+NOOP_NOTE = ("That move changed nothing on the board (counters aside), so the rest of the path was not sent. Check "
+             "whether the move is blocked or does something else here before you send it again.")
+
+
+def _changed(before: Any, after: Any, skip: set[tuple[int, int]]) -> bool:
+    """Whether any cell outside ``skip`` (the HUD) differs between two observations."""
+    a, b = before.board, after.board
+    if len(a) != len(b) or any(len(x) != len(y) for x, y in zip(a, b)):
+        return True
+    return any(x[c] != y[c] and (r, c) not in skip for r, (x, y) in enumerate(zip(a, b)) for c in range(len(x)))
+
+
 async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool = True,
-               quiet: bool = False) -> PlayResult:
+               quiet: bool = False, stop_if_unchanged: bool = True) -> PlayResult:
     """Make the moves of ``path`` one at a time and stop at the first move the game did not do as predicted.
 
     ``predict(board, move)`` gets ``obs.board`` before the move and returns the board it expects after it: a list of
     rows, or a dict {(r, c): letter} with only the cells to check, or None to not check this move. With ``state``,
-    ``predict(state(obs), move)`` is compared with ``==`` to ``state(obs)`` after the move instead. Without
-    ``predict`` the whole path is made like ``act()``, still one move at a time. Cells of ``hud`` objects are not
-    compared unless ``skip_hud=False``. It also stops at a level up, GAME_OVER or the end of the game. Prints one
-    line per move and, on a surprise, the cells that differ, unless ``quiet``."""
+    ``predict(state(obs), move)`` is compared with ``==`` to ``state(obs)`` after the move instead. Cells of ``hud``
+    objects are not compared unless ``skip_hud=False``. A move with no prediction that changes nothing on the board
+    (the HUD aside) stops the path, unless ``stop_if_unchanged=False``. It also stops at a level up, GAME_OVER or the
+    end of the game. Prints one line per move and, on a surprise, the cells that differ, unless ``quiet``."""
     from observation import snapshot   # the kernel puts the skills folder on the path
 
     if isinstance(path, (str, int)) or (isinstance(path, tuple) and path and not
@@ -179,6 +193,7 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
         path = [path]
     path = list(path)
     res, obs = PlayResult(), snapshot()
+    noop, play_id = False, next(_PLAY_IDS)
     for i, move in enumerate(path):
         want = None
         if predict is not None:
@@ -187,8 +202,11 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
             except Exception as exc:  # noqa: BLE001 - the model's code; nothing is spent for this move
                 res.stopped = f"predict failed at move {i}: {type(exc).__name__}: {exc}"
                 break
+        extra: dict[str, Any] = {"via": "play", "play_id": play_id, "predicted": want is not None}
+        if i == 0:
+            extra["path_len"] = len(path)   # the host refuses a path over its cap before any move
         try:
-            r = await act([move], quiet=True, via="play")
+            r = await _act([move], **extra)
         except RuntimeError as exc:
             if res.done == 0:
                 raise
@@ -201,18 +219,27 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
         if r.stopped or r.done == 0:
             res.stopped = r.stopped or "no move made"
             break
+        skip = _hud_cells(before, obs) if skip_hud else set()
         if want is None:
+            if stop_if_unchanged and not _changed(before, obs, skip):
+                if i < len(path) - 1:
+                    res.stopped, noop = "no change", True
+                    break
             continue
         if state:
             got = state(obs)
             if got != want:
                 res.surprise = {"move": i, "action": _move(move), "predicted": want, "actual": got}
         else:
-            cells = _board_diff(want, obs.board, _hud_cells(before, obs) if skip_hud else set())
+            cells = _board_diff(want, obs.board, skip)
             if cells:
                 res.surprise = {"move": i, "action": _move(move), "cells": cells}
         if res.surprise:
             res.stopped = "surprise"
+            try:   # the host gives the next turn a short thinking budget: a surprise needs a small fix
+                await _repl.host_request({"type": "arc.surprise", "args": {"move": i, "action": _move(move)}})
+            except Exception:  # noqa: BLE001 - outside the harness there is no host to tell
+                pass
             break
     res.obs = obs
     if not quiet:
@@ -221,6 +248,8 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
         if res.last is not None:   # the host's notes after the last move (level up, GAME_OVER, ...)
             out += [ln for ln in res.last.text.splitlines()[1:] if ln and not ln.startswith("#")]
         if res.surprise:
-            out.append(_surprise_text(res, obs))
+            out += [_surprise_text(res, obs), SURPRISE_NOTE]
+        elif noop:
+            out.append(NOOP_NOTE)
         print("\n".join(out))
     return res

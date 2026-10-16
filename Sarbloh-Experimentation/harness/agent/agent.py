@@ -26,8 +26,9 @@ Ours, not upstream: the game status line after each tool result, the "reply was 
 upstream's chars/4 token estimate by the measured prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars,
 so chars/4 alone never triggered a drain).
 
-Tools (``harness.agent.tools``): ``ipython`` (think, compute and act: ``observe()`` reads the state, ``await act([...])``
-makes 1 to N moves plus the agent's plan, hypotheses, findings and goal, through a host request to ``_tool_act``) and
+Tools (``harness.agent.tools``): ``ipython`` (think, compute and act: ``observe()`` reads the state, ``await play(path, predict=...)``
+makes the moves one at a time, each a host request to ``_tool_act`` carrying the agent's plan, hypotheses, findings
+and goal, and stops at the first move the agent's model got wrong) and
 ``recall`` (search memory and skills). One tool for code and moves, so the agent can model the game, search the model
 and send the path in one cell. The change lines of every act are printed in the cell output; after a reply that moved,
 the host pushes the new state as the next user message: the short view (changed region) and the picture
@@ -154,7 +155,8 @@ class AgentSession:
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
                       "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
-                      "memory_full": 0, "memory_updates": 0, "turn_yields": 0}
+                      "memory_full": 0, "memory_updates": 0, "turn_yields": 0,
+                      "surprises": 0, "surprise_turns": 0, "idle_notes": 0, "stuck_notes": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -182,6 +184,8 @@ class AgentSession:
         self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
         self._act_via: str | None = None
+        self._act_predicted: bool | None = None
+        self._act_play_id: int | None = None
         self._pinned_chars = 0
         self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
@@ -192,6 +196,18 @@ class AgentSession:
         # Config turn_yield_tokens: reply tokens written since the last move (the turn's thinking budget).
         self.turn_yield_tokens = int(cfg.get("turn_yield_tokens") or 0)
         self._turn_tokens = 0
+        # Config surprise_yield_tokens: the smaller thinking budget of the turn after play() stopped at a surprise (one
+        # rule was wrong: a small fix, not a rethink). 0 = the normal budget.
+        self.surprise_yield_tokens = int(cfg.get("surprise_yield_tokens") or 0)
+        self._turn_budget = self.turn_yield_tokens   # the budget of the current turn
+        self._surprised = False                      # set by play() (host request arc.surprise) during this reply
+        # Config idle_turns: replies in a row that ran code but made no move before a "move now" note. 0 = off.
+        self.idle_turns = int(cfg.get("idle_turns") or 0)
+        self._idle_turns = 0
+        # Config stuck_note_tokens: every time the current level has eaten this many more reply tokens without being
+        # won, a note says to question the goal and the least tested rule. 0 = off.
+        self.stuck_note_tokens = int(cfg.get("stuck_note_tokens") or 0)
+        self._stuck_level, self._level_tokens, self._stuck_notes = 0, 0, 0
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
         # Code out of the context (config hide_code): every ipython call's code becomes a note once it has run.
@@ -286,6 +302,9 @@ class AgentSession:
             self.stats["prompt_tokens_last"] = reply.prompt_tokens
             self._turns_since_curate += 1
             self._turn_tokens += reply.completion_tokens
+            if self.arc.game.state.levels_completed != self._stuck_level:   # a new level: its own token count
+                self._stuck_level, self._level_tokens, self._stuck_notes = self.arc.game.state.levels_completed, 0, 0
+            self._level_tokens += reply.completion_tokens
 
             # 4) Parse reply for tool calls
             calls = self._calls(reply)
@@ -315,17 +334,30 @@ class AgentSession:
 
             # 5) The tool calls (each ipython call saves the memory variables of the kernel)
             if calls:
-                moves = self.stats["act_actions"]
+                moves, level0 = self.stats["act_actions"], self.arc.game.state.levels_completed
+                self._surprised = False
                 for call in calls:
                     self._run_call(call, reply)
+                if self.arc.game.state.levels_completed != level0 and not self.arc.finished:
+                    self._level_start_note()
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._push(self._pending_obs)
                     self._pending_obs = None
                 if self.stats["act_actions"] > moves:
-                    self._turn_tokens = 0
+                    self._turn_tokens, self._idle_turns = 0, 0
+                    self._turn_budget = self.turn_yield_tokens
+                    if self._surprised and self.surprise_yield_tokens:
+                        self._turn_budget = self.surprise_yield_tokens
+                        self.stats["surprise_turns"] += 1
                 elif self._over_turn_budget():
-                    self._yield_turn("act_now")
+                    self._yield_turn("fix_now" if self._turn_budget != self.turn_yield_tokens else "act_now")
+                else:
+                    self._idle_turns += 1
+                    if self.idle_turns and self._idle_turns >= self.idle_turns:
+                        self.stats["idle_notes"] += 1
+                        self._yield_turn("idle_now", calls=self._idle_turns)
+                self._stuck_note()
                 self._reset_if_level_up()
                 self._maybe_curate()
                 continue
@@ -351,17 +383,50 @@ class AgentSession:
         self._append(msg)
 
     def _over_turn_budget(self) -> bool:
-        """The replies since the last move have written ``turn_yield_tokens`` or more (config; 0 = never)."""
-        return bool(self.turn_yield_tokens) and self._turn_tokens >= self.turn_yield_tokens
+        """The replies since the last move have written the turn's budget or more: ``turn_yield_tokens``, or
+        ``surprise_yield_tokens`` after a surprise (config; 0 = never)."""
+        return bool(self._turn_budget) and self._turn_tokens >= self._turn_budget
 
-    def _yield_turn(self, kind: str) -> None:
+    def _stuck_note(self) -> None:
+        """Config ``stuck_note_tokens``: the current level has eaten another such share of reply tokens without being
+        won, so a note says to question the goal and the least tested rule (it goes in with the next message)."""
+        if not self.stuck_note_tokens or self.arc.finished:
+            return
+        if self._level_tokens < self.stuck_note_tokens * (self._stuck_notes + 1):
+            return
+        self._stuck_notes += 1
+        self.stats["stuck_notes"] += 1
+        self._log_event({"event": "stuck_note", "level": self._level(), "tokens": self._level_tokens})
+        self._push({"role": "user", "content": prompts.event_message(
+            "stuck", tokens=self._level_tokens // 1000, **self._left())})
+
+    def _level_start_note(self) -> None:
+        """A level was won in this reply: the next message names the code the agent already has in its kernel, so it
+        checks that model on the new level instead of writing a new one. Read here, after the cell, never while a
+        cell runs (the kernel is busy then)."""
+        names = self._kernel_functions()
+        if names:
+            self._push({"role": "user", "content": prompts.event_message("reuse_code", names=names)})
+
+    def _kernel_functions(self) -> str:
+        """The names of the functions and classes the agent defined, comma-separated ('' when none or unknown)."""
+        try:
+            names = self.kernel.user_names() or {}
+        except Exception as exc:  # noqa: BLE001 - the list is a help, never a failure
+            self._log_event({"event": "kernel_names_error", "error": repr(exc)[:300]})
+            return ""
+        found = [n.split("(")[0] for n in names.get("functions", [])] + list(names.get("classes", []))
+        text = ", ".join(found)
+        return text if len(text) <= 600 else text[:590] + " ..."
+
+    def _yield_turn(self, kind: str, **ctx: Any) -> None:
         """The turn's thinking budget is spent (or the reply was cut off) with no move: a short note says to move now
         (``act_now`` when the newest reply ran code, ``call_tool_now`` when it called no tool), the budget starts over,
         and the game hands its scheduler slot to a waiting game (``ScheduledLLM.yield_turn``)."""
         self.stats["turn_yields"] += 1
         self._log_event({"event": "turn_yield", "kind": kind, "tokens": self._turn_tokens})
-        self._turn_tokens = 0
-        self._push({"role": "user", "content": prompts.event_message(kind, **self._left())})
+        self._turn_tokens, self._idle_turns, self._turn_budget = 0, 0, self.turn_yield_tokens
+        self._push({"role": "user", "content": prompts.event_message(kind, **ctx, **self._left())})
         give = getattr(self.llm, "yield_turn", None)
         if callable(give):
             give()
@@ -753,6 +818,8 @@ class AgentSession:
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
         arc, mem = self.arc, self.memory
         via, self._act_via = self._act_via, None
+        predicted, self._act_predicted = self._act_predicted, None
+        play_id, self._act_play_id = self._act_play_id, None
         raw = args.get("actions")
         if isinstance(raw, str):
             raw = json.loads(raw) if raw.strip().startswith("[") else [raw]
@@ -850,7 +917,8 @@ class AgentSession:
                         "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": mem.working.plan or None,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
-                         "actions": [start, arc.game.action_count], "via": via})
+                         "actions": [start, arc.game.action_count], "via": via, "predicted": predicted,
+                         "play_id": play_id})
         self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
         if done == 0 and stop:
             raise RuntimeError(stop)
@@ -1176,19 +1244,33 @@ class AgentSession:
         kind = str(req.get("type", ""))
         if kind == "arc.act":
             return self._act_from_cell(req.get("args") or {})
+        if kind == "arc.surprise":   # play() stopped at a move the agent's model got wrong
+            self._surprised = True
+            self.stats["surprises"] += 1
+            self._log_event({"event": "surprise", **(req.get("args") or {})})
+            return {}
         if kind.startswith("arc."):
             raise PermissionError("in this harness the state is read with `observe()` and moves are made with "
-                                  "`await act([...])`")
+                                  "`await play([...])`")
         raise RuntimeError(f"host request {kind!r} is not supported by this harness")
 
     def _act_from_cell(self, args: dict[str, Any]) -> dict[str, Any]:
-        """``await act(...)`` in a cell (answered on the kernel's host thread while the main loop waits for the cell).
-        After a level up or the end of the game the cell may not act again: the new level is read first."""
+        """One move of ``await play(...)`` in a cell (answered on the kernel's host thread while the main loop waits
+        for the cell). After a level up or the end of the game the cell may not move again: the new level is read
+        first. The first move of a path carries its length: a path over ``act_max_actions`` is refused whole."""
         cell = self._cell
         if cell is None:
-            raise RuntimeError("act() works only inside an ipython call")
+            raise RuntimeError("play() works only inside an ipython call")
         args = dict(args)
         self._act_via = args.pop("via", None)   # the kernel helper that sent it ("play"), for the trace
+        self._act_predicted = args.pop("predicted", None)   # whether the agent predicted this move
+        self._act_play_id = args.pop("play_id", None)       # which play() call of the game sent it
+        path_len = args.pop("path_len", None)
+        cap = int(self.cfg.get("act_max_actions", 5))
+        if path_len is not None and int(path_len) > cap:
+            self.stats["tool_errors"] += 1
+            self.stats["act_arg_errors"] += 1
+            raise RuntimeError(prompts.event_message("act_too_many", sent=int(path_len), act_max=cap))
         if "memory" in args:   # the memory variables, saved before the moves run
             self._sync_memory(args.pop("memory"), cell)
         if cell["closed"]:

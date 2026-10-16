@@ -1,7 +1,7 @@
 """The agent's working memory: #2 plan, #3 hypotheses, #5 open questions, #6 findings, #7 goal.
 
 The agent writes plan, hypotheses, findings and goal as four variables in its kernel (``KERNEL_VARS``); the host
-copies them here after every ipython call and before every ``act()`` (``sync``). The curator writes the open questions.
+copies them here after every ipython call and before every move (``sync``). The curator writes the open questions.
 The host checks the shape of what is written and judges nothing: a hypothesis is "verified" because the agent says so.
 Every block is rendered under its token cap (chars / 4); a block over its cap loses its oldest lines, which stay in
 the file and in ``recall``.

@@ -1,5 +1,5 @@
 What it is: a short summary of what moves changed: which objects moved (and by how much), appeared, disappeared or changed size, and whether only the HUD changed. It uses `match()` from the object_tracking skill.
-Used when: after an `act()`, to compare the real board with what `step()` predicted, and to learn what an unknown move does.
+Used when: after a `play()`, to compare the real board with what `step()` predicted, and to learn what an unknown move does.
 How it looks:
 ```python
 def diff(old, new):

@@ -12,8 +12,9 @@ This document tracks iterative performance, game-by-game results, and comparativ
 |---|---|---|---|---|---|---|---|---|
 | **1 (Baseline)** | 2026-10-15 15:11 | `runs/kaggle_sarbloh-experimentation_20261015_151105` | 28.0 min (1,680.9s) | **19 / 108** | **5.7449** | 1,682 | 40.72 lev/hr | **1.0x (Baseline)** |
 | **2** | 2026-10-16 00:32 | `runs/kaggle_sarbloh-experimentation_20261016_003252` | 31.5 min (1,892.2s) | **2 / 108** | **0.4233** | 158 | 3.81 lev/hr | **0.074x (-92.6%)** |
-| **3** | 2026-10-16 02:42 | `runs/kaggle_sarbloh-experimentation_20261016_024252` | ~28-30 min | **18 / 108** | **6.2742** | 1,651 | ~38.0 lev/hr | **1.09x (+14.8x over Exp 2)** |
-| **4** | *(Pending)* | | | | | | | *(Target: 3.0x - 5.0x)* |
+| **3** | 2026-10-16 02:42 | `runs/kaggle_sarbloh-experimentation_20261016_024252` | 30.4 min (1,823.0s) | **18 / 108** | **6.2742** | 1,651 | 35.57 lev/hr | **1.09x (+14.8x over Exp 2)** |
+| **4 (with play)** | 2026-10-16 13:36 | `runs/kaggle_sarbloh-experimentation_20261016_133640` | 32.6 min (1,959.1s) | **21 / 108** | **8.4520** | 1,436 | 38.61 lev/hr | **1.47x (+34.7% over Exp 3)** |
+| **5** | *(Pending)* | | | | | | | *(Target: 3.0x - 5.0x)* |
 
 ---
 
@@ -160,10 +161,66 @@ This document tracks iterative performance, game-by-game results, and comparativ
 
 ---
 
-## 5. Key Performance Indicators (KPIs) for Success
+## 5. Experiment 4 — The `play()` Feature Benchmark
+
+- **Timestamp**: 2026-10-16 13:36:40
+- **Run Directory**: `runs/kaggle_sarbloh-experimentation_20261016_133640`
+- **Key Change**: Added `play(path, predict=..., state=...)` kernel helper (E123). Allows executing multi-move plans one step at a time, halting automatically on the first unexpected mismatch ("surprise"), level up, or game over.
+- **Summary**: 
+  - **Levels Won**: **21 / 108** (Highest all-time: +3 over Exp 3, +2 over Exp 1)
+  - **Mean Score**: **8.4520** (Highest all-time: +34.7% over Exp 3, +47.1% over Exp 1)
+  - **Tokens Wasted on Uncleared Levels**: Dropped from 71.4% to **61.5%** (-9.9% waste reduction)
+  - **Output Tokens per Cleared Level**: Dropped from 69,928 down to **63,521** (-9.2% token cost reduction)
+  - **Median Turns to Clear Level 1**: Dropped from 13.0 turns to **10.0 turns** (-23%)
+  - **Wall Time**: 32.6 minutes (1,959.1s) across 628 turns and 1,436 actions.
+
+### Per-Game Breakdown Table
+
+| Game ID | Levels Cleared | Score | Actions | Turns | State |
+|---|---|---|---|---|---|
+| `ar25-0c556536` | 1 / 8 | 2.78 | 41 | 25 | cancelled |
+| `bp35-0a0ad940` | 0 / 9 | 0.00 | 65 | 39 | cancelled |
+| `cd82-fb555c5d` | 0 / 6 | 0.00 | 32 | 21 | cancelled |
+| `cn04-2fe56bfb` | 2 / 6 | 13.45 | 152 | 105 | wall_clock |
+| `dc22-fdcac232` | 2 / 6 | 14.29 | 129 | 52 | cancelled |
+| `ft09-0d8bbf25` | 3 / 6 | 28.57 | 176 | 37 | cancelled |
+| `g50t-5849a774` | 0 / 7 | 0.00 | 17 | 18 | cancelled |
+| `ka59-38d34dbb` | 0 / 7 | 0.00 | 54 | 24 | cancelled |
+| `lf52-271a04aa` | 1 / 10 | 1.82 | 141 | 43 | cancelled |
+| `lp85-305b61c3` | 3 / 8 | 16.67 | 73 | 51 | cancelled |
+| `ls20-9607627b` | 1 / 7 | 3.57 | 80 | 29 | cancelled |
+| `m0r0-492f87ba` | 1 / 6 | 4.76 | 144 | 46 | cancelled |
+| `r11l-495a7899` | 1 / 6 | 4.76 | 24 | 34 | cancelled |
+| `re86-8af5384d` | 4 / 8 | 27.78 | 203 | 57 | cancelled |
+| `s5i5-18d95033` | 2 / 8 | 8.33 | 105 | 47 | cancelled |
+
+### Head-to-Head 4-Way Comparison
+
+| Game ID | Exp 1 (Baseline) | Exp 3 (091657) | Exp 4 (New Run 133640) | Exp 4 vs Exp 3 $\Delta$ | Exp 4 vs Exp 1 $\Delta$ |
+|---|---|---|---|---|---|
+| `ar25` | 2 lev (8.14) | 2 lev (8.33) | **1 lev (2.78)** | -5.55 pts | -5.36 pts |
+| `bp35` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts | 0.00 pts |
+| `cd82` | 2 lev (5.71) | 2 lev (8.59) | **0 lev (0.00)** | -8.59 pts | -5.71 pts |
+| `cn04` | 0 lev (0.00) | 0 lev (0.00) | **2 lev (13.45)** | **+13.45 pts (+2 lev)** | **+13.45 pts (+2 lev)** |
+| `dc22` | 2 lev (14.29) | 2 lev (14.29) | **2 lev (14.29)** | 0.00 pts | 0.00 pts |
+| `ft09` | 3 lev (16.80) | 3 lev (28.57) | **3 lev (28.57)** | 0.00 pts | **+11.77 pts** |
+| `g50t` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts | 0.00 pts |
+| `ka59` | 0 lev (0.00) | 0 lev (0.00) | **0 lev (0.00)** | 0.00 pts | 0.00 pts |
+| `lf52` | 0 lev (0.00) | 1 lev (1.82) | **1 lev (1.82)** | 0.00 pts | **+1.82 pts** |
+| `lp85` | 3 lev (13.66) | 1 lev (2.78) | **3 lev (16.67)** | **+13.89 pts (+2 lev)** | **+3.01 pts** |
+| `ls20` | 1 lev (1.69) | 1 lev (3.57) | **1 lev (3.57)** | 0.00 pts | **+1.88 pts** |
+| `m0r0` | 1 lev (4.76) | 1 lev (4.76) | **1 lev (4.76)** | 0.00 pts | 0.00 pts |
+| `r11l` | 1 lev (4.76) | 1 lev (4.76) | **1 lev (4.76)** | 0.00 pts | 0.00 pts |
+| `re86` | 2 lev (8.03) | 3 lev (15.83) | **4 lev (27.78)** | **+11.95 pts (+1 lev)** | **+19.75 pts (+2 lev)** |
+| `s5i5` | 2 lev (8.33) | 1 lev (0.81) | **2 lev (8.33)** | **+7.52 pts (+1 lev)** | 0.00 pts |
+| **TOTALS / MEAN** | **19 lev (5.74)** | **18 lev (6.27)** | **21 lev (8.452)** | **+2.18 pts (+34.7%)** | **+2.71 pts (+47.1%)** |
+
+---
+
+## 6. Key Performance Indicators (KPIs) for Success
 
 To satisfy the **3x to 5x improvement** criterion:
-- **Mean Score Target**: $\ge 17.2$ (3x) to $\ge 28.7$ (5x) [Exp 1 baseline: 5.74]
-- **Levels Completed Target**: $\ge 45$ to $60+$ levels [Exp 1 baseline: 19]
-- **Zero-Score Games**: Reduced from 5 games down to $\le 1$
-- **Scheduler Max Wait**: Reduced from 1,420s down to $< 90\text{s}$ per turn
+- **Mean Score Target**: $\ge 17.2$ (3x) to $\ge 28.7$ (5x) [Current: 8.452 (1.47x)]
+- **Levels Completed Target**: $\ge 45$ to $60+$ levels [Current: 21 levels]
+- **Zero-Score Games**: Reduced from 4–5 games down to $\le 1$ [Current: 4 games: `bp35`, `g50t`, `ka59`, `cd82`]
+- **Scheduler Max Wait**: Reduced from 1,146s down to $< 120\text{s}$ per turn [Current: up to 1,146s]

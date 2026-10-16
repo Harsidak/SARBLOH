@@ -35,9 +35,9 @@ DEFAULT: dict[str, Any] = {
     # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
     # every game's first request (and each one after a drain) finds them in the server's prefix cache.
     "prewarm_system": True,
-    # --- agent: tools ipython (`observe()` reads, `await act([...])` moves) and recall (harness/agent/tools.py)
+    # --- agent: tools ipython (`observe()` reads, `await play([...])` moves) and recall (harness/agent/tools.py)
     "agent": {
-        "act_max_actions": 100,        # moves per act() call: a whole searched path in one call (max_actions caps the game)
+        "act_max_actions": 100,        # moves per play() path: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
         # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
         # int for every level. Room for a world model of several hundred lines. run.py caps it at reserve_tokens.
@@ -46,6 +46,15 @@ DEFAULT: dict[str, Any] = {
         # this many tokens and the newest one made no move, a short note says to call the tool and move now, and the
         # game gives its scheduler slot to a waiting game. A reply is never cut by it. 0 = off.
         "turn_yield_tokens": 4092,
+        # The thinking budget of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (a note,
+        # never a cut, like turn_yield_tokens). 0 = the normal budget.
+        "surprise_yield_tokens": 1000,
+        # Replies in a row that ran code but made no move before a "send your best path now" note (and the scheduler
+        # slot goes to a waiting game). 0 = off.
+        "idle_turns": 4,
+        # Each time the current level has eaten this many more reply tokens without being won, a note says to question
+        # the goal and the least tested rule. 0 = off.
+        "stuck_note_tokens": 60000,
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
         # (prompts.EARLY_LEVELS), "later" after. None sends nothing (the template's default).
@@ -110,7 +119,7 @@ DEFAULT: dict[str, Any] = {
         },
         "memory": {
             # The memory (goal, plan, hypotheses, findings, skills, lessons, questions) as messages in the context.
-            # Off: the agent still writes it with act() and reads it with `recall`; nothing is pushed into the prompt.
+            # Off: the agent still writes it in its kernel variables and reads it with `recall`; nothing is pushed into the prompt.
             "in_context": False,
             "lessons": True,           # the cross-game lessons graph
             "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
@@ -126,6 +135,9 @@ DEFAULT: dict[str, Any] = {
     # "gemma" | "qwen" | "qwen_flash_next" | "nemotron". Picks harness/llm/<name>.py: weights, server profiles, parsers, sampling and
     # thinking policy all come from there (build_config merges them under the overrides below).
     "model": "qwen",
+    # Models tried in order when every profile of `model` fails to start (harness/run.py): each entry is
+    # {"model": name, "profile_chain": [...] or None for that model's own chain}. Empty: no fallback.
+    "model_fallback": [],
     "llm": {
         "base_url": "http://127.0.0.1:8000/v1",
         "request_timeout_s": 900.0,    # whole budget per call, retries and waiting for a restart included
