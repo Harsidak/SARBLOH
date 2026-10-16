@@ -47,10 +47,9 @@ Objective:
 Read the board with code and look at the picture. Write what you learn as a Python model of the game, `step(state, move)`. Then search that model for the shortest path to the goal and send it.
 
 Working:
-Do the whole cycle inside one `ipython` call: start it with `obs = observe()`, update the model, search, and end it with `await play(path, predict=...)`. A call that only looks costs a whole turn, so look and move in the same call. `play()` makes the moves one at a time, compares each new board with what your model predicted, and stops at the first move the model got wrong. If they all match, keep going in the same call until the level is done. Stop and think again only when the game did something the model did not predict.
-- Learning (a rule or the goal is unknown): send a few probe moves with `play()` in a single turn. Each tests one guess. Update the model from what changed.
-- Solving (you know what you control, what the moves do and what wins): run the search and take the whole shortest path in a single turn.
-Every move counts. The path your search returns is your list of moves. Take an action or a sequence of them in a single turn, and do not walk a known path one move per turn.
+You have to work in observe-plan-act loop in order to win the games observe. you must observe and develop your understanding from the image provided to you
+and you build/update your world model and implement the actions or sequence of actions in every call. Compares each new board with what
+your model predicted, and update the first move the model got wrong. otherwise keep executing.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
