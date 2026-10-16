@@ -14,6 +14,9 @@
 Writes ``speed.md`` (the report), ``speed.json`` (headline numbers, per game, per level) and ``speed_turns.jsonl`` (one
 row per turn) in <run_dir>. ``--vs`` adds a column with another run's headline numbers and the change.
 
+The "Observe, plan, act" table measures the cycle itself: reply tokens per level (level 1 vs later, and the share
+spent on levels never cleared), ``act()`` calls per cell, moves per ``act()`` call, and moves that changed nothing.
+
 Games run in parallel, so per-game times add up to more than the run's wall clock. The headline measure is levels
 cleared within the first ``--window`` minutes of the run (all games together), plus levels per hour over the run.
 """
@@ -106,8 +109,12 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
     """Per turn: timing, tokens, what it ran and whether it was wasted. Also the game's start time, level-up times
     and curator time."""
     by_turn: dict[int, dict[str, Any]] = defaultdict(lambda: {"cell_s": 0.0, "cells": 0, "cell_errors": 0,
-                                                              "tool_errors": 0, "actions": 0, "levels_up": 0})
+                                                              "tool_errors": 0, "actions": 0, "levels_up": 0,
+                                                              "act_calls": 0, "noop_moves": 0, "repeat_moves": 0})
     level_ups, curator_s, curator_runs, start = [], 0.0, 0, None
+    cell_acts: list[int] = []        # act() calls per ipython cell
+    act_moves: list[int] = []        # moves sent per act() call
+    act_stops: dict[str, int] = defaultdict(int)
     for e in events:
         ev, turn = e.get("event"), e.get("turn")
         if ev == "system_prompt" and start is None:
@@ -117,10 +124,21 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
             b["cells"] += 1
             b["cell_s"] += float(e.get("duration_s") or 0)
             b["cell_errors"] += e.get("status") != "ok"
+            if e.get("acts") is not None:
+                cell_acts.append(int(e["acts"]))
         elif ev == "tool_error" and turn is not None:
             by_turn[turn]["tool_errors"] += 1
         elif ev == "act" and turn is not None:
-            by_turn[turn]["actions"] += int(e.get("done") or 0)
+            done = int(e.get("done") or 0)
+            by_turn[turn]["actions"] += done
+            by_turn[turn]["act_calls"] += 1
+            act_moves.append(done)
+            stop = str(e.get("stop") or "plan sent in full")
+            act_stops["refused" if "refused" in stop else stop] += 1
+        elif ev == "step" and turn is not None:
+            # a move that changed no pixel, or that brought back a state seen before in this level
+            by_turn[turn]["noop_moves"] += e.get("changed") == 0
+            by_turn[turn]["repeat_moves"] += e.get("repeat_of") is not None
         elif ev == "level_up":
             level_ups.append({"t": e.get("t"), "level": e.get("level"), "turn": turn})
             if turn is not None:
@@ -149,7 +167,8 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
                    "effort": e.get("effort"), "tool_calls": len(e.get("tool_calls") or []),
                    "cell_s": _r(b.get("cell_s", 0.0), 2), "cell_errors": b.get("cell_errors", 0),
                    "tool_errors": b.get("tool_errors", 0), "actions": b.get("actions", 0),
-                   "levels_up": b.get("levels_up", 0)}
+                   "levels_up": b.get("levels_up", 0), "act_calls": b.get("act_calls", 0),
+                   "noop_moves": b.get("noop_moves", 0), "repeat_moves": b.get("repeat_moves", 0)}
             row["cut_off"] = finish == "length" or bool(cap and output >= cap)
             row["no_tool"] = not row["tool_calls"] and not row["cut_off"]
             row["wasted"] = row["cut_off"] or row["no_tool"] or bool(row["tool_errors"] or row["cell_errors"])
@@ -167,7 +186,8 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
         if t is not None:
             last_t = t
     info = {"start": start, "level_ups": ups, "curator_s": curator_s, "curator_runs": curator_runs,
-            "end": events[-1].get("t") if events else start}
+            "end": events[-1].get("t") if events else start, "cell_acts": cell_acts, "act_moves": act_moves,
+            "act_stops": dict(act_stops)}
     return turns, info
 
 
@@ -227,9 +247,22 @@ def analyze(run_dir: Path, window_min: float = 45.0) -> dict[str, Any]:
                            "minutes": _r((up["t"] - prev) / 60, 1), "turns": len(lt),
                            "wasted_turns": sum(t["wasted"] for t in lt), "actions": acts, "human": human,
                            "rhae": _r(min((human / acts) ** 2, 1.15), 3) if human and acts else None,
-                           "output_tokens": sum(t["output"] for t in lt)})
+                           "output_tokens": sum(t["output"] for t in lt),
+                           "act_calls": sum(t["act_calls"] for t in lt)})
             prev = up["t"]
     cleared_t = sorted(lv["cleared_at_min"] for lv in levels)
+    # tokens spent on the level each game was still playing when it ended (never cleared)
+    open_level = {g: len(i["level_ups"]) for g, i in infos.items()}
+    uncleared_out = sum(t["output"] for t in turns if t["level"] >= open_level.get(t["game"], 0))
+    cell_acts = [k for i in infos.values() for k in i["cell_acts"]]
+    act_moves = [k for i in infos.values() for k in i["act_moves"]]
+    act_stops: dict[str, int] = defaultdict(int)
+    for i in infos.values():
+        for k, v in i["act_stops"].items():
+            act_stops[k] += v
+    first = [lv for lv in levels if lv["level"] == 1]
+    later = [lv for lv in levels if lv["level"] > 1]
+    moves = sum(t["actions"] for t in turns)
 
     def _in(minutes: float) -> int:
         return sum(1 for m in cleared_t if m <= minutes)
@@ -282,6 +315,28 @@ def analyze(run_dir: Path, window_min: float = 45.0) -> dict[str, Any]:
         "other_requests_s": _r(sum(r.get("forward_duration", 0) for r in other) / 1000),
         "rhae_median_cleared": _r(_med([lv["rhae"] for lv in levels if lv["rhae"] is not None]), 3),
         "actions_vs_human_median": _r(_med([lv["actions"] / lv["human"] for lv in levels if lv["human"]]), 2),
+        # the observe -> plan -> act cycle
+        "output_tokens_per_cleared_level": int(sum(outs) / len(levels)) if levels else None,
+        "output_tokens_per_level_median": int(_med([lv["output_tokens"] for lv in levels])),
+        "output_tokens_level1_median": int(_med([lv["output_tokens"] for lv in first])),
+        "output_tokens_later_levels_median": int(_med([lv["output_tokens"] for lv in later])),
+        "turns_level1_median": _r(_med([lv["turns"] for lv in first])),
+        "turns_later_levels_median": _r(_med([lv["turns"] for lv in later])),
+        "share_tokens_uncleared": _r(uncleared_out / sum(outs), 3) if outs else None,
+        "output_tokens_per_action": int(sum(outs) / moves) if moves else None,
+        "cells": len(cell_acts),
+        "share_cells_no_act": _r(sum(k == 0 for k in cell_acts) / len(cell_acts), 3) if cell_acts else None,
+        "share_cells_one_act": _r(sum(k == 1 for k in cell_acts) / len(cell_acts), 3) if cell_acts else None,
+        "share_cells_several_acts": _r(sum(k > 1 for k in cell_acts) / len(cell_acts), 3) if cell_acts else None,
+        "act_calls": len(act_moves),
+        "moves_per_act_call_mean": _r(sum(act_moves) / len(act_moves), 2) if act_moves else None,
+        "moves_per_act_call_median": _r(_med(act_moves)),
+        "share_act_calls_one_move": _r(sum(k == 1 for k in act_moves) / len(act_moves), 3) if act_moves else None,
+        "share_act_calls_10_plus": _r(sum(k >= 10 for k in act_moves) / len(act_moves), 3) if act_moves else None,
+        "act_calls_per_level_median": _r(_med([lv["act_calls"] for lv in levels])),
+        "share_moves_no_change": _r(sum(t["noop_moves"] for t in turns) / moves, 3) if moves else None,
+        "share_moves_repeat_state": _r(sum(t["repeat_moves"] for t in turns) / moves, 3) if moves else None,
+        "act_stops": dict(act_stops),
     }
     games = []
     for game_id, info in infos.items():
@@ -325,6 +380,25 @@ _LABELS = [
     ("rhae_median_cleared", "RHAE per cleared level (median)"),
 ]
 
+# the observe -> plan -> act cycle, its own table
+_CYCLE = [
+    ("output_tokens_per_cleared_level", "reply tokens per cleared level (all reply tokens / levels)"),
+    ("output_tokens_per_level_median", "reply tokens spent inside a cleared level (median)"),
+    ("output_tokens_level1_median", "... level 1 (median)"), ("output_tokens_later_levels_median", "... level 2 and up (median)"),
+    ("turns_level1_median", "turns, level 1 (median)"), ("turns_later_levels_median", "turns, level 2 and up (median)"),
+    ("share_tokens_uncleared", "share of reply tokens on levels never cleared"),
+    ("output_tokens_per_action", "reply tokens per action"),
+    ("cells", "ipython cells"), ("share_cells_no_act", "cells with no act()"),
+    ("share_cells_one_act", "cells with one act()"), ("share_cells_several_acts", "cells with 2+ act()"),
+    ("act_calls", "act() calls"), ("moves_per_act_call_mean", "moves per act() call, mean"),
+    ("moves_per_act_call_median", "moves per act() call, median"),
+    ("share_act_calls_one_move", "act() calls that sent one move"),
+    ("share_act_calls_10_plus", "act() calls that sent 10+ moves"),
+    ("act_calls_per_level_median", "act() calls per cleared level (median)"),
+    ("share_moves_no_change", "moves that changed nothing on the board"),
+    ("share_moves_repeat_state", "moves back to a state already seen"),
+]
+
 
 def _fmt(v: Any) -> str:
     if v is None:
@@ -343,17 +417,25 @@ def render(a: dict[str, Any], vs: dict[str, Any] | None = None) -> str:
     lines += ["", "Busy time = turn wall time + cell time + curator time, summed over games (they run in parallel).",
               "Turn wall time runs from the agent's last event to the logged reply, so it includes the wait for a "
               "scheduler slot.", "", "## Headline", ""]
-    lines += ["| measure | this run |" + (" other | change |" if o else ""),
-              "|---|---|" + ("---|---|" if o else "")]
-    for key, label in _LABELS:
-        key, label = key.format(w=w), label.format(w=w)
-        cur = h.get(key)
-        row = f"| {label} | {_fmt(cur)} |"
-        if o:
-            old = o.get(key)
-            diff = _fmt(_r(cur - old, 3)) if isinstance(cur, (int, float)) and isinstance(old, (int, float)) else "-"
-            row += f" {_fmt(old)} | {diff} |"
-        lines.append(row)
+    def table(labels: list[tuple[str, str]]) -> list[str]:
+        out = ["| measure | this run |" + (" other | change |" if o else ""), "|---|---|" + ("---|---|" if o else "")]
+        for key, label in labels:
+            key, label = key.format(w=w), label.format(w=w)
+            cur = h.get(key)
+            row = f"| {label} | {_fmt(cur)} |"
+            if o:
+                old = o.get(key)
+                diff = _fmt(_r(cur - old, 3)) if isinstance(cur, (int, float)) and isinstance(old, (int, float)) else "-"
+                row += f" {_fmt(old)} | {diff} |"
+            out.append(row)
+        return out
+
+    lines += table(_LABELS)
+    lines += ["", "## Observe, plan, act", "",
+              "How much thinking each level costs, and how many moves the agent sends once it has a plan.", ""]
+    lines += table(_CYCLE)
+    stops = ", ".join(f"{k}: {v}" for k, v in sorted(h.get("act_stops", {}).items(), key=lambda kv: -kv[1]))
+    lines += ["", f"How act() calls ended: {stops or '-'}"]
     lines += ["", "## Per game", "",
               "| game | levels | minutes | first level (min) | turns | turn s (median) | reply tokens (median) | "
               "cut off | wasted | actions | curator s |", "|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -362,12 +444,12 @@ def render(a: dict[str, Any], vs: dict[str, Any] | None = None) -> str:
                      f"{g['turn_s_median']} | {g['output_median']} | {g['cut_off']} | {g['wasted']} | {g['actions']} | "
                      f"{g['curator_s']} |")
     lines += ["", "## Cleared levels, in the order they were cleared", "",
-              "| cleared at (min) | game | level | minutes | turns | wasted turns | actions | human | RHAE | "
-              "reply tokens |", "|---|---|---|---|---|---|---|---|---|---|"]
+              "| cleared at (min) | game | level | minutes | turns | wasted turns | actions | act() calls | human | "
+              "RHAE | reply tokens |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for lv in sorted(a["levels"], key=lambda lv: lv["cleared_at_min"]):
         lines.append(f"| {lv['cleared_at_min']} | {lv['game']} | {lv['level']} | {lv['minutes']} | {lv['turns']} | "
-                     f"{lv['wasted_turns']} | {lv['actions']} | {_fmt(lv['human'])} | {_fmt(lv['rhae'])} | "
-                     f"{lv['output_tokens']} |")
+                     f"{lv['wasted_turns']} | {lv['actions']} | {lv['act_calls']} | {_fmt(lv['human'])} | "
+                     f"{_fmt(lv['rhae'])} | {lv['output_tokens']} |")
     slow = sorted(a["turns"], key=lambda t: -t["wall_s"])[:15]
     lines += ["", "## Slowest turns", "",
               "| game | turn | level | wall s | decode s | prefill s | wait s | prompt | cached | reply | finish | "

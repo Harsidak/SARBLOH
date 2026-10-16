@@ -1,4 +1,4 @@
-# Nemotron 3.5 Super VL NVFP4: Hugging Face -> Colab disk -> zipped parts on Google Drive (MyDrive/nemotron_zip).
+# Nemotron 3.5 Super VL NVFP4: Hugging Face -> Colab disk -> one zip on Google Drive (MyDrive/nemotron_zip/nemotron.zip).
 # Two Colab cells. Paste each "# %%" block into its own cell. Delete this file once the copy exists.
 # Paste HF_TOKEN from .env below. Do not share or save the notebook with the key in it.
 
@@ -26,56 +26,51 @@ assert not bad, "size mismatch: rerun this cell, the download resumes"
 print("subfolders:", [d for d in os.listdir(LOCAL) if os.path.isdir(f"{LOCAL}/{d}")] or "none")
 print(f"free disk: {shutil.disk_usage('/content').free / 1e9:.0f} GB")
 
-# %% Cell 2: zip the model and save it to Google Drive (MyDrive/nemotron_zip). Rerun to resume.
-# Split into parts of about 10 GB (nemotron.part01.zip, ...), so the Colab disk only ever holds one part next to
-# the model. Every part is a complete zip on its own: unzip all of them into one folder to get the model back.
+# %% Cell 2: zip the whole model into ONE file and save it to Google Drive (MyDrive/nemotron_zip/nemotron.zip).
 # Stored, not compressed: the weights are already 4-bit and barely shrink, so compressing only costs hours.
+# The zip is built on the Colab disk first (it needs about the model's size free), checked, then copied to Drive.
+# One file cannot resume: if the copy breaks, rerun the cell; a finished zip on /content is reused, not rebuilt.
 import os, shutil, zipfile, json
 from google.colab import drive
 drive.mount("/content/drive")
 
 LOCAL = "/content/nemotron"
 DRIVE = "/content/drive/MyDrive/nemotron_zip"
-PART_GB = 10
+NAME  = "nemotron.zip"
+DELETE_MODEL_AFTER_ZIP = False  # True frees the model's disk space before the Drive copy (cell 1 can fetch it again)
 os.makedirs(DRIVE, exist_ok=True)
 
 files = sorted(os.path.relpath(os.path.join(r, n), LOCAL) for r, _, ns in os.walk(LOCAL) for n in ns)
-parts, cur, size = [], [], 0
-for rel in files:  # the same file order every run, so the parts come out the same on a rerun
-    s = os.path.getsize(f"{LOCAL}/{rel}")
-    if cur and size + s > PART_GB * 1e9:
-        parts.append(cur)
-        cur, size = [], 0
-    cur.append(rel)
-    size += s
-parts.append(cur)
+total = sum(os.path.getsize(f"{LOCAL}/{rel}") for rel in files)
+tmp, dst, done = f"/content/{NAME}", f"{DRIVE}/{NAME}", f"{DRIVE}/{NAME}.done"  # .done: written only when Drive has it all
 
-manifest = {}
-for i, part in enumerate(parts, 1):
-    name = f"nemotron.part{i:02d}.zip"
-    dst, tmp = f"{DRIVE}/{name}", f"/content/{name}"
-    done = f"{DRIVE}/{name}.done"  # written only after the part is fully on Drive
-    if os.path.exists(done) and os.path.exists(dst):
-        manifest[name] = json.load(open(done))
-        print(f"[{i}/{len(parts)}] {name} already on Drive")
-        continue
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
-        for rel in part:
-            z.write(f"{LOCAL}/{rel}", rel)
-    with zipfile.ZipFile(tmp) as z:
-        assert z.testzip() is None, f"{name}: CRC check failed"
+if os.path.exists(done) and os.path.exists(dst) and os.path.getsize(dst) == json.load(open(done))["bytes"]:
+    print(f"{NAME} already on Drive")
+else:
+    tmp_ok = f"{tmp}.ok"  # the local zip passed its CRC check
+    if not (os.path.exists(tmp) and os.path.exists(tmp_ok)):
+        free = shutil.disk_usage("/content").free
+        assert free > total * 1.02, f"need {total / 1e9:.0f} GB free for the zip, have {free / 1e9:.0f} GB"
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+            for i, rel in enumerate(files, 1):
+                z.write(f"{LOCAL}/{rel}", rel)
+                print(f"\r[{i}/{len(files)}] zipped {rel}", end="", flush=True)
+        print()
+        with zipfile.ZipFile(tmp) as z:
+            assert z.testzip() is None, f"{NAME}: CRC check failed"
+            assert sorted(z.namelist()) == files, f"{NAME}: file list differs from {LOCAL}"
+        open(tmp_ok, "w").close()
+    if DELETE_MODEL_AFTER_ZIP:
+        shutil.rmtree(LOCAL, ignore_errors=True)
+    info = {"bytes": os.path.getsize(tmp), "files": files}
+    print(f"copying {info['bytes'] / 1e9:.2f} GB to Drive ...")
     shutil.copyfile(tmp, dst)
-    info = {"bytes": os.path.getsize(tmp), "files": part}
-    assert os.path.getsize(dst) == info["bytes"], f"{name}: Drive copy is short, rerun this cell"
-    json.dump(info, open(done, "w"))
+    drive.flush_and_unmount()  # waits until Drive has the data
+    drive.mount("/content/drive")
+    assert os.path.getsize(dst) == info["bytes"], f"{NAME}: Drive copy is short, rerun this cell"
+    json.dump(info, open(done, "w"), indent=1)
     os.remove(tmp)
-    manifest[name] = info
-    print(f"[{i}/{len(parts)}] {name} {info['bytes'] / 1e9:.2f} GB, {len(part)} files")
+    os.remove(tmp_ok)
 
-json.dump(manifest, open(f"{DRIVE}/manifest.json", "w"), indent=1)
-drive.flush_and_unmount()  # waits until Drive has the data
-drive.mount("/content/drive")
-bad = [n for n, inf in manifest.items()
-       if not os.path.exists(f"{DRIVE}/{n}") or os.path.getsize(f"{DRIVE}/{n}") != inf["bytes"]]
-n_files = sum(len(inf["files"]) for inf in manifest.values())
-print(f"{len(manifest)} zips, {n_files} of {len(files)} files, mismatches: {bad or 'none'}")
+size = os.path.getsize(dst)
+print(f"{dst}: {size / 1e9:.2f} GB, {len(json.load(open(done))['files'])} files (model {total / 1e9:.2f} GB, {len(files)} files)")
