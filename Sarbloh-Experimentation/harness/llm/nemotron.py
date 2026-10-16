@@ -8,12 +8,14 @@ reads the format from config.json, so no --quantization flag. 1M native context;
 Flags follow the model card's SGLang recipe (lmsysorg/sglang:v0.5.20, one GB200): flashinfer Mamba backend, float16 SSM
 state with stochastic rounding (5 Philox rounds), EAGLE on the built-in MTP head with 5 steps and topk 1, the
 qwen3_coder tool parser and the nemotron_3 reasoning parser. Added from our Qwen SGLang profiles: prefix caching of the
-Mamba state (extra_buffer, a checkpoint every 64 tokens, page size 64), fp8 KV, 10 running requests with a CUDA graph
+Mamba state (extra_buffer, a checkpoint every 128 tokens, page size 64), fp8 KV, 10 running requests with a CUDA graph
 for every batch size, lpm scheduling and the cache report the prefix-hit metrics read.
 
 Memory (UNCONFIRMED until the first start): about 80 GB of weights. KV is 4 KB a token in fp8 (8 attention layers x 2
 KV heads x 128 x K and V), so 10 x 131k is about 5.4 GB; the Mamba state is about 84 MB a sequence (40 layers x 128
-heads x 64 x 128 x 2 bytes), and --max-mamba-cache-size 40 holds about 3.4 GB of it, for live slots and cached prefixes.
+heads x 64 x 128 x 2 bytes), and --max-mamba-cache-size 50 holds about 4.2 GB of it, for live slots and cached prefixes.
+Measured on the first 0.5.19 start (2026-10-16): 69.85 GB of weights, and the server capped running requests at
+40 // 5 = 8 with a cache of 40 (5 Mamba slots a request with extra_buffer), so 50 gives the 10 we schedule.
 
 Chat template: ``truncate_history_thinking`` defaults to True and strips the thinking of every assistant message before
 the last user message. Our context adds a user message almost every turn (observations, ipython output), so the
@@ -24,18 +26,19 @@ the next and keeps all thinking). The template has no "xhigh"/"low" effort, only
 "{reasoning effort: efficient}" line after the last user message); ``template_kwargs`` maps the harness's
 reasoning_effort onto it.
 
-Wheels: the card asks for SGLang 0.5.20, and there is no 0.5.20 wheelhouse on Kaggle (banwait13/sglang0520wheels does
-not exist, checked 2026-10-16), so the chain runs on the Pennyroyal 0.5.19 wheels (banwait13/sglangwheels). Checked
-against that wheel (2026-10-16): every flag below is a ServerArgs field (the two Mamba-cache rounding flags too), and
-the ``nemotron_3`` reasoning parser and the ``qwen3_coder`` tool parser exist. But 0.5.19 does not know this
-checkpoint's names (``architectures: NemotronH_Omni_Reasoning_V3``, ``model_type: nemotron_h_omni``): it has the Nano
-Omni wrapper (``NemotronH_Nano_Omni_Reasoning_V3``, the same llm_config + RADIO vision_config + sound_config layout, its
-own config class) and NemotronHForCausalLM with LatentMoE. So the 0.5.19 profiles serve a symlinked copy of the weights
-whose config.json names the Nano Omni wrapper (``config_overrides``, ``server.patched_model_dir``). Whether the Super
-checkpoint loads and runs under it (weight names, the image processor, MTP) is UNCONFIRMED until the first start; the
-chain goes image, then text only (MTP is out, see CHAIN), and the notebook falls back to another model after that.
-The 0.5.20 profiles stay defined, out of the chain, for when a 0.5.20 wheelhouse exists. Licence OpenMDW-1.1: prize
-eligibility UNCONFIRMED.
+Wheels: SGLang 0.5.20, the version the card names, built by kaggle/sglang_nemotron_wheels.ipynb into the
+banwait13/sglang0520wheels dataset (torch 2.13.0 on CUDA 13.0, as Pennyroyal). Checked against the 0.5.20 source
+(2026-10-16): it knows this checkpoint by its own names (``NemotronH_Omni_Reasoning_V3``), so no config patch; that
+class declares ``qkv_proj`` as packed q/k/v, so the FP8 scales of the 8 attention layers load; and its MTP draft is
+the MTP layer alone (``NemotronHForCausalLMMTP``, only mtp.* plus the shared embedding and head). Every flag below is
+a 0.5.20 server argument, and the two parsers exist.
+The NVFP4 MoE layers run only on the ``flashinfer_cutlass`` MoE backend on this card: the automatic choice on
+0.5.19 was flashinfer_trtllm and the start failed, so it is set explicitly (0.5.20 picks it itself on sm120).
+The 0.5.19 Pennyroyal profiles (banwait13/sglangwheels) stay defined, out of the chain. They serve a symlinked
+copy of the weights whose config.json names the Nano Omni wrapper (``config_overrides``, ``server.patched_model_dir``).
+Under that name SGLang does not know the qkv packing: the attention layers ran unquantized and their FP8 scales were
+dropped (the ``qkqkv_proj ... not found`` lines). It also does not map MTP to the MTP layer, so the draft built a
+second full model and ran out of memory. Licence OpenMDW-1.1: prize eligibility UNCONFIRMED.
 """
 
 from __future__ import annotations
@@ -46,7 +49,7 @@ from harness.llm import sglang
 from harness.llm.spec import ModelSpec
 
 WEIGHTS = "banwait13/nemotron-3-5-super-vl-nvfp4"  # nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 snapshot
-WHEELS_0520 = "banwait13/sglang0520wheels"  # SGLang 0.5.20 wheelhouse, same layout as sglangwheels
+WHEELS_0520 = "banwait13/sglang0520wheels"  # SGLang 0.5.20, built by kaggle/sglang_nemotron_wheels.ipynb
 WHEELS_PENNYROYAL = "banwait13/sglangwheels"  # Pennyroyal v2.5.3, SGLang 0.5.19
 
 SGL = {
@@ -61,8 +64,10 @@ SGL = {
     "--mamba-cache-philox-rounds": "5",
     # prefix caching of the Mamba state, as in our Qwen profiles; the interval must be at least this model's Mamba chunk
     # size (128) and a multiple of the page size (64), or the server refuses to start
-    "--max-mamba-cache-size": "40", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "128",
+    "--max-mamba-cache-size": "50", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "128",
     "--mm-feature-transport": "cpu",
+    # the NVFP4 MoE layers run only on this backend here; the automatic choice failed on 0.5.19
+    "--moe-runner-backend": "flashinfer_cutlass",
     "--reasoning-parser": "nemotron_3", "--tool-call-parser": "qwen3_coder",
     "--chat-template": "{model_dir}/chat_template.jinja",
     "--default-chat-template-kwargs": '{"truncate_history_thinking": false}',
@@ -96,9 +101,8 @@ PROFILES: dict[str, dict[str, Any]] = {
     "nemotron_pennyroyal_vision": _profile("sglang_pennyroyal", True),
     "nemotron_pennyroyal": _profile("sglang_pennyroyal", False),
 }
-# The 0.5.19 Pennyroyal wheels only (no 0.5.20 wheelhouse exists): image, then text only. The MTP5 profile is left out:
-# on 0.5.19 its draft worker builds a second full model (all MoE layers) instead of the MTP head and runs out of memory.
-CHAIN = ["nemotron_pennyroyal_vision", "nemotron_pennyroyal"]
+# SGLang 0.5.20: the card's MTP5 + image, image without MTP, then text only. The 0.5.19 profiles are out (see the note).
+CHAIN = ["nemotron_mtp5_vision", "nemotron_vision", "nemotron"]
 
 EFFORT = {"xhigh": {}, "medium": {}, "low": {"medium_effort": True}}
 
