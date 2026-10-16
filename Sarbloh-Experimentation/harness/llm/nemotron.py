@@ -33,7 +33,7 @@ Omni wrapper (``NemotronH_Nano_Omni_Reasoning_V3``, the same llm_config + RADIO 
 own config class) and NemotronHForCausalLM with LatentMoE. So the 0.5.19 profiles serve a symlinked copy of the weights
 whose config.json names the Nano Omni wrapper (``config_overrides``, ``server.patched_model_dir``). Whether the Super
 checkpoint loads and runs under it (weight names, the image processor, MTP) is UNCONFIRMED until the first start; the
-chain goes MTP + image, image without MTP, then text only, and the notebook falls back to another model after that.
+chain goes image, then text only (MTP is out, see CHAIN), and the notebook falls back to another model after that.
 The 0.5.20 profiles stay defined, out of the chain, for when a 0.5.20 wheelhouse exists. Licence OpenMDW-1.1: prize
 eligibility UNCONFIRMED.
 """
@@ -59,8 +59,9 @@ SGL = {
     # the card's Mamba settings
     "--mamba-backend": "flashinfer", "--mamba-ssm-dtype": "float16", "--enable-mamba-cache-stochastic-rounding": None,
     "--mamba-cache-philox-rounds": "5",
-    # prefix caching of the Mamba state, as in our Qwen profiles
-    "--max-mamba-cache-size": "40", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "64",
+    # prefix caching of the Mamba state, as in our Qwen profiles; the interval must be at least this model's Mamba chunk
+    # size (128) and a multiple of the page size (64), or the server refuses to start
+    "--max-mamba-cache-size": "40", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "128",
     "--mm-feature-transport": "cpu",
     "--reasoning-parser": "nemotron_3", "--tool-call-parser": "qwen3_coder",
     "--chat-template": "{model_dir}/chat_template.jinja",
@@ -95,8 +96,9 @@ PROFILES: dict[str, dict[str, Any]] = {
     "nemotron_pennyroyal_vision": _profile("sglang_pennyroyal", True),
     "nemotron_pennyroyal": _profile("sglang_pennyroyal", False),
 }
-# The 0.5.19 Pennyroyal wheels only (no 0.5.20 wheelhouse exists): MTP5 + image, image without MTP, text only.
-CHAIN = ["nemotron_pennyroyal_mtp5_vision", "nemotron_pennyroyal_vision", "nemotron_pennyroyal"]
+# The 0.5.19 Pennyroyal wheels only (no 0.5.20 wheelhouse exists): image, then text only. The MTP5 profile is left out:
+# on 0.5.19 its draft worker builds a second full model (all MoE layers) instead of the MTP head and runs out of memory.
+CHAIN = ["nemotron_pennyroyal_vision", "nemotron_pennyroyal"]
 
 EFFORT = {"xhigh": {}, "medium": {}, "low": {"medium_effort": True}}
 
