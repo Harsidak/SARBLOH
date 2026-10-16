@@ -16,6 +16,10 @@ KV heads x 128 x K and V), so 10 x 131k is about 5.4 GB; the Mamba state is abou
 heads x 64 x 128 x 2 bytes), and --max-mamba-cache-size 50 holds about 4.2 GB of it, for live slots and cached prefixes.
 Measured on the first 0.5.19 start (2026-10-16): 69.85 GB of weights, and the server capped running requests at
 40 // 5 = 8 with a cache of 40 (5 Mamba slots a request with extra_buffer), so 50 gives the 10 we schedule.
+Measured on 0.5.20 (run 2026-10-16 19:33): a Mamba cache of 50 took 9.3 GB (4.1 GB states, 5.2 GB MTP verify buffers),
+the KV pool 1.36M tokens (5.8 GB, peak use 35%), and 6.2 GB stayed free after the CUDA graphs. All 50 slots were held
+by the 10 running requests (mamba usage 0.80), so no prefix was kept and the cache hit was 30%. Now 80 slots (about
++2.5 GB) and a KV pool capped at 655,360 tokens (about -3.0 GB). UNCONFIRMED until the next start.
 
 Chat template: ``truncate_history_thinking`` defaults to True and strips the thinking of every assistant message before
 the last user message. Our context adds a user message almost every turn (observations, ipython output), so the
@@ -64,14 +68,18 @@ SGL = {
     "--mamba-cache-philox-rounds": "5",
     # prefix caching of the Mamba state, as in our Qwen profiles; the interval must be at least this model's Mamba chunk
     # size (128) and a multiple of the page size (64), or the server refuses to start
-    "--max-mamba-cache-size": "50", "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "128",
+    # 80 Mamba slots: 50 are held by the 10 running requests (5 each), so 30 keep cached prefixes (with 50 none were
+    # left: 30% cache hit). Paid for by capping the KV pool at 655k tokens (5 full windows; the peak use was 476k).
+    "--max-mamba-cache-size": "80", "--max-total-tokens": "655360",
+    "--mamba-radix-cache-strategy": "extra_buffer", "--mamba-track-interval": "128",
     "--mm-feature-transport": "cpu",
     # the NVFP4 MoE layers run only on this backend here; the automatic choice failed on 0.5.19
     "--moe-runner-backend": "flashinfer_cutlass",
     "--reasoning-parser": "nemotron_3", "--tool-call-parser": "qwen3_coder",
     "--chat-template": "{model_dir}/chat_template.jinja",
     "--default-chat-template-kwargs": '{"truncate_history_thinking": false}',
-    "--watchdog-timeout": "1800", "--schedule-policy": "lpm", "--enable-cache-report": None, "--enable-metrics": None}
+    "--watchdog-timeout": "1800", "--schedule-policy": "lpm", "--enable-cache-report": None, "--enable-metrics": None,
+    "--enable-request-time-stats-logging": None}  # the per-request lines harness/speed.py reads
 # The card's MTP recipe: EAGLE on the built-in MTP layer, 5 steps, linear chain. Draft tokens = steps + 1 (topk 1).
 MTP5 = {"--speculative-algorithm": "EAGLE", "--speculative-num-steps": "5", "--speculative-eagle-topk": "1",
         "--speculative-num-draft-tokens": "6"}
