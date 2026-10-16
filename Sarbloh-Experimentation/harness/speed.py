@@ -15,7 +15,8 @@ Writes ``speed.md`` (the report), ``speed.json`` (headline numbers, per game, pe
 row per turn) in <run_dir>. ``--vs`` adds a column with another run's headline numbers and the change.
 
 The "Observe, plan, act" table measures the cycle itself: reply tokens per level (level 1 vs later, and the share
-spent on levels never cleared), ``act()`` calls per cell, moves per ``act()`` call, and moves that changed nothing.
+spent on levels never cleared), ``act()`` calls per cell, moves per ``act()`` call, moves per cell and the share sent
+by ``play()`` (its one-move ``act()`` calls are left out of the per-call numbers), and moves that changed nothing.
 
 Games run in parallel, so per-game times add up to more than the run's wall clock. The headline measure is levels
 cleared within the first ``--window`` minutes of the run (all games together), plus levels per hour over the run.
@@ -113,7 +114,9 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
                                                               "act_calls": 0, "noop_moves": 0, "repeat_moves": 0})
     level_ups, curator_s, curator_runs, start = [], 0.0, 0, None
     cell_acts: list[int] = []        # act() calls per ipython cell
-    act_moves: list[int] = []        # moves sent per act() call
+    act_moves: list[int] = []        # moves sent per act() call (play()'s one-move calls left out)
+    cell_moves: dict[tuple[Any, Any], int] = defaultdict(int)   # moves per (turn, cell), act() and play() alike
+    play_moves = [0]                 # moves sent by play()
     act_stops: dict[str, int] = defaultdict(int)
     for e in events:
         ev, turn = e.get("event"), e.get("turn")
@@ -131,6 +134,10 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
         elif ev == "act" and turn is not None:
             done = int(e.get("done") or 0)
             by_turn[turn]["actions"] += done
+            cell_moves[(turn, e.get("call"))] += done
+            if e.get("via") == "play":
+                play_moves[0] += done
+                continue
             by_turn[turn]["act_calls"] += 1
             act_moves.append(done)
             stop = str(e.get("stop") or "plan sent in full")
@@ -187,7 +194,7 @@ def game_turns(events: list[dict[str, Any]], game_id: str, cap: int | None,
             last_t = t
     info = {"start": start, "level_ups": ups, "curator_s": curator_s, "curator_runs": curator_runs,
             "end": events[-1].get("t") if events else start, "cell_acts": cell_acts, "act_moves": act_moves,
-            "act_stops": dict(act_stops)}
+            "act_stops": dict(act_stops), "cell_moves": [k for k in cell_moves.values() if k], "play_moves": play_moves[0]}
     return turns, info
 
 
@@ -256,6 +263,8 @@ def analyze(run_dir: Path, window_min: float = 45.0) -> dict[str, Any]:
     uncleared_out = sum(t["output"] for t in turns if t["level"] >= open_level.get(t["game"], 0))
     cell_acts = [k for i in infos.values() for k in i["cell_acts"]]
     act_moves = [k for i in infos.values() for k in i["act_moves"]]
+    cell_moves = [k for i in infos.values() for k in i.get("cell_moves", [])]
+    play_moves = sum(i.get("play_moves", 0) for i in infos.values())
     act_stops: dict[str, int] = defaultdict(int)
     for i in infos.values():
         for k, v in i["act_stops"].items():
@@ -333,6 +342,9 @@ def analyze(run_dir: Path, window_min: float = 45.0) -> dict[str, Any]:
         "moves_per_act_call_median": _r(_med(act_moves)),
         "share_act_calls_one_move": _r(sum(k == 1 for k in act_moves) / len(act_moves), 3) if act_moves else None,
         "share_act_calls_10_plus": _r(sum(k >= 10 for k in act_moves) / len(act_moves), 3) if act_moves else None,
+        "moves_per_moving_cell_median": _r(_med(cell_moves)),
+        "share_moving_cells_5_plus": _r(sum(k >= 5 for k in cell_moves) / len(cell_moves), 3) if cell_moves else None,
+        "share_moves_via_play": _r(play_moves / sum(cell_moves), 3) if sum(cell_moves) else None,
         "act_calls_per_level_median": _r(_med([lv["act_calls"] for lv in levels])),
         "share_moves_no_change": _r(sum(t["noop_moves"] for t in turns) / moves, 3) if moves else None,
         "share_moves_repeat_state": _r(sum(t["repeat_moves"] for t in turns) / moves, 3) if moves else None,
@@ -392,6 +404,9 @@ _CYCLE = [
     ("share_cells_one_act", "cells with one act()"), ("share_cells_several_acts", "cells with 2+ act()"),
     ("act_calls", "act() calls"), ("moves_per_act_call_mean", "moves per act() call, mean"),
     ("moves_per_act_call_median", "moves per act() call, median"),
+    ("moves_per_moving_cell_median", "moves per cell that moved, median (act() and play())"),
+    ("share_moving_cells_5_plus", "cells that moved 5+ times"),
+    ("share_moves_via_play", "moves sent by play()"),
     ("share_act_calls_one_move", "act() calls that sent one move"),
     ("share_act_calls_10_plus", "act() calls that sent 10+ moves"),
     ("act_calls_per_level_median", "act() calls per cleared level (median)"),

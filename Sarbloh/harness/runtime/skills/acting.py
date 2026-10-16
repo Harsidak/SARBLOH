@@ -2,23 +2,43 @@
 
 The REPL is the agent's only game tool: it models the game in code, searches the model and sends the moves it finds,
 in the same cell. Each call goes to the host (``AgentSession._host``, type ``arc.act``), which runs the moves exactly
-like the old act tool did: the same parsing, legality check, memory writes, change lines and stops (level up,
+like the old act tool did: the same parsing, legality check, change lines and stops (level up,
 GAME_OVER, game end). The change lines are printed; the host sends the new state after the reply.
 
-    r = await act(["4", "4", "1"], plan="push the block right, then up")
+    r = await act(["4", "4", "1"])
     r.lines        # one change line per move: "#12 A4(right): obj 4 R 3x3 moved right 3 -> ..."
     r.done         # moves made; r.stopped is why it stopped early ("level up", "GAME_OVER", ...) or None
     r.level_up, r.state
     obs = observe()   # the state after the moves
 
 A move is "1".."5", "7", "reset", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c).
+
+Each call also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS), so the host saves them before the
+moves run; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in memory.
 """
 
 from __future__ import annotations
 
+import json
+import sys
 from typing import Any
 
 from rlm import repl as _repl
+
+MEMORY_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")
+
+
+def _plain(v: Any) -> Any:
+    try:
+        return json.loads(json.dumps(v, default=str))
+    except (TypeError, ValueError):   # e.g. tuple keys
+        return repr(v)
+
+
+def memory_values() -> dict[str, Any]:
+    """The memory variables of the agent's namespace as JSON values; a deleted one is left out."""
+    ns = sys.modules["__main__"].__dict__
+    return {k: _plain(ns[k]) for k in MEMORY_VARS if k in ns}
 
 
 class ActResult:
@@ -44,21 +64,19 @@ def _move(a: Any) -> str:
     return str(int(a))   # int, numpy int
 
 
-async def act(actions: Any, plan: str | None = None, hypotheses: list | None = None, findings: list | None = None,
-              goal: str | None = None, quiet: bool = False) -> ActResult:
-    """Make ``actions`` in order (each costs one move) and write your memory in the same call. Prints the change
-    lines unless ``quiet``. Raises RuntimeError when the call is refused (nothing is spent then)."""
+async def act(actions: Any, quiet: bool = False) -> ActResult:
+    """Make ``actions`` in order (each costs one move). Prints the change lines unless ``quiet``. Raises RuntimeError
+    when the call is refused (nothing is spent then)."""
     if isinstance(actions, (str, int)) or (isinstance(actions, tuple) and actions and not
                                            isinstance(actions[0], (tuple, list, str))):
         actions = [actions]
-    args: dict[str, Any] = {"actions": [_move(a) for a in actions]}
-    for key, val in (("plan", plan), ("hypotheses", hypotheses), ("findings", findings), ("goal", goal)):
-        if val is not None:
-            args[key] = val
+    args: dict[str, Any] = {"actions": [_move(a) for a in actions], "memory": memory_values()}
     reply = await _repl.host_request({"type": "arc.act", "args": args})
     if reply.get("status") != "ok":
         raise RuntimeError(str(reply.get("error") or "act failed"))
     res = ActResult(reply.get("result") or {})
+    if res.level_up:
+        sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES={}, FINDINGS=[])
     if not quiet:
         print(res.text)
     return res

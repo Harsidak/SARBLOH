@@ -1,5 +1,5 @@
-"""What a model brings to the shared serving layer. ``gemma.py``, ``qwen.py`` and ``qwen_flash_next.py`` each define one
-``SPEC``; config key ``model`` ("gemma" | "qwen" | "qwen_flash_next") picks it. Nothing outside those files may name a
+"""What a model brings to the shared serving layer. ``gemma.py``, ``qwen.py``, ``qwen_flash_next.py`` and ``nemotron.py``
+each define one ``SPEC``; config key ``model`` ("gemma" | "qwen" | "qwen_flash_next" | "nemotron") picks it. Nothing outside those files may name a
 model, parser or sampling value."""
 
 from __future__ import annotations
@@ -36,6 +36,8 @@ class ModelSpec:
     # {"env": {...} (the server's whole environment), "serve": [python args before the model dir], "info": {...}},
     # optionally "python" (the interpreter that runs "serve") and "backend" ("vllm" | "sglang": metric names).
     runtimes: dict[str, Callable[..., dict[str, Any]]] = field(default_factory=dict)
+    # Maps the harness's per-call chat template arguments (the reasoning effort) to this model's template.
+    template_kwargs: Callable[[dict[str, Any]], dict[str, Any]] = field(default=_no_fix)
 
     def max_model_len(self, profile: str) -> int:
         flags = self.profiles[profile]["flags"]
@@ -75,7 +77,7 @@ class ModelSpec:
         return out
 
 
-MODELS = ("gemma", "qwen", "qwen_flash_next")
+MODELS = ("gemma", "qwen", "qwen_flash_next", "nemotron")
 
 
 def get_spec(name: str) -> ModelSpec:

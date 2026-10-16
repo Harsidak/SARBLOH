@@ -5,13 +5,18 @@ the whole previous one and the server's prefix cache keeps it. On this hybrid mo
 change anywhere in the history makes the server prefill everything again from about that point: in the 2026-10-04
 run, every request after a new board reused ~0% of its prompt (3283 of 5599 requests) and requests inside a tool-call
 chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, a compaction, a level-up reset):
-- every reply keeps its thinking and every picture stays;
+- every reply keeps its thinking and every picture stays (config `old_images` off: only the newest picture is
+  sent, the older ones become a stub);
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
 - at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
   included, so the agent carries on mid-thought; before them the old boards become one-line stubs, the ipython outputs
   are cut short, act results become a short move log (one cut line per step), and the thinking, the old pictures and
-  the memory messages go; a full memory goes back in. A summary is made only when a drain would not free enough.
+  the memory messages go; a full memory goes back in. If that is not enough, the history is trimmed;
+- with ``hide_code`` on (the default), each reply's ipython code becomes a short note as soon as the reply is stored
+  (``code_note``: the names it defined; the code itself is still in the kernel), so no code is ever sent back, the
+  newest call's included. The thinking and the outputs stay. The note is stored before any request, so the prompt
+  stays a prefix of the next one.
 
 The old builder (``append_only`` off): the memory is built once per user message and joined to the front of the newest
 one; only the newest image is kept (older image parts become a one-line text stub); thinking is sent back only within
@@ -24,6 +29,7 @@ alternating roles).
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -44,7 +50,7 @@ TITLES = {
     "lessons": "Lessons from earlier levels and games",
     "questions": "Open questions (from a review of your last steps)",
 }
-EMPTY = {"goal": "(none yet: write one with `act(..., goal=...)` as soon as you have a guess)",
+EMPTY = {"goal": "(none yet: write a Goal: line as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
 
 
@@ -241,6 +247,87 @@ def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
     return images(out, True)
 
 
+def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    try:
+        sig = ast.unparse(node.args)
+    except Exception:  # noqa: BLE001 - a name without its arguments is still a help
+        sig = "..."
+    return f"{node.name}({sig if len(sig) <= 60 else sig[:57] + '...'})"
+
+
+def _described(node: ast.AST, name: str, src: list[str]) -> str:
+    """``name`` plus what the agent wrote about it: the first line of its docstring, else the comment lines just
+    above it (above its decorators)."""
+    text = (ast.get_docstring(node) or "").strip().splitlines()[:1]
+    if not text:
+        i = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])]) - 2
+        above = []
+        while i >= 0 and src[i].strip().startswith("#"):
+            above.insert(0, src[i].strip().lstrip("#").strip())
+            i -= 1
+        text = [" ".join(a for a in above if a)]
+    about = text[0] if text and text[0] else ""
+    if len(about) > 120:
+        about = about[:117] + "..."
+    return f"{name}: {about}" if about else name
+
+
+def code_note(code: str) -> str:
+    """The note that stands in for an ipython call's code: its size, the names it defined at the top level
+    (functions with their arguments and classes, each with its docstring or the comment above it, and variables)
+    and how to read the code again from the kernel. It is Python comments, so the call still reads as code."""
+    src = code.splitlines()
+    lines = len(src)
+    defs, classes, values = [], [], []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        tree = None
+    for node in (tree.body if tree is not None else []):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs.append(_described(node, _signature(node), src))
+        elif isinstance(node, ast.ClassDef):
+            classes.append(_described(node, node.name, src))
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name) and n.id not in values and not n.id.startswith("_"):
+                        values.append(n.id)
+    out = [f"# [All the code you write lives in your ipython kernel. This call's code ({lines} lines) ran there and "
+           "is not shown again; the output below is what it printed.]"]
+    if tree is None:
+        out.append("# it did not parse, so it defined nothing")
+    if defs:
+        out += ["# defined functions:"] + [f"#   {d}" for d in defs]
+    if classes:
+        out += ["# defined classes:"] + [f"#   {c}" for c in classes]
+    if values:
+        out.append("# set variables: " + ", ".join(values[:30]) + (" ..." if len(values) > 30 else ""))
+    if defs or classes or values:
+        out.append('# They are all still in your kernel: call them as they are, no import needed. '
+                   'show_source("name") prints the current code of one.')
+    return "\n".join(out)
+
+
+def stub_code(m: dict[str, Any]) -> dict[str, Any] | None:
+    """A reply with the code of each ipython call replaced by ``code_note``; None when it has no ipython code.
+    Other tools stay as they are."""
+    calls, changed = [], False
+    for tc in m.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except ValueError:
+            args = None
+        code = args.get("code") if isinstance(args, dict) and fn.get("name") == "ipython" else None
+        if isinstance(code, str):
+            tc = {**tc, "function": {**fn, "arguments": json.dumps({**args, "code": code_note(code)})}}
+            changed = True
+        calls.append(tc)
+    return {**m, "tool_calls": calls, "_code_stubbed": True} if changed else None
+
+
 def _text_of(m: dict[str, Any]) -> str:
     c = m.get("content") or ""
     return c if isinstance(c, str) else "".join(p.get("text", "") for p in c if isinstance(p, dict))
@@ -248,13 +335,16 @@ def _text_of(m: dict[str, Any]) -> str:
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
           vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS,
-          append_only: bool = False) -> list[dict[str, Any]]:
-    """The request. Append-only: the system prompt and the stored conversation as it is, every thinking and every
-    picture included (the memory is already in it). Else: the memory joined to the front of the newest user message,
-    so everything before that message is the same as in the last request."""
+          append_only: bool = False, old_images: bool = True) -> list[dict[str, Any]]:
+    """The request. Append-only: the system prompt and the stored conversation as it is, every thinking included (the
+    memory is already in it), and every picture, or with ``old_images`` off only the newest one (the older ones become
+    a one-line stub, so the prompt changes from the previous picture on whenever a new one arrives). Else: the memory
+    joined to the front of the newest user message, so everything before that message is the same as in the last
+    request."""
     if append_only:
         msgs = all_reasoning(messages)
-        return merge_users([{"role": "system", "content": system}] + (msgs if vision else images(msgs, False)))
+        return merge_users([{"role": "system", "content": system}] +
+                           (msgs if vision and old_images else images(msgs, vision)))
     msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)

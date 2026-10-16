@@ -181,6 +181,7 @@ class AgentSession:
         self._last_change: str | None = None     # the newest change line, "#12 A1(up): ..." (shown and in observe())
         self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
+        self._act_via: str | None = None
         self._pinned_chars = 0
         self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
@@ -751,6 +752,7 @@ class AgentSession:
 
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
         arc, mem = self.arc, self.memory
+        via, self._act_via = self._act_via, None
         raw = args.get("actions")
         if isinstance(raw, str):
             raw = json.loads(raw) if raw.strip().startswith("[") else [raw]
@@ -848,7 +850,7 @@ class AgentSession:
                         "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": mem.working.plan or None,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
-                         "actions": [start, arc.game.action_count]})
+                         "actions": [start, arc.game.action_count], "via": via})
         self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
         if done == 0 and stop:
             raise RuntimeError(stop)
@@ -1186,6 +1188,7 @@ class AgentSession:
         if cell is None:
             raise RuntimeError("act() works only inside an ipython call")
         args = dict(args)
+        self._act_via = args.pop("via", None)   # the kernel helper that sent it ("play"), for the trace
         if "memory" in args:   # the memory variables, saved before the moves run
             self._sync_memory(args.pop("memory"), cell)
         if cell["closed"]:

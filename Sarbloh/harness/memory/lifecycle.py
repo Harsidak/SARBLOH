@@ -21,7 +21,7 @@ from harness.memory.store import append_jsonl, clip, read_jsonl
 from harness.memory.timeline import Timeline, render_row
 from harness.memory.working import WorkingMemory
 
-SCOPES = ("all", "timeline", "hypotheses", "findings", "goal", "lessons", "skills")
+SCOPES = ("all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills")
 _OBJ = re.compile(r"\bobj(?:ect)?s?\s*#?(\d+)", re.IGNORECASE)
 
 
@@ -88,7 +88,7 @@ class GameMemory:
         return {"confirmation": line, "promoted": promoted, "erased": {k: len(v) if isinstance(v, list) else bool(v)
                                                                       for k, v in gone.items()}}
 
-    # --- writes from act() ---------------------------------------------------------------------------------
+    # --- writes ---------------------------------------------------------------------------------
     def write_act(self, args: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
         """plan, hypotheses, findings, goal, all optional. Validates everything before writing anything. A missing plan
         keeps the old one; the returned ``plan`` is the one written in this call, or None."""
@@ -107,6 +107,13 @@ class GameMemory:
         goal_changed = w.set_goal(args.get("goal") or "")
         w.save()
         return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None}
+
+    def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
+        """The kernel's memory variables (see ``WorkingMemory.sync``), saved when anything changed. Never raises."""
+        out = self.working.sync(values, turn=turn, level=level)
+        if any(out[k] for k in ("hypotheses", "findings", "removed")) or out["plan"] is not None or                 out["goal"] is not None:
+            self.working.save()
+        return out
 
     def record_step(self, row: dict[str, Any]) -> None:
         self.timeline.append({"kind": "step", **row})
@@ -138,6 +145,8 @@ class GameMemory:
         if scope in ("all", "timeline"):
             rows = self.timeline.search(q) if q else self.timeline.rows[-30:]
             sections.append(("timeline", [render_row(r) for r in rows]))
+        if scope in ("all", "plan"):
+            sections.append(("plan", [self.working.plan] if self.working.plan and match(self.working.plan) else []))
         if scope in ("all", "hypotheses"):
             past = [h for lv in read_jsonl(self.dir / "levels.jsonl") for h in lv.get("hypotheses", [])]
             lines = [f"(level {h.get('level')}) {self.working.hyp_line(h)}" for h in past + self.working.hypotheses

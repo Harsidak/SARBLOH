@@ -5,7 +5,8 @@
 
 Writes <working>/prime_run/{results.json, summary.json, trace.md, games/<game_id>/..., recordings/...} and prints a
 LEDGER_ROW line. ``harness.trace`` turns the transcripts and the SDK recordings into a per-game step map (steps.md),
-reports and the SFT export; config ``tracing`` off (always on the competition rerun) skips the transcripts and all of it.
+reports and the SFT export, and ``harness.speed`` into speed.md (where each turn's time went); config ``tracing`` off
+(always on the competition rerun) skips the transcripts and all of it.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ for _p in (PRIME_ROOT, REPO_ROOT):  # rlm/ + harness/ live in Sarbloh; the games
         sys.path.insert(0, str(_p))
 
 # pyrefly: ignore [missing-import]
-from harness import trace
+from harness import speed, trace
 from harness.agent import prompts
 from harness.config import build_config, config_hash
 
@@ -42,16 +43,24 @@ def is_competition_rerun() -> bool:
 
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
-    """Scale the compaction settings to the served window. From 128k up they stay as configured (16384 reserve,
-    6000 kept, compact above 120000 or window - reserve, whichever is lower); smaller windows get at most a quarter
-    each, and a turn's output never exceeds the reserve."""
+    """Scale the drain settings to the served window. From 128k up they stay as configured (drain above the trigger or
+    window - reserve, whichever is lower, down to drain_target_tokens; never past cap_tokens); smaller windows keep at
+    most a quarter word for word and drain to at most 3/5 of the trigger, and a turn's output never exceeds the
+    reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]
     comp["reserve_tokens"] = min(comp["reserve_tokens"], window // 4)
     comp["keep_recent_tokens"] = min(comp["keep_recent_tokens"], window // 4)
     if comp.get("trigger_tokens") and comp["trigger_tokens"] < 2 * comp["keep_recent_tokens"]:
         raise ValueError(f"compaction.trigger_tokens {comp['trigger_tokens']} < 2x keep_recent_tokens "
-                         f"{comp['keep_recent_tokens']}: every compaction would leave the context near the trigger")
+                         f"{comp['keep_recent_tokens']}: every drain would leave the context near the trigger")
+    # No request is sent above the trigger (a drain runs first), so a request plus its reply stays under the cap.
+    cap = min(int(comp.get("cap_tokens") or window), window)
+    trigger = min(int(comp.get("trigger_tokens") or window), window - comp["reserve_tokens"])
+    if trigger + comp["reserve_tokens"] > cap:
+        raise ValueError(f"compaction.trigger_tokens {trigger} + reserve_tokens {comp['reserve_tokens']} > cap_tokens "
+                         f"{cap}: a request and its reply could pass the cap")
+    comp["drain_target_tokens"] = min(int(comp.get("drain_target_tokens", 60000)), trigger * 3 // 5)
     cap = agent["max_tokens_per_turn"]
     agent["max_tokens_per_turn"] = ({k: min(v, comp["reserve_tokens"]) for k, v in cap.items()} if isinstance(cap, dict)
                                     else min(cap, comp["reserve_tokens"]))
@@ -181,6 +190,10 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
         print(f"[trace] step maps: {trace.build_run(run_dir)}", flush=True)
     except Exception as exc:  # noqa: BLE001 - the trace is a report; it must not fail the run
         print(f"[trace] failed: {type(exc).__name__}: {exc}", flush=True)
+    try:
+        print(f"[speed] report: {speed.build(run_dir)}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a report; it must not fail the run
+        print(f"[speed] failed: {type(exc).__name__}: {exc}", flush=True)
     return summary
 
 
@@ -293,6 +306,10 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             arcade = make_arcade("offline", environments_dir=str(COMPETITION_DIR / "environment_files"),
                                  recordings_dir=os.environ["RECORDINGS_DIR"])
             games = build_games(arcade, "offline", only=cfg["games"], record=record)
+        if cfg.get("prewarm_system"):
+            from harness.agent.agent import prewarm
+
+            print(f"[prewarm] {prewarm(cfg['agent'], llm)} system prompt request(s) cached", flush=True)
         summary = run_games(games, cfg, llm, run_dir, soft_end)
         summary.update({"server_profile": server.profile, "tool_mode": server.tool_mode, "vision": server.vision,
                         "image_probe": server.image_probe,
@@ -347,9 +364,15 @@ def local() -> None:
                     "serve_llm.ps1 -Vision)")
     ap.add_argument("--levels", type=int, default=None, help="end each game after this many levels")
     ap.add_argument("--max-tokens", type=int, default=4096, help="output tokens per turn")
+    ap.add_argument("--runs", type=int, default=1, help="local_SFT_RUN: play the games this many times")
     a = ap.parse_args()
+    from harness import config as config_module
     from harness.llm.client import LLM
     from harness.game.games import build_games, make_arcade
+
+    if config_module.local_SFT_RUN:
+        sft_run(a)
+        return
 
     cfg = build_config({
         "experiment": a.experiment, "stop_after_levels": a.levels,
@@ -366,6 +389,36 @@ def local() -> None:
     games = build_games(arcade, "offline", only=a.games, record=bool(cfg["record"]))
     summary = run_games(games, cfg, LLM(cfg["llm"]), Path(a.out), time.time() + a.minutes * 60)
     print(json.dumps(summary, indent=1))
+
+
+def sft_run(a: argparse.Namespace) -> None:
+    """local_SFT_RUN: the same games and agent, played by the DeepSeek API; each repeat gets its own run directory
+    runs/sft_deepseek/<time>_r<k>/ (transcripts, recordings, steps.md and sft_levels.jsonl from harness/trace.py)."""
+    from harness.llm.deepseek import DeepSeekLLM
+    from harness.game.games import build_games, make_arcade
+
+    games_arg = None if a.games == ["all"] else a.games
+    cfg = build_config({
+        "experiment": "sft_deepseek", "stop_after_levels": a.levels, "games": games_arg,
+        "game_wall_s": a.minutes * 60, "max_actions_per_game": a.max_actions,
+        "notebook_budget_s": a.minutes * 60 + 60, "teardown_reserve_s": 0,
+        "scheduler": {"enabled": False},
+        "agent": {"vision": False, "max_tokens_per_turn": {"early": 16384, "later": 8192},
+                  "compaction": {"reserve_tokens": 16384}},
+    })
+    cfg["llm"] = {**cfg["deepseek"]}
+    fit_context(cfg["agent"], 131072)  # the DeepSeek API's context window
+    os.environ["ONLY_RESET_LEVELS"] = "true"
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    for k in range(a.runs):
+        out = REPO_ROOT / "runs" / "sft_deepseek" / f"{stamp}_r{k + 1}"
+        llm = DeepSeekLLM(cfg["llm"], REPO_ROOT)
+        arcade = make_arcade("offline", environments_dir=a.env_dir, recordings_dir=str(out / "recordings"))
+        games = build_games(arcade, "offline", only=games_arg, record=bool(cfg["record"]))
+        cfg["concurrency"] = len(games)
+        print(f"[sft] run {k + 1}/{a.runs}: {len(games)} games with {cfg['llm']['model']} -> {out}", flush=True)
+        summary = run_games(games, cfg, llm, out, time.time() + a.minutes * 60)
+        print(json.dumps(summary, indent=1))
 
 
 if __name__ == "__main__":

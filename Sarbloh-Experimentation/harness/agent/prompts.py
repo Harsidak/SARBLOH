@@ -46,7 +46,7 @@ Objective:
 Read the board with code and look at the picture. Write what you learn as a Python model of the game, `step(state, move)`. Then search that model for the shortest path to the goal and send it.
 
 Working:
-Do the whole cycle inside one `ipython` call: observe, update the model, search, send the moves, then compare the new board with what the model predicted. If they match, keep going in the same call until the level is done. Stop and think again only when the game did something the model did not predict.
+Do the whole cycle inside one `ipython` call: observe, update the model, search, then send the path with `await play(path, predict=...)`. `play()` makes the moves one at a time, compares each new board with what your model predicted, and stops at the first move the model got wrong. If they all match, keep going in the same call until the level is done. Stop and think again only when the game did something the model did not predict.
 - Learning (a rule or the goal is unknown): take a few probe moves in a single turn. Each tests one guess. Update the model from what changed.
 - Solving (you know what you control, what the moves do and what wins): run the search and take the whole shortest path in a single turn.
 Every move counts. The path your search returns is your list of moves. Take an action or a sequence of them in a single turn, and do not walk a known path one move per turn.
@@ -128,8 +128,15 @@ What you can call inside it:
    - The moves stop early at a level up, at GAME_OVER, or when the game ends. After a level up `act()` refuses for the rest of that call, so you see the new level first.
    - It prints `act: 3 of 3 actions done` (plus `; stopped: <reason>`) and one change line per move. A click is written `A6(r12,c40)`, and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
    - It returns `r` with `r.lines`, `r.done`, `r.stopped`, `r.level_up` and `r.state`. Call `observe()` after it to compare the board with your model.
-3. `dir()` lists the names you have already defined.
-4. `show_source("name")` prints the code of a function or class you defined in an earlier call. Read it before you change it.
+3. `r = await play(path, predict=None, state=None)` makes the moves of `path` one at a time and stops at the first move that did not do what you predicted. Use it to send a path from your search.
+   - `predict(board, move)` gets `obs.board` before the move and returns the board you expect after it. It can also return a dict {{(r, c): letter}} with only the cells you care about, or None to not check that move.
+   - If your `step()` works on your own state, pass `state=my_state_of`: then `predict(my_state_of(obs), move)` is compared with `my_state_of(observe())` after the move.
+   - Cells of `hud` objects are not compared, so counters do not count as a surprise.
+   - It also stops at a level up, GAME_OVER or the end of the game, like `act()`, and every move counts the same.
+   - It prints one line per move. On a surprise it prints the move, the cells that differ (predicted and actual) and a small window of the board around them. Fix that rule in `step()`, then search again from the new board.
+   - It returns `r` with `r.done`, `r.stopped` ("surprise", "level up", "GAME_OVER", ... or None when the whole path was made), `r.surprise`, `r.lines`, `r.level_up`, `r.state` and `r.obs`, the board after the last move.
+4. `dir()` lists the names you have already defined.
+5. `show_source("name")` prints the code of a function or class you defined in an earlier call. Read it before you change it.
 
 Methods you can use:
 - World model, `step(state, move)`: a function that returns the next state the way the game would, used to plan without spending moves. Keep your model updated across 5 parts: (1) Objects (controlled avatar, walls, targets, keys, counters), (2) Actions (what each move does), (3) Goal (winning condition), (4) Unknowns (untested mechanics), and (5) Plan (next moves and reasoning). Every search below runs on it.
@@ -142,7 +149,7 @@ Methods you can use:
 - Probe: one test move whose result tells two of your ideas apart. Used when you do not know what a move does or what wins. Once you know what you control, what each move does and the goal, searching the model is cheaper than probing.
 - Object tracking: matching objects between two `observe()` calls by `hash`, then color, then nearest `bbox`. Used to find what you control and how far it moved.
 - Board diff: the list of objects that moved, appeared, disappeared or changed size between two `observe()` calls. Used after `act()` to compare the board with what `step()` predicted. If only `hud` objects changed, the move did nothing useful on the board.
-- Act loop: `act()` one move at a time, compare with `step()` after each, and stop at the first difference. Used when you have a path but do not fully trust the model. When you do trust it, send the whole path in one `act()`.
+- Act loop: send the path one move at a time, compare with `step()` after each, and stop at the first difference. `play(path, predict=...)` does exactly this, so use it instead of writing the loop. Used for any path from your search, trusted or not: a correct model costs nothing extra.
 
 you can access these in detail by using the `recall` tool, scope "skills", and specifying its name: code_step_model, code_bfs, code_flood_fill, code_weighted_search, code_sequence_search, code_beam_search, code_scoring, code_probe, code_object_tracking, code_frame_diff, code_act_loop."""
 

@@ -69,13 +69,23 @@ class Observation:
         return f"Observation(step {self.step}, {len(self.objects)} objects, board {size})"
 
 
+def _read() -> dict[str, Any]:
+    try:
+        return json.loads((_dir() / "observation.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def snapshot() -> Observation:
+    """The current state, like ``observe()``, but the host is not asked to send it as a message (``play()`` reads
+    the board after every move with it)."""
+    return Observation(_read(), history(HISTORY))
+
+
 def observe() -> Observation:
     """The current state. Free. The full state (briefing, objects, board and picture) is sent to you as the next
     message, once per state; the returned snapshot is for your code."""
-    try:
-        data = json.loads((_dir() / "observation.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = _read()
     try:
         from rlm import emit
         emit({MIME: {"step": data.get("step")}})
