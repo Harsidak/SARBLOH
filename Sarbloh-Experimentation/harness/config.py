@@ -31,7 +31,8 @@ DEFAULT: dict[str, Any] = {
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time    # The trace for analysis and LoRA SFT: each game's transcript.jsonl (with a snapshot of the context after every, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
-    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0},
+    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0,
+                  "action_scale": 115.0, "human_actions": 25.0, "tail_fade_fraction": 0.2},
     # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
     # every game's first request (and each one after a drain) finds them in the server's prefix cache.
     "prewarm_system": True,

@@ -73,16 +73,17 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
+    session_ref: dict[str, Any] = {}
+    host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
+                   tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
+                   stop_after_levels=cfg.get("stop_after_levels"))
     if scheduler is not None:  # this game's LLM calls run only while it holds a scheduler slot
         from harness.scheduler import ScheduledLLM
 
         llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
                            n_levels=game.number_of_levels,
-                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline)
-    session_ref: dict[str, Any] = {}
-    host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
-                   tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
-                   stop_after_levels=cfg.get("stop_after_levels"))
+                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
+                           actions_on_level=lambda: max(0, game.action_count - host._level_start))
     task = prompts.task_message(game_id=game.game_id, win_levels=game.number_of_levels,
                                 max_actions=cfg["max_actions_per_game"],
                                 minutes=int(max(0, deadline - time.time()) // 60))
@@ -139,7 +140,11 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
 
         scheduler = PriorityScheduler(int(sched_cfg.get("slots", 6)), int(sched_cfg.get("quantum_calls", 4)),
                                       float(sched_cfg.get("token_scale", 80000.0)),
-                                      log_path=run_dir / "scheduler.jsonl")
+                                      log_path=run_dir / "scheduler.jsonl",
+                                      action_scale=float(sched_cfg.get("action_scale", 115.0)),
+                                      human_actions=float(sched_cfg.get("human_actions", 25.0)),
+                                      run_budget_s=max(0.0, soft_end - time.time()),
+                                      tail_fade_fraction=float(sched_cfg.get("tail_fade_fraction", 0.2)))
         workers = max(1, len(started))
     print(f"[runner] started {len(started)}/{len(games)} games, concurrency={workers}"
           + (f", scheduler slots={scheduler.slots}" if scheduler else ""), flush=True)
