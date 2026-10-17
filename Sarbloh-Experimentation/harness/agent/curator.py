@@ -1,5 +1,5 @@
 """The curator: the hidden reviewer that turns the agent's trajectory into memory. It runs at every level-up (inside
-``act``, before the level-up clears the level's plan, hypotheses and findings, so it can write skills from them),
+``Play()``, before the level-up clears the level's plan, hypotheses and findings, so it can write skills from them),
 after every compaction and every ``curator_every_turns`` turns.
 
 One JSON call, thinking off. From the last steps of the timeline, the agent's working memory and the lessons graph it
@@ -19,8 +19,8 @@ from typing import Any
 from harness.memory.lessons import EDGE_TYPES, shape_id
 from harness.memory.timeline import render_row
 
-_INTRO = """You review the memory of an agent that is learning an unknown turn-based grid game by acting in it. You never act. You return JSON only.
-Do not think or reason much: write your answer straight from the memory below.
+_INTRO = """Your job is to review the memory of the agent that is playing a turn based game you need to return in json only.
+IMPORTANT: Don't think much and reason answer straight from the memory below.
 
 The agent writes its own plan, hypotheses (proposed / verified / refuted), findings and goal. Your job:
 1. open_questions: at most 3 short questions that the last steps raise and that the agent has not answered. Prefer questions whose answer changes what the agent should do next. Do not repeat answered ones.
@@ -30,7 +30,10 @@ _SKILLS = """
 3. skills: at most 2 short notes (under 120 words each) that turn several lessons into general knowledge for playing such games. Give a snake_case name. Update an existing curated skill by reusing its name. Skip this when the lessons do not support a new note."""
 
 _SKILLS_LEVEL_UP = """
-3. skills: the agent has just won a level, and its memory of that level is below, before it is cleared. Write 2 to 5 skills from what this level taught: one skill per mechanic, control, goal pattern or procedure that worked. Make each skill specific: name the objects by colour and shape, say what the moves do and in what order, and say when the skill applies, so the agent can use it on the next level without testing it again. Base them on the verified hypotheses, the findings, the goal that won and the steps. Under 120 words each, with a snake_case name. Update an existing curated skill by reusing its name."""
+3. skills: the agent has just won a level, and its memory of that level is below. Write skills that can assist the agent to further solve the levels 
+likewise making sure the skills are useful for the agent to understand the game mechanics, rules, and how to detail with different situations. 
+From what this level taught you can write skills on repeated patterns or procedure that worked. Make each skill specific not to game related objects but likewise what worked for the model that it implemented. 
+say what the moves do and in what order, and say when the skill applies. Under 120 words each, with a snake_case name. Update an existing curated skill by reusing its name."""
 
 _OUTRO = """
 4. load_skills: the names of at most 3 skills (base or curated) most useful for the current situation.

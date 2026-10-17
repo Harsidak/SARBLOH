@@ -272,10 +272,11 @@ def _described(node: ast.AST, name: str, src: list[str]) -> str:
     return f"{name}: {about}" if about else name
 
 
-def code_note(code: str) -> str:
+def code_note(code: str, kept: set[str] | None = None) -> str:
     """The note that stands in for an ipython call's code: its size, the names it defined at the top level
     (functions with their arguments and classes, each with its docstring or the comment above it, and variables)
-    and how to read the code again from the kernel. It is Python comments, so the call still reads as code."""
+    and how to read the code again from the kernel. It is Python comments, so the call still reads as code. ``kept``:
+    the names really in the kernel; a name the code set but the kernel lacks (the cell crashed first) is left out."""
     src = code.splitlines()
     lines = len(src)
     defs, classes, values = [], [], []
@@ -294,6 +295,14 @@ def code_note(code: str) -> str:
                 for n in ast.walk(t):
                     if isinstance(n, ast.Name) and n.id not in values and not n.id.startswith("_"):
                         values.append(n.id)
+    if kept is not None:
+        missing = [n for n in [d.split("(")[0] for d in defs] + [c.split(":")[0] for c in classes] + values
+                   if n not in kept]
+        defs = [d for d in defs if d.split("(")[0] in kept]
+        classes = [c for c in classes if c.split(":")[0] in kept]
+        values = [v for v in values if v in kept]
+    else:
+        missing = []
     out = [f"# [All the code you write lives in your ipython kernel. This call's code ({lines} lines) ran there and "
            "is not shown again; the output below is what it printed.]"]
     if tree is None:
@@ -304,13 +313,15 @@ def code_note(code: str) -> str:
         out += ["# defined classes:"] + [f"#   {c}" for c in classes]
     if values:
         out.append("# set variables: " + ", ".join(values[:30]) + (" ..." if len(values) > 30 else ""))
+    if missing:
+        out.append("# not in the kernel (the cell stopped before it set them): " + ", ".join(missing[:30]))
     if defs or classes or values:
         out.append('# They are all still in your kernel: call them as they are, no import needed. '
                    'show_source("name") prints the current code of one.')
     return "\n".join(out)
 
 
-def stub_code(m: dict[str, Any]) -> dict[str, Any] | None:
+def stub_code(m: dict[str, Any], kept: set[str] | None = None) -> dict[str, Any] | None:
     """A reply with the code of each ipython call replaced by ``code_note``; None when it has no ipython code.
     Other tools stay as they are."""
     calls, changed = [], False
@@ -322,7 +333,7 @@ def stub_code(m: dict[str, Any]) -> dict[str, Any] | None:
             args = None
         code = args.get("code") if isinstance(args, dict) and fn.get("name") == "ipython" else None
         if isinstance(code, str):
-            tc = {**tc, "function": {**fn, "arguments": json.dumps({**args, "code": code_note(code)})}}
+            tc = {**tc, "function": {**fn, "arguments": json.dumps({**args, "code": code_note(code, kept)})}}
             changed = True
         calls.append(tc)
     return {**m, "tool_calls": calls, "_code_stubbed": True} if changed else None

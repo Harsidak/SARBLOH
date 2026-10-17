@@ -19,7 +19,7 @@ spent on levels never cleared), move calls per cell, moves per move call, moves 
 and the share it checked against a prediction, look-only cells (no move) per level, and moves that changed nothing.
 A move call is one ``act()`` call (older runs) or one ``play()`` call (its moves carry a ``play_id``; older ``play()``
 moves without one are left out of the per-call numbers). The notes table counts the harness notes: surprises (the next
-turn gets the short budget), "fix now", "move now", "idle" and "stuck" notes.
+turn gets the short budget), "fix now", "move now" and "stuck" notes.
 
 Games run in parallel, so per-game times add up to more than the run's wall clock. The headline measure is levels
 cleared within the first ``--window`` minutes of the run (all games together), plus levels per hour over the run.
@@ -380,7 +380,7 @@ def analyze(run_dir: Path, window_min: float = 45.0) -> dict[str, Any]:
         "share_play_moves_predicted": _r(predicted_moves / play_moves, 3) if play_moves else None,
         "look_only_cells_per_level_median": _r(_med([lv["look_only_cells"] for lv in levels])),
         "surprises": notes.get("surprise", 0), "notes_fix_now": notes.get("fix_now", 0),
-        "notes_act_now": notes.get("act_now", 0), "notes_idle": notes.get("idle_now", 0),
+        "notes_act_now": notes.get("act_now", 0),
         "notes_stuck": notes.get("stuck", 0), "notes_call_tool_now": notes.get("call_tool_now", 0),
         "act_calls_per_level_median": _r(_med([lv["act_calls"] for lv in levels])),
         "share_moves_no_change": _r(sum(t["noop_moves"] for t in turns) / moves, 3) if moves else None,
@@ -458,7 +458,6 @@ _NOTES = [
     ("surprises", "play() stopped at a surprise (next turn: short budget)"),
     ("notes_fix_now", "\"fix now\" notes (short budget spent, no move)"),
     ("notes_act_now", "\"move now\" notes (turn budget spent, no move)"),
-    ("notes_idle", "\"idle\" notes (several calls in a row with no move)"),
     ("notes_stuck", "\"stuck\" notes (a level ate another share of tokens)"),
     ("notes_call_tool_now", "\"call a tool\" notes"),
 ]

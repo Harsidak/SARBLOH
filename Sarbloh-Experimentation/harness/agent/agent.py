@@ -1,61 +1,28 @@
-"""AgentSession: the Prime Agent loop, ported to Python from upstream ``core/agent-session.ts`` (commit 2d24ad4).
+"""The agent's main loop: one AgentSession plays one game.
 
-What is kept from the paper (arXiv 2608.23552, section 2) and how it maps here:
-- L1 active context  -> ``self.messages``. Ours, not upstream: no summary. Above ``compaction.trigger_tokens`` a drain
-                        in code shrinks the older messages and keeps the newest verbatim, thinking included, until the
-                        context is under ``drain_target_tokens``; the trigger sits far enough below ``cap_tokens``
-                        that one turn cannot pass the cap. An overflow never ends the game: the first one
-                        drains, the second trims in code (back to the newest full state, thinking only on the newest
-                        reply, old tool outputs as one-line placeholders), a third resets to the newest state. A
-                        level-up adds its message and the new level's full state (config ``level_up_reset`` on:
-                        the context is reset to them instead).
-- L2 REPL            -> one persistent ``rlm.repl`` kernel per session (``Kernel``).
-- L3 disk state      -> ``transcript.jsonl`` (full history, survives every rewrite) and the game's memory
-                        (``harness.memory``). Append-only (the default): a stored message, in full after every
-                        rewrite, else its changed sections before each new state. Else: rendered once per user
-                        message and joined to the newest one.
-- Autonomous mode    -> when the root stops calling tools before the game ends, a continuation message is sent,
-                        bounded by turn, token and wall-clock budgets; the end-condition test is "game won".
-- Accounting         -> tokens, turns and tool calls are recorded per session.
-
-The system prompt is fixed for the whole session (upstream keeps it stable for the prefix cache). Not ported (no use
-offline on one GPU): the daemon/worker/TUI split, goals, heartbeats/cron, create_session, MCP, model switching,
-session recovery after a crash, ``bash()`` completion follow-ups, the Continual Harness digest and auto /refine,
-``rlm.spawn`` subagents and agent messages (git history has them).
-Ours, not upstream: the game status line after each tool result, the "reply was cut off" nudge, and scaling
-upstream's chars/4 token estimate by the measured prompt-token ratio (digit-heavy grid text is ~4 tokens per 4 chars,
-so chars/4 alone never triggered a drain).
-
-Tools (``harness.agent.tools``): ``ipython`` (think, compute and act: ``observe()`` reads the state, ``await play(path, predict=...)``
-makes the moves one at a time, each a host request to ``_tool_act`` carrying the agent's plan, hypotheses, findings
-and goal, and stops at the first move the agent's model got wrong) and
-``recall`` (search memory and skills). One tool for code and moves, so the agent can model the game, search the model
-and send the path in one cell. The change lines of every act are printed in the cell output; after a cell that moved,
-the host adds the new state to the end of that output, the short view (changed region,
-``harness.agent.perception``), so the turn goes on. The full view
-(briefing, every object, the whole board, the picture) is pushed at a level start and after a trim or reset; when the
-agent calls ``observe()`` in ipython, its text goes in that cell's output (once per state). Append-only (config ``append_only``): nothing already sent is
-changed until a rewrite, so the server's prefix cache keeps the whole prompt; at the trigger a drain in code
-(the newest messages word for word with their thinking; before them old boards as stubs, ipython outputs cut short,
-act results as a short move log, thinking and old pictures out) makes room, with no summary (``harness.agent.context``). The hidden
-curator (``harness.agent.curator``) reviews the memory at every level-up (before the level's memory is cleared, writing
-skills from it) and every ``curator_every_turns`` turns. The host records what the agent writes and judges nothing. Every tool call is logged as
-a structured transcript event for ``harness.trace``.
+How a game runs (``AgentSession._loop``, one pass per model reply):
+1. stop?            ``guardrails.should_stop`` (time, actions, turns, tokens, game over)
+2. room?            ``_drain`` shrinks old messages when the context is past the trigger
+3. ask the model    ``self.llm.chat``; an overflow goes to ``_on_overflow`` (drain, then trim, then reset)
+4. store the reply  its tool calls are read by ``guardrails.read_calls``
+5. run the tools    ``_run_call``: ipython runs in the kernel; each move of ``await play(...)`` comes back to
+                    ``_host`` -> ``_tool_act``, which steps the game and builds the new view (``_observation``)
+6. after the tools  level-up note, turn budget notes (``guardrails.after_tools``), curator (``_maybe_curate``)
+No tool call: a continuation message is sent and the loop goes on.
+The guardrails (refused moves, notes that push the model to act, tool-call checks, hard stops) are in guardrails.py.
 """
 
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 import traceback
-import uuid
 from pathlib import Path
 from typing import Any
 
 # pyrefly: ignore [missing-import]
-from harness.agent import compaction, context, curator, perception, prompts
+from harness.agent import compaction, context, curator, guardrails, perception, prompts
 # pyrefly: ignore [missing-import]
 from harness.agent.tools import game_tools
 # pyrefly: ignore [missing-import]
@@ -69,12 +36,9 @@ from harness.runtime.kernel import Kernel
 # pyrefly: ignore [missing-import]
 from harness.runtime.skills import observation
 
-_FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 # The append-only estimate of one picture: the 640-pixel map plus its panel at 32 pixels per token (patch 16, merge 2).
 IMAGE_TOKENS = 500
 DRAIN_MIN_KEEP = 2000   # the smallest tail a drain keeps word for word (tokens)
-_ACTION_NAMES = {0: "RESET", 1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "FIRE",
-                 7: "UNDO"}
 
 
 def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -88,7 +52,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
     p = cfg.get("perception") or {}
     return prompts.game_system(act_max=int(cfg.get("act_max_actions", 5)),
                                vision=bool(cfg.get("vision")) and bool(p.get("image", True)),
-                               code_hidden=bool(cfg.get("hide_code", True)),
+                               code_hidden=bool(cfg.get("hide_code", False)),
                                thinking_dropped=cfg.get("reasoning_max_code_words") is not None,
                                board_text=bool(p.get("ascii", True)),
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
@@ -156,7 +120,7 @@ class AgentSession:
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
                       "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
                       "memory_full": 0, "memory_updates": 0, "turn_yields": 0,
-                      "surprises": 0, "surprise_turns": 0, "idle_notes": 0, "stuck_notes": 0}
+                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -202,9 +166,6 @@ class AgentSession:
         self.surprise_yield_tokens = int(cfg.get("surprise_yield_tokens") or 0)
         self._turn_budget = self.turn_yield_tokens   # the budget of the current turn
         self._surprised = False                      # set by play() (host request arc.surprise) during this reply
-        # Config idle_turns: replies in a row that ran code but made no move before a "move now" note. 0 = off.
-        self.idle_turns = int(cfg.get("idle_turns") or 0)
-        self._idle_turns = 0
         # Config stuck_note_tokens: every time the current level has eaten this many more reply tokens without being
         # won, a note says to question the goal and the least tested rule. 0 = off.
         self.stuck_note_tokens = int(cfg.get("stuck_note_tokens") or 0)
@@ -212,31 +173,13 @@ class AgentSession:
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
         # Code out of the context (config hide_code): every ipython call's code becomes a note once it has run.
-        self.hide_code = bool(cfg.get("hide_code", True))
+        self.hide_code = bool(cfg.get("hide_code", False))
         self.memory = GameMemory(memory_root or (session_dir / "memory"), arc.game.game_id, cfg.get("memory") or {})
         arc.on_step = lambda ev: self._log_event(ev)
 
     # --- budget ------------------------------------------------------------------------------------------
     def tokens_spent(self) -> int:
         return self.stats["output_tokens"]
-
-    def should_stop(self) -> str | None:
-        if self.stop_event.is_set():
-            return "stopped"
-        if time.time() >= self.deadline:
-            return "wall_clock"
-        if self.arc.finished:
-            return "game_finished"
-        if self.arc.budget_left == 0:
-            return "action_budget"
-        lim = self.cfg["limits"]
-        if self.stats["turns"] >= lim["max_turns"]:
-            return "max_turns"
-        if self.stats["output_tokens"] >= lim["max_output_tokens"]:
-            return "max_output_tokens"
-        if self.stats["llm_failures"] >= self.cfg["max_consecutive_llm_failures"]:
-            return "llm_failures"
-        return None
 
     # --- main loop ---------------------------------------------------------------------------------------
     def run(self) -> None:
@@ -268,16 +211,25 @@ class AgentSession:
         tools = self.tools
         while True:
             # 1) any reason to stop?
-            reason = self.should_stop()
-            if reason:
-                self.end_reason = reason
+            if guardrails.should_stop(self):
+                self.end_reason = guardrails.should_stop(self)
                 return
 
             # 2) Drain the old messages (no model call) when the context passes the trigger
             tokens = self._context_tokens()
             if self._wants_drain(tokens):
                 self._drain(tokens, "threshold")
-            pinned = None if self.append_only or not self.memory_in_context else self._memory_message()
+            pinned = None
+            if not self.append_only and self.memory_in_context:
+                # Old builder only: the memory block sent with each request, rebuilt when a new user message arrives.
+                newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
+                if self._pinned is None or self._pinned_for is not newest:
+                    self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
+                    self._pinned_for = newest
+                    self._pinned_chars = len(self._pinned["content"])
+                    self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
+                    self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
+                pinned = self._pinned
             msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
                                  reasoning_budget=self._reasoning_budget(), append_only=self.append_only,
                                  old_images=self.old_images)
@@ -308,7 +260,7 @@ class AgentSession:
             self._level_tokens += reply.completion_tokens
 
             # 4) Parse reply for tool calls
-            calls = self._calls(reply)
+            calls = guardrails.read_calls(self, reply)
             assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
             native = bool(calls and calls[0]["native"])
             if native:
@@ -340,32 +292,19 @@ class AgentSession:
                 for call in calls:
                     self._run_call(call, reply)
                 if self.arc.game.state.levels_completed != level0 and not self.arc.finished:
-                    self._level_start_note()
+                    guardrails.level_start_note(self)
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
                     self._push(self._with_picture(self._pending_obs))
                     self._pending_obs = None
-                if self.stats["act_actions"] > moves:
-                    self._turn_tokens, self._idle_turns = 0, 0
-                    self._turn_budget = self.turn_yield_tokens
-                    if self._surprised and self.surprise_yield_tokens:
-                        self._turn_budget = self.surprise_yield_tokens
-                        self.stats["surprise_turns"] += 1
-                elif self._over_turn_budget():
-                    self._yield_turn("fix_now" if self._turn_budget != self.turn_yield_tokens else "act_now")
-                else:
-                    self._idle_turns += 1
-                    if self.idle_turns and self._idle_turns >= self.idle_turns:
-                        self.stats["idle_notes"] += 1
-                        self._yield_turn("idle_now", calls=self._idle_turns)
-                self._stuck_note()
+                guardrails.after_tools(self, moved=self.stats["act_actions"] > moves)
                 self._reset_if_level_up()
                 self._maybe_curate()
                 continue
 
             # 6) the reply was cut off, or the turn's thinking budget is spent
-            if reply.finish_reason == "length" or self._over_turn_budget():
-                self._yield_turn("call_tool_now")
+            if reply.finish_reason == "length" or guardrails.over_turn_budget(self):
+                guardrails.yield_turn(self, "call_tool_now")
                 continue
             # 7) if No tool call: the model ended its turn.
             if self.arc.finished:
@@ -373,68 +312,48 @@ class AgentSession:
                 return
             self._maybe_curate()
             self.stats["continuations"] += 1
-            self._push({"role": "user", "content": self._continuation()})
+            self._push({"role": "user", "content": prompts.continuation(**self._left())})
 
     def _push(self, msg: dict[str, Any]) -> None:
-        """A new user message. Append-only: the memory sections that changed go in just before it."""
+        """Adds a new user message, with the memory just before it: in full now and then (memory_full_every), else only
+        the sections that changed. Called from _loop and the notes in guardrails.py."""
         if self.append_only and self.memory_in_context:
-            note = self._memory_note()
-            if note is not None:
-                self._append(note)
+            self._states_since_full += 1
+            every = int(self.cfg.get("memory_full_every") or 0)
+            if self._shown is None or (every and self._states_since_full >= every):
+                self._append(self._memory_full())
+            else:
+                blocks = self.memory.blocks(self._objects)
+                keys = context.changed_sections(blocks, self._shown)
+                if keys:
+                    self._shown = dict(blocks)
+                    self.stats["memory_updates"] += 1
+                    self._append(context.memory_update(blocks, keys))
         self._append(msg)
 
-    def _over_turn_budget(self) -> bool:
-        """The replies since the last move have written the turn's budget or more: ``turn_yield_tokens``, or
-        ``surprise_yield_tokens`` after a surprise (config; 0 = never)."""
-        return bool(self._turn_budget) and self._turn_tokens >= self._turn_budget
-
-    def _stuck_note(self) -> None:
-        """Config ``stuck_note_tokens``: the current level has eaten another such share of reply tokens without being
-        won, so a note says to question the goal and the least tested rule (it goes in with the next message)."""
-        if not self.stuck_note_tokens or self.arc.finished:
-            return
-        if self._level_tokens < self.stuck_note_tokens * (self._stuck_notes + 1):
-            return
-        self._stuck_notes += 1
-        self.stats["stuck_notes"] += 1
-        self._log_event({"event": "stuck_note", "level": self._level(), "tokens": self._level_tokens})
-        self._push({"role": "user", "content": prompts.event_message(
-            "stuck", tokens=self._level_tokens // 1000, **self._left())})
-
-    def _level_start_note(self) -> None:
-        """A level was won in this reply: the next message names the code the agent already has in its kernel, so it
-        checks that model on the new level instead of writing a new one. Read here, after the cell, never while a
-        cell runs (the kernel is busy then)."""
-        names = self._kernel_functions()
-        if names:
-            self._push({"role": "user", "content": prompts.event_message("reuse_code", names=names)})
-
-    def _kernel_functions(self) -> str:
-        """The names of the functions and classes the agent defined, comma-separated ('' when none or unknown)."""
+    def _kernel_names(self, full: bool = True) -> str:
+        """What the agent defined in its kernel. full=False: the functions and classes only, for the level-start note
+        (guardrails.level_start_note); full=True: one line with everything, for _reset_context."""
         try:
-            names = self.kernel.user_names() or {}
+            names = self.kernel.user_names()
         except Exception as exc:  # noqa: BLE001 - the list is a help, never a failure
             self._log_event({"event": "kernel_names_error", "error": repr(exc)[:300]})
             return ""
-        found = [n.split("(")[0] for n in names.get("functions", [])] + list(names.get("classes", []))
-        text = ", ".join(found)
-        return text if len(text) <= 600 else text[:590] + " ..."
-
-    def _yield_turn(self, kind: str, **ctx: Any) -> None:
-        """The turn's thinking budget is spent (or the reply was cut off) with no move: a short note says to move now
-        (``act_now`` when the newest reply ran code, ``call_tool_now`` when it called no tool), the budget starts over,
-        and the game hands its scheduler slot to a waiting game (``ScheduledLLM.yield_turn``)."""
-        self.stats["turn_yields"] += 1
-        self._log_event({"event": "turn_yield", "kind": kind, "tokens": self._turn_tokens})
-        self._turn_tokens, self._idle_turns, self._turn_budget = 0, 0, self.turn_yield_tokens
-        self._push({"role": "user", "content": prompts.event_message(kind, **ctx, **self._left())})
-        give = getattr(self.llm, "yield_turn", None)
-        if callable(give):
-            give()
+        names = names or {}
+        if not full:
+            found = [n.split("(")[0] for n in names.get("functions", [])] + list(names.get("classes", []))
+            text = ", ".join(found)
+            return text if len(text) <= 600 else text[:590] + " ..."
+        parts = [f"{key}: {', '.join(names[key])}" for key in ("functions", "classes", "values", "modules")
+                 if names.get(key)]
+        if not parts:
+            return ""
+        text = "Your Python kernel still holds what you defined there; reuse it instead of writing it again. " + \
+            "; ".join(parts)
+        return text if len(text) <= 2000 else text[:1990] + " ..."
 
     def _keeps_reasoning(self, calls: list[dict[str, Any]]) -> bool:
-        """Config ``reasoning_max_code_words``: the reply's thinking is kept only when its ipython code is shorter than
-        that many words (no code at all included); otherwise the code alone is sent back."""
+        """False when the reply wrote long code: then its thinking is not stored. Called from _loop step 4."""
         cap = self.cfg.get("reasoning_max_code_words")
         if cap is None:
             return True
@@ -445,17 +364,27 @@ class AgentSession:
         return True
 
     def _hide_code(self) -> None:
-        """Config ``hide_code``: a new reply with tool calls was just stored, so its ipython code (the calls run from
-        ``calls``, parsed before) becomes a short note (``context.stub_code``) before any request sends it back; the
-        kernel still holds what it defined (``show_source``). The newest reply is the only one still to change, so
-        the prompt stays a prefix of the next one. Each change is logged, so the trace can rebuild the requests."""
+        """Config hide_code: replaces the ipython code of every reply but the newest with a short note, so the model
+        always sees its latest code next to its output. The note names only what is really in the kernel, so a cell
+        that crashed does not claim its names. Called from _loop step 4."""
         if not self.hide_code:
             return
+        try:
+            names = self.kernel.user_names() or {}
+            kept = {n.split("(")[0] for key in ("functions", "classes", "values") for n in names.get(key, [])}
+        except Exception:  # noqa: BLE001 - without the list the note names nothing as kept
+            kept = set()
+        newest = True
         for i in range(len(self.messages) - 1, -1, -1):
             m = self.messages[i]
-            if m["role"] != "assistant" or not m.get("tool_calls") or m.get("_code_stubbed"):
+            if m["role"] != "assistant" or not m.get("tool_calls"):
                 continue
-            new = context.stub_code(m)
+            if newest:
+                newest = False
+                continue
+            if m.get("_code_stubbed"):
+                continue
+            new = context.stub_code(m, kept)
             if new is None:
                 continue
             self.messages[i] = new
@@ -463,8 +392,7 @@ class AgentSession:
             self._log_event({"event": "code_stub", "index": i, "tool_calls": new["tool_calls"]})
 
     def _memory_full(self) -> dict[str, Any]:
-        """The whole memory as a stored message (append-only), at the start, after a rewrite and every
-        ``memory_full_every`` states. What it shows becomes the baseline for the next updates."""
+        """The whole memory as one message. Called at the start (run), from _push, and after a drain, trim or reset."""
         blocks = self.memory.blocks(self._objects)
         self._shown, self._states_since_full = dict(blocks), 0
         msg = context.pinned_message(blocks, self._game_status())
@@ -472,54 +400,16 @@ class AgentSession:
         self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], len(msg["content"]))
         return msg
 
-    def _memory_note(self) -> dict[str, Any] | None:
-        """Before a new user message (append-only): the full memory every ``memory_full_every`` states, else only the
-        sections that changed since they were last shown, or nothing."""
-        self._states_since_full += 1
-        every = int(self.cfg.get("memory_full_every") or 0)
-        if self._shown is None or (every and self._states_since_full >= every):
-            return self._memory_full()
-        blocks = self.memory.blocks(self._objects)
-        keys = context.changed_sections(blocks, self._shown)
-        if not keys:
-            return None
-        self._shown = dict(blocks)
-        self.stats["memory_updates"] += 1
-        return context.memory_update(blocks, keys)
-
     def _insert_memory(self) -> None:
-        """After a rewrite (append-only): the full memory just before the newest user message, where the old builder
-        put it. Nothing when the memory is kept out of the context."""
+        """After a drain or trim: puts the full memory back before the newest user message."""
         if not self.memory_in_context:
             return
         msg = self._memory_full()
         self.messages.insert(max(context.chain_start(self.messages) - 1, 0), msg)
         self._log_event({"event": "message", **msg})
 
-    def _cold(self) -> None:
-        """The prompt was just rewritten, so its next request is prefilled in full wherever it runs: a free moment to
-        give the scheduler slot to a game whose cache is still warm (``ScheduledLLM.mark_cold``)."""
-        self._full_shown_step = None   # old cell outputs may be cut: the next observe() shows the full view again
-        mark = getattr(self.llm, "mark_cold", None)
-        if callable(mark):
-            mark()
-
-    def _memory_message(self) -> dict[str, Any]:
-        """The memory, built once per user message (a new state, a continuation, a rewrite) and then kept byte for
-        byte through the tool-call chain that follows, so the prompt stays a prefix of the next one. Writes made in
-        between (an ipython turn changes nothing; the curator may) show with the next state."""
-        newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
-        if self._pinned is None or self._pinned_for is not newest:
-            self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
-            self._pinned_for = newest
-            self._pinned_chars = len(self._pinned["content"])
-            self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
-            self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
-        return self._pinned
-
     def _effort(self) -> dict[str, str] | None:
-        """The chat template's reasoning effort for the level the agent is on (config ``reasoning_effort``). A change
-        alters the first line of the system prompt, so the whole prompt is prefilled again once."""
+        """The reasoning effort for the current level (config reasoning_effort). Called from _loop step 2."""
         kwargs = effort_kwargs(self.cfg, self._level())
         value = (kwargs or {}).get("reasoning_effort")
         if value != self._effort_sent:
@@ -528,19 +418,14 @@ class AgentSession:
         return kwargs
 
     def _max_tokens(self) -> int:
-        """The most this reply may write (config ``max_tokens_per_turn``): "early" on the levels that get the long
-        thinking (``prompts.EARLY_LEVELS``), "later" after; an int on every level. A request parameter, so the
-        prompt and its cache are the same either way."""
+        """The most one reply may write (config max_tokens_per_turn). Called from _loop step 3."""
         cap = self.cfg["max_tokens_per_turn"]
         if isinstance(cap, dict):
             cap = cap.get("early") if self._level() <= prompts.EARLY_LEVELS else cap.get("later")
         return int(cap)
 
-    def _continuation(self) -> str:
-        return prompts.continuation(**self._left())
-
     def _left(self) -> dict[str, int | None]:
-        """Moves and minutes left, for the low-budget and low-time notes."""
+        """Moves and minutes left, for the notes and the status lines."""
         return {"moves_left": self.arc.budget_left, "minutes_left": max(0, int(self.deadline - time.time())) // 60}
 
     def _level(self) -> int:
@@ -548,51 +433,8 @@ class AgentSession:
         return self.arc.game.state.levels_completed + 1
 
     # --- tool calls --------------------------------------------------------------------------------------
-    def _calls(self, reply: Any) -> list[dict[str, Any]]:
-        calls = []
-        names = [t["function"]["name"] for t in self.tools]
-        for tc in reply.tool_calls:
-            fn = tc.get("function") or {}
-            args = fn.get("arguments")
-            name = fn.get("name") or "ipython"
-            code, err, parsed = None, None, {}
-            if name not in names:
-                err = f"Unknown tool {name!r}. Tools: {', '.join(names)}."
-            else:
-                try:
-                    parsed = json.loads(args) if isinstance(args, str) else (args or {})
-                    if not isinstance(parsed, dict):
-                        raise ValueError("arguments must be a JSON object")
-                    if name == "ipython":
-                        code = parsed.get("code")
-                        if not isinstance(code, str):
-                            err = "ipython needs a string argument `code`."
-                except ValueError as exc:
-                    err = f"Could not parse tool arguments as JSON: {exc}"
-            if err and isinstance(args, str):
-                # Keep history valid JSON: servers (llama.cpp) re-parse old tool calls and 500 on a broken one.
-                try:
-                    keep = isinstance(json.loads(args), dict)
-                except ValueError:
-                    keep = False
-                if not keep:
-                    args = {"code": "", "unparsed_arguments": args[:2000]}
-            raw = {"id": tc.get("id") or f"call_{uuid.uuid4().hex[:12]}", "type": "function",
-                   "function": {"name": name,
-                                "arguments": args if isinstance(args, str) else json.dumps(args or {})}}
-            calls.append({"native": True, "raw": raw, "name": name, "args": parsed, "code": code, "error": err})
-        if calls:
-            self.stats["native_calls"] += len(calls)
-            return calls
-        # Fallback: code in fenced blocks (models or servers without working tool-call parsing).
-        blocks = [b for b in _FENCED.findall(reply.content or "") if b.strip()]
-        if blocks and self.cfg["allow_fenced_code"]:
-            self.stats["fenced_calls"] += 1
-            return [{"native": False, "raw": None, "name": "ipython", "args": {}, "code": "\n\n".join(blocks),
-                     "error": None}]
-        return []
-
     def _run_call(self, call: dict[str, Any], reply: Any = None) -> None:
+        """Runs one tool call and stores its output as a tool message: ipython in the kernel (plus the new view after its moves), recall in memory. Called from _loop step 5."""
         self.stats["tool_calls"] += 1
         counts = self.stats["tool_counts"]
         counts[call["name"]] = counts.get(call["name"], 0) + 1
@@ -602,24 +444,30 @@ class AgentSession:
         if call["error"]:
             text = call["error"]
             self.stats["tool_errors"] += 1
-            if call["name"] == "act":
-                self.stats["act_arg_errors"] += 1
             self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                              "error": call["error"][:500]})
         elif call["name"] != "ipython":
             try:
-                text = self._run_tool(call["name"], call["args"], call_id, turn, reply)
+                if call["name"] != "recall":
+                    raise ValueError(f"unknown tool {call['name']!r}")
+                # recall: searches the game's memory (query, scope) within memory.recall_tokens.
+                query = str(call["args"].get("query") or "").strip()
+                scope = str(call["args"].get("scope") or "all").strip().lower()
+                cap = int((self.cfg.get("memory") or {}).get("recall_tokens", 1500))
+                text, hits = self.memory.recall(query, scope, cap)
+                self.stats["recalls"] += 1
+                self._log_event({"event": "recall", "turn": turn, "call": call_id, "query": query, "scope": scope,
+                                 "hits": hits, "chars": len(text)})
             except Exception as exc:  # noqa: BLE001 - a bad argument is the model's to fix, not a crash
                 failed = True
                 self.stats["tool_errors"] += 1
-                if call["name"] == "act" and isinstance(exc, (ValueError, TypeError)):
-                    self.stats["act_arg_errors"] += 1
                 text = f"{call['name']} refused: {exc}"
                 self._log_event({"event": "tool_error", "turn": turn, "call": call_id, "tool": call["name"],
                                  "error": str(exc)[:500], "args": call["args"]})
         else:
             timeout = max(10.0, min(self.cfg["cell_timeout_s"], self.deadline - time.time()))
-            self._cell = {"call_id": call_id, "turn": turn, "reply": reply, "acts": [], "closed": None, "memory": []}
+            self._cell = {"call_id": call_id, "turn": turn, "reply": reply, "acts": [], "closed": None, "memory": [],
+                          "rows": self._obs_rows}
             try:
                 res = self.kernel.execute(call["code"], timeout_s=timeout)
             finally:
@@ -641,8 +489,14 @@ class AgentSession:
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
                              "acts": len(cell["acts"])})
-            text += self._memory_receipt(cell["memory"])
-        text += f"\n[game: {self.arc.status_line()} | {self._time_left()}]"
+            # The "[memory saved: ...]" receipt of what this cell's memory variables changed.
+            saved = [x for done, _ in cell["memory"] for x in done]
+            errors = list(dict.fromkeys(e for _, errs in cell["memory"] for e in errs))
+            if saved:
+                text += f"\n[memory saved: {', '.join(saved)}]"
+            if errors:
+                text += f"\n[memory not saved: {'; '.join(errors)}. The old value is kept.]"
+        text += f"\n[game: {self.arc.status_line()} | {self._left()['minutes_left']} min left]"
         if call["native"]:
             msg = {"role": "tool", "tool_call_id": call["raw"]["id"], "content": text}
         else:
@@ -653,53 +507,8 @@ class AgentSession:
             msg["_act_log"] = "\n".join(cell["acts"])   # a drain keeps the moves of this cell as a move log
         self._append(msg)
 
-    # --- tools: act and recall ----------------------------------------------------------------------------
-    def _run_tool(self, name: str, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
-        if name == "act":
-            return self._tool_act(args, call_id, turn, reply)
-        if name == "recall":
-            return self._tool_recall(args, call_id, turn)
-        raise ValueError(f"unknown tool {name!r}")
-
-    @staticmethod
-    def _parse_action(item: Any) -> tuple[int, int | None, int | None]:
-        """(action id, row, column). "1", 1, "A1", "ACTION1" -> (1, None, None); "6 12 40", "A6(12,40)",
-        {"action": 6, "r": 12, "c": 40} -> (6, 12, 40) (row 12, column 40); "reset" -> (0, None, None)."""
-        if isinstance(item, dict):
-            aid = item.get("action", item.get("id"))
-            if str(aid).strip().lower() == "reset":
-                return 0, None, None
-            r, c = item.get("r", item.get("row")), item.get("c", item.get("col", item.get("column")))
-            nums = [int(n) for n in (aid, r, c) if n is not None]
-        elif isinstance(item, (list, tuple)):
-            nums = [int(n) for n in item]
-        else:
-            text = str(item).strip()
-            if text.lower() in ("reset", "r", "restart", "action0", "a0"):
-                return 0, None, None
-            nums = [int(n) for n in re.findall(r"-?\d+", text)]
-        if not nums:
-            raise ValueError(f"cannot read action {item!r}: use \"1\" to \"7\", \"6 r c\" for a click, or \"reset\"")
-        if nums[0] == 6:
-            if len(nums) != 3:
-                raise ValueError(f"action {item!r}: a click needs a row and a column, as \"6 r c\"")
-            return 6, nums[1], nums[2]
-        if len(nums) != 1:
-            raise ValueError(f"action {item!r}: one action per list item (only action 6 takes r c)")
-        if nums[0] == 0:
-            return 0, None, None
-        if not 1 <= nums[0] <= 7:
-            raise ValueError(f"action {item!r}: ids are 1 to 7, or \"reset\"")
-        return nums[0], None, None
-
-    @staticmethod
-    def _label(a: int, r: int | None, c: int | None) -> str:
-        return f"A6(r{r},c{c})" if a == 6 else _ACTION_NAMES.get(a, f"A{a}")
-
-    def _step_ref(self, call_id: str, turn: int, reply: Any, args: dict[str, Any]) -> None:
-        self.arc.cell_actions = 0
-        self.arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "code": json.dumps(args),
-                             "say": getattr(reply, "content", None), "thought": getattr(reply, "reasoning", None)}
+    # --- the game view ------------------------------------------------------------------------------------
+    _parse_action = staticmethod(guardrails.parse_action)   # kept for the older tests
 
     def _frame(self) -> list[list[int]]:
         f = self.arc.game.state.raw.frame[-1]
@@ -713,13 +522,10 @@ class AgentSession:
         return (f"game {arc.game.game_id} | level {s.levels_completed + 1} of {arc.game.number_of_levels} "
                 f"({s.levels_completed} done) | {s.engine_state.name} | legal actions {legal} | "
                 f"{arc.game.action_count} actions spent ({arc.game.action_count - arc._level_start} this level), "
-                f"{left} left | {self._time_left()}")
+                f"{left} left | {self._left()['minutes_left']} min left")
 
     def _observation(self, full: bool = False, picture: bool = True) -> dict[str, Any]:
-        """The newest state as a user message, with the picture when vision is on and ``picture``. The full view
-        (briefing, every object, the whole board) at a level start or when ``full``; else the short view (the changed
-        region). The full view and the data are also published for ``observe()`` in the REPL. ``picture=False`` for a
-        view that goes into a cell's output as text: its picture would never be sent."""
+        """Builds the view of the current state as a user message: the full view at a level start or when full=True, else the short view (what changed). Also writes the board to disk for observe()/play(). Called from _tool_act (after moves), run (first state), _observe_called and _observation_refresh."""
         t0 = time.time()
         rows = self._frame()
         if not self._objects:   # the first look at the game: ids start at 1 (act re-tracks at every level-up)
@@ -728,7 +534,9 @@ class AgentSession:
         full = full or self._level_start or self._obs_rows is None
         p = self.perception
         b = self._briefing(rows)
-        sc = perception.Scene(self._last_step, rows, self._objects, change=self._last_change, prev=self._obs_rows,
+        # The short view shows what changed since the start of the running cell, not only its last move.
+        prev = self._cell["rows"] if self._cell is not None and self._cell.get("rows") is not None else self._obs_rows
+        sc = perception.Scene(self._last_step, rows, self._objects, change=self._last_change, prev=prev,
                               status=self._game_status(), briefing=b, briefing_lines=int(p.get("briefing_lines", 30)))
         opts = {"max_objects": int(p.get("max_objects", 40)), "show_ascii": bool(p.get("ascii", True)),
                 "segmentation": bool(p.get("segmentation", True))}
@@ -754,44 +562,8 @@ class AgentSession:
         self.stats["perception_s_max"] = round(max(self.stats["perception_s_max"], dt), 3)
         return msg
 
-    def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
-        """``msg`` (a text observation of the current state) with the picture added, when vision is on. The picture
-        is drawn here, only for a message that is sent as it is, so ``images_sent`` counts the pictures sent."""
-        if not self.vision or isinstance(msg.get("content"), list):
-            return msg
-        rows = self._frame()
-        png = self._picture(rows, self._briefing(rows))
-        out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
-        out.update({"_full": msg.get("_full"), "_step": msg.get("_step")})
-        self.stats["images_sent"] += 1
-        self._save_picture(out, png)
-        return out
-
-    def _save_picture(self, msg: dict[str, Any], png: bytes) -> None:
-        """Tracing: the picture as ``frames/img_NNNNN.png`` next to the transcript, named in the message
-        (``_image_file``, never sent) so the trace can put the picture back into the training rows."""
-        if not self.tracing:
-            return
-        self._frames += 1
-        name = f"frames/img_{self._frames:05d}.png"
-        try:
-            path = self.session_dir / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(png)
-            msg["_image_file"] = name
-        except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
-            self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
-
-    def _snapshot(self, reason: str) -> None:
-        """Tracing: the whole stored context after a rewrite (drain, trim, reset), thinking included. The
-        trace replays it plus every message appended after it to rebuild each request."""
-        if self.tracing:
-            self._log_event({"event": "context", "reason": reason,
-                             "messages": [context.snapshot(m) for m in self.messages]})
-
     def _briefing(self, rows: list[list[int]]) -> perception.Briefing | None:
-        """The briefing analysis of the newest frame, once per state. None when switched off or when it fails: the agent
-        then gets the text views without it, because perception must never fail an act."""
+        """The briefing (measured facts and guesses) of the current frame, once per state. Called from _observation and _with_picture."""
         if not self.perception.get("briefing", True):
             return None
         key = (self._last_step, self.arc.game.state.levels_completed)
@@ -807,21 +579,41 @@ class AgentSession:
                 self._brief = (key, None)
         return self._brief[1]
 
-    def _picture(self, rows: list[list[int]], b: perception.Briefing | None) -> bytes:
-        """The picture; the plain frame when there is no briefing or drawing it fails."""
+    def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
+        """Adds the picture to a view message, only for messages really sent: the briefing picture (the plain frame if
+        the briefing failed), saved under frames/ when tracing. Called from _loop step 5 and _observation."""
+        if not self.vision or isinstance(msg.get("content"), list):
+            return msg
+        rows = self._frame()
+        b = self._briefing(rows)
         cell = int(self.perception.get("cell", 10))
+        png = None
         if b is not None:
             try:
-                return perception.picture(b, cell)
+                png = perception.picture(b, cell)
             except Exception as exc:  # noqa: BLE001
                 self.stats["perception_errors"] += 1
                 self._log_event({"event": "perception_error", "where": "picture", "error": repr(exc)[:300],
                                  "traceback": traceback.format_exc()[-2000:]})
-        return perception.render(rows, cell)
+        if png is None:
+            png = perception.render(rows, cell)
+        out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
+        out.update({"_full": msg.get("_full"), "_step": msg.get("_step")})
+        self.stats["images_sent"] += 1
+        if self.tracing:
+            self._frames += 1
+            name = f"frames/img_{self._frames:05d}.png"
+            try:
+                path = self.session_dir / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(png)
+                out["_image_file"] = name
+            except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
+                self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
+        return out
 
     def _observe_called(self) -> str:
-        """``observe()`` ran in ipython: the full view is added to the cell's own output, once per state, so the agent
-        reads it at once and acts in the same turn. It replaces the short view of moves made in the same cell."""
+        """The agent called observe() in a cell: adds the full view to that cell's output, once per state. Called from _run_call."""
         where = f"step #{self._last_step}" if self._last_step is not None else "the game start"
         newest = next((m for m in reversed(self.messages) if m.get("_kind") == "observation"), None)
         shown = self._full_shown_step == self._last_step or (
@@ -834,35 +626,21 @@ class AgentSession:
         return f"[observe: the full state at {where}]\n" + compaction._text(self._observation(full=True, picture=False))
 
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
+        """Steps the game for the given moves, tracks objects, handles a level-up (curator, memory), and sets _pending_obs to the new view. Called from _host (a move from play())."""
         arc, mem = self.arc, self.memory
         via, self._act_via = self._act_via, None
         predicted, self._act_predicted = self._act_predicted, None
         play_id, self._act_play_id = self._act_play_id, None
-        raw = args.get("actions")
-        if isinstance(raw, str):
-            raw = json.loads(raw) if raw.strip().startswith("[") else [raw]
-        elif isinstance(raw, int):
-            raw = [raw]
-        if not isinstance(raw, list) or not raw:
-            raise ValueError(prompts.event_message("act_bad_args", problem="`actions` must be a list of 1 or more moves"))
-        cap = int(self.cfg.get("act_max_actions", 5))
-        if len(raw) > cap:
-            raise ValueError(prompts.event_message("act_too_many", sent=len(raw), act_max=cap))
-        try:
-            parsed = [self._parse_action(a) for a in raw]   # all or nothing: nothing runs if one item is bad
-        except ValueError as exc:
-            raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
-        legal = [a for a in arc.game.state.available_actions if a != 0]
-        bad = [self._label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
-        if bad:
-            raise ValueError(prompts.event_message("act_illegal", bad=", ".join(bad), legal=legal))
+        parsed = guardrails.read_moves(self, args)   # all or nothing: nothing runs if one item is bad
         level0 = arc.game.state.levels_completed
         self.stats["act_calls"] += 1
         start = arc.game.action_count
-        self._step_ref(call_id, turn, reply, args)
+        arc.cell_actions = 0
+        arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "code": json.dumps(args),
+                        "say": getattr(reply, "content", None), "thought": getattr(reply, "reasoning", None)}
         lines, steps, stop, level_up, new_skills = [], [], None, False, []
         for n, (a, r, c) in enumerate(parsed):
-            label = self._label(a, r, c)
+            label = guardrails.label(a, r, c)
             try:
                 if a == 0:
                     obs = arc.handle({"type": "arc.reset"}, source="tool")
@@ -918,7 +696,10 @@ class AgentSession:
                 stop = "game finished"
                 break
         arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "after_cell": True}
-        self._publish_history(steps)
+        try:   # one line per step for obs.history in the kernel
+            observation.append_history(self.kernel.session_dir, steps)
+        except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
+            self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
         done = len(steps)
         self.stats["act_actions"] += done
         s = arc.game.state
@@ -947,16 +728,8 @@ class AgentSession:
             self._level_up_text = "\n".join(out)
         return "\n".join(out)
 
-    def _publish_history(self, steps: list[dict[str, Any]]) -> None:
-        """One line per step for ``obs.history`` in the REPL."""
-        try:
-            observation.append_history(self.kernel.session_dir, steps)
-        except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
-            self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
-
     def _read_memory(self, cell: dict[str, Any]) -> None:
-        """After an ipython call: copies the kernel's memory variables into memory (the cell's ``memory`` notes get what
-        changed). A variable the kernel lost (a restart) or the agent deleted is put back from memory."""
+        """After an ipython cell: copies GOAL/PLAN/HYPOTHESES/FINDINGS from the kernel into memory. Called from _run_call."""
         try:
             values = self.kernel.memory_values()
         except Exception as exc:  # noqa: BLE001 - reading the memory must never fail a call
@@ -971,12 +744,22 @@ class AgentSession:
             self._log_event({"event": "memory_restored", "names": sorted(lost)})
 
     def _sync_memory(self, values: Any, cell: dict[str, Any]) -> None:
-        """The memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS) into memory. Never refuses: a value of the wrong type
-        is kept out and named in the cell's notes."""
+        """Saves the memory variables, logs what changed and notes it for the cell's receipt. Called from _read_memory and
+        _host (the memory sent with a move)."""
         call_id, turn = cell["call_id"], cell["turn"]
         wrote = self.memory.sync(values if isinstance(values, dict) else {}, turn=turn,
                                  level=self.arc.game.state.levels_completed)
-        self._log_memory(wrote, call_id, turn)
+        level, acount = self.arc.game.state.levels_completed, self.arc.game.action_count
+        for h in wrote["hypotheses"]:
+            self.stats["hypothesis_events"] += 1
+            self._log_event({"event": "hypothesis", "turn": turn, "call": call_id, "level": level,
+                             "action_count": acount, **h})
+        for f in wrote["findings"]:
+            self._log_event({"event": "finding", "turn": turn, "call": call_id, "level": level,
+                             "action_count": acount, "text": f["text"], "evidence": f["evidence"]})
+        if wrote["goal"]:
+            self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
+                             "goal": wrote["goal"]})
         saved = [k for k in ("plan", "goal") if wrote[k] is not None]
         for h in wrote["hypotheses"]:
             saved.append(f"{h['id']} " + ("new" if h["prev_status"] is None else
@@ -990,50 +773,14 @@ class AgentSession:
             self._log_event({"event": "memory_error", "turn": turn, "call": call_id, "errors": wrote["errors"]})
         cell["memory"].append((saved, wrote["errors"]))
 
-    @staticmethod
-    def _memory_receipt(notes: list[tuple[list[str], list[str]]]) -> str:
-        """A line naming what the call saved to memory and one naming what it could not save ("" for neither)."""
-        saved = [x for done, _ in notes for x in done]
-        errors = list(dict.fromkeys(e for _, errs in notes for e in errs))
-        text = f"\n[memory saved: {', '.join(saved)}]" if saved else ""
-        if errors:
-            text += f"\n[memory not saved: {'; '.join(errors)}. The old value is kept.]"
-        return text
-
-    def _log_memory(self, wrote: dict[str, Any], call_id: str, turn: int) -> None:
-        level = self.arc.game.state.levels_completed
-        acount = self.arc.game.action_count
-        for h in wrote["hypotheses"]:
-            self.stats["hypothesis_events"] += 1
-            self._log_event({"event": "hypothesis", "turn": turn, "call": call_id, "level": level,
-                             "action_count": acount, **h})
-        for f in wrote["findings"]:
-            self._log_event({"event": "finding", "turn": turn, "call": call_id, "level": level,
-                             "action_count": acount, "text": f["text"], "evidence": f["evidence"]})
-        if wrote["goal"]:
-            self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
-                             "goal": wrote["goal"]})
-
-    def _tool_recall(self, args: dict[str, Any], call_id: str, turn: int) -> str:
-        query = str(args.get("query") or "").strip()
-        scope = str(args.get("scope") or "all").strip().lower()
-        cap = int((self.cfg.get("memory") or {}).get("recall_tokens", 1500))
-        text, hits = self.memory.recall(query, scope, cap)
-        self.stats["recalls"] += 1
-        self._log_event({"event": "recall", "turn": turn, "call": call_id, "query": query, "scope": scope,
-                         "hits": hits, "chars": len(text)})
-        return text
-
     # --- the hidden curator ------------------------------------------------------------------------------
     def _maybe_curate(self) -> None:
-        """The curator every ``curator_every_turns`` turns (the level-up pass runs inside ``act``, before the level's
-        memory is cleared)."""
+        """Runs the curator every curator_every_turns turns. Called from _loop step 6."""
         if self._turns_since_curate >= int((self.cfg.get("memory") or {}).get("curator_every_turns", 25)):
             self._curate("turn_interval", self._objects)
 
     def _curate(self, reason: str, objects: list[Any]) -> dict[str, Any] | None:
-        """One curator pass. Returns its record (questions, lessons, skills written, loaded), or None when it is off
-        or fails."""
+        """One curator pass (writes skills, lessons, questions). Called from _maybe_curate and _tool_act at a level-up."""
         mc = self.cfg.get("memory") or {}
         self._turns_since_curate = 0
         if not mc.get("curator", True):
@@ -1058,12 +805,8 @@ class AgentSession:
             self._system = system_prompt(self.cfg)
         return self._system
 
-    def _context_limits(self) -> tuple[int, int, int]:
-        c = self.cfg["compaction"]
-        return int(self.cfg["context_window"]), int(c["reserve_tokens"]), int(c["keep_recent_tokens"])
-
     def _context_tokens(self) -> int:
-        """Upstream estimateContextTokens: last usage + estimate of the messages after it (chars/4, scaled)."""
+        """Estimated prompt size: last measured prompt tokens plus an estimate of the newer messages. Called from _loop step 2."""
         est = lambda ms: int(self._token_scale * sum(self._estimate(m) for m in ms))
         if self._usage_tokens is None:
             return est(self.messages) + int(self._token_scale * self._chain_reasoning_tokens(0))
@@ -1071,15 +814,13 @@ class AgentSession:
             int(self._token_scale * self._chain_reasoning_tokens(self._usage_at))
 
     def _wants_drain(self, tokens: int) -> bool:
-        """Above the trigger (``compaction.should_compact``: the lower of ``trigger_tokens`` and window - reserve). The
-        trigger sits below ``cap_tokens`` by more than one turn can add, so no request goes over the cap."""
-        window, reserve, _ = self._context_limits()
-        return compaction.should_compact(tokens, window, reserve, self.cfg["compaction"].get("trigger_tokens"))
+        """True when the context is past the drain trigger. Called from _loop step 2."""
+        c = self.cfg["compaction"]
+        return compaction.should_compact(tokens, int(self.cfg["context_window"]), int(c["reserve_tokens"]),
+                                         c.get("trigger_tokens"))
 
     def _on_overflow(self, exc: Exception, tokens: int) -> None:
-        """An overflow never ends the game: the first in a row drains, the second trims in code, any later one resets
-        the context to the newest state. Past the third, each also counts as an LLM failure, so a context that cannot
-        fit even then ends at ``max_consecutive_llm_failures`` instead of looping for ever."""
+        """The server said the prompt is too long: 1st time drain, 2nd trim, then reset. Called from _loop step 3."""
         self._overflows += 1
         self.stats["context_overflows"] += 1
         self._log_event({"event": "context_overflow", "count": self._overflows, "tokens": tokens,
@@ -1094,9 +835,7 @@ class AgentSession:
             self._reset_context("overflow", prompts.event_message("compacted", level=self._level(), **self._left()))
 
     def _reset_if_level_up(self) -> None:
-        """After a reply whose act won a level: the new level starts from a clean context (config ``level_up_reset``).
-        Off: nothing is rewritten; the level-up message is already in the act output and the new level's full state
-        follows it, so the prompt stays a prefix of the next one."""
+        """Config level_up_reset: after a level-up reply, starts the new level from a clean context. Called from _loop step 6."""
         if self._level_up_text is None:
             return
         text, self._level_up_text = self._level_up_text, None
@@ -1107,51 +846,35 @@ class AgentSession:
         return int(self.cfg.get("chain_reasoning_tokens", context.REASONING_BUDGET_TOKENS))
 
     def _estimate(self, m: dict[str, Any]) -> int:
-        """chars/4 of a message without its thinking; append-only counts its pictures too when every one is sent."""
+        """chars/4 of one message (pictures counted)."""
         return compaction.estimate_tokens(m, reasoning=False,
                                           image_tokens=IMAGE_TOKENS if self.append_only and self.old_images else 0)
 
     def _chain_reasoning_tokens(self, start: int) -> int:
-        """chars/4 of the thinking that is still sent, in the messages from ``start`` on: the same rule as the request
-        (append-only: every reply's; else ``context.reasoning_sent``: the current chain, newest first, within the
-        thinking budget)."""
+        """chars/4 of the thinking still sent, from message start on. Used by _context_tokens."""
         if self.append_only:
             return sum(context.reasoning_tokens(m) for m in self.messages[start:])
         return sum(context.reasoning_tokens(self.messages[i])
                    for i in context.reasoning_sent(self.messages, self._reasoning_budget()) if i >= start)
 
-    def _keep_from(self, msgs: list[dict[str, Any]], keep: int | None = None) -> int:
-        """Where the word-for-word tail starts: the newest ``keep`` tokens (default ``keep_recent_tokens``; real tokens,
-        the walk counts chars/4 with the thinking), cut at a user or assistant message."""
-        if keep is None:
-            keep = self._context_limits()[2]
-        return compaction.find_cut_point(msgs, 0, int(keep / self._token_scale))[0]
-
-    def _drain_steps(self) -> list[tuple[int, int]]:
-        """(tail tokens kept word for word, ipython output chars), mildest first: the configured tail, then half of
-        it each time down to ``DRAIN_MIN_KEEP``, then the smallest tail with outputs cut to a quarter."""
-        keep = self._context_limits()[2]
-        chars = int(self.cfg.get("drain_output_chars", 400))
-        steps = [(keep, chars)]
-        while steps[-1][0] // 2 >= DRAIN_MIN_KEEP:
-            steps.append((steps[-1][0] // 2, chars))
-        steps.append((min(keep, DRAIN_MIN_KEEP), max(chars // 4, 80)))
-        return steps
-
     def _drain(self, tokens_before: int, reason: str) -> None:
-        """A smaller history with no model call (``context.drain``), at the trigger or after an overflow. The newest
-        messages stay word for word with their thinking; before them the boards become one-line stubs (the newest board
-        stays), ipython outputs are cut short, act results become a short move log, and the thinking, old pictures and
-        memory messages go; a full memory goes back in. No summary is written. The tail kept word for word shrinks step
-        by step (``_drain_steps``) until the context is at most ``compaction.drain_target_tokens``; if even the smallest
-        tail leaves it above that, the history is also trimmed back to the newest full state (``_trim_context``)."""
+        """Shrinks the old messages in code (no model call) until the context is under drain_target_tokens; trims if that is not enough. Called from _loop step 2 and _on_overflow."""
         target = int(self.cfg["compaction"].get("drain_target_tokens", 60000))
         mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status()) \
             if self.append_only and self.memory_in_context else None
         fixed = (len(self._system_prompt()) + (len(mem["content"]) if mem else 0) + 3) // 4
+        # The tail sizes to try, mildest first: keep_recent_tokens, halved down to DRAIN_MIN_KEEP, then the smallest
+        # tail with shorter tool outputs.
+        keep0 = int(self.cfg["compaction"]["keep_recent_tokens"])
+        chars0 = int(self.cfg.get("drain_output_chars", 400))
+        steps = [(keep0, chars0)]
+        while steps[-1][0] // 2 >= DRAIN_MIN_KEEP:
+            steps.append((steps[-1][0] // 2, chars0))
+        steps.append((min(keep0, DRAIN_MIN_KEEP), max(chars0 // 4, 80)))
         drained, after, keep, chars = self.messages, tokens_before, 0, 0
-        for keep, chars in self._drain_steps():
-            drained = context.drain(self.messages, self._keep_from(self.messages, keep), chars)
+        for keep, chars in steps:
+            cut_at = compaction.find_cut_point(self.messages, 0, int(keep / self._token_scale))[0]
+            drained = context.drain(self.messages, cut_at, chars)
             est = fixed + sum(self._estimate(m) for m in drained) + sum(context.reasoning_tokens(m) for m in drained)
             after = int(self._token_scale * est)
             if after <= target:
@@ -1159,21 +882,16 @@ class AgentSession:
         self.messages = drained
         if self.append_only:
             self._insert_memory()
-        self._snapshot("drain")
-        self._pinned, self._usage_tokens, self._usage_at = None, None, 0
+        self._after_rewrite("drain")
         self.stats["drains"] += 1
         self._log_event({"event": "drain", "reason": reason, "tokens_before": tokens_before, "tokens_after_est": after,
                          "keep_tokens": keep, "output_chars": chars, "messages": len(self.messages),
                          "action_count": self.arc.game.action_count})
-        self._cold()
         if after > target:
             self._trim_context()
 
     def _refresh_after_compaction(self, kept: list[dict[str, Any]]) -> None:
-        """The newest state in full must survive a compaction. Nothing is added when the newest kept observation is
-        already the full view of the current step. Otherwise the full view goes where the newest user message is: it
-        replaces that message when it is the short view of the current step, else it goes just after it. Either way it
-        stays before the current tool-call chain, so the chain keeps its thinking."""
+        """Makes sure the full view of the current state survives a trim. Called from _trim_context."""
         start = context.chain_start(kept)
         newest = next((m for m in reversed(kept) if m.get("_kind") == "observation"), None)
         if newest is not None and newest.get("_full") and newest.get("_step") == self._last_step:
@@ -1186,16 +904,13 @@ class AgentSession:
             kept.insert(start, self._observation_refresh())
 
     def _observation_refresh(self) -> dict[str, Any]:
-        """The current state in full (briefing, objects, board, picture), e.g. after a compaction cut the last one
-        away."""
+        """The current state in full, as a logged message. Called from _refresh_after_compaction and _reset_context."""
         msg = self._observation(full=True)
         self._log_event({"event": "message", **context.loggable(msg)})
         return msg
 
     def _trim_context(self) -> None:
-        """The second overflow in a row, or a drain that could not get under its target: trim in code, with no model
-        call. The history goes back to the newest full state, every reply but the newest loses its thinking, and every tool output but the
-        newest reply's becomes a one-line placeholder. The full view of the current step is put back if it is missing."""
+        """Cuts the history back to the newest full view and blanks old tool outputs. Called from _on_overflow and _drain."""
         before = self._context_tokens()
         msgs = self.messages
         full = next((i for i in range(len(msgs) - 1, -1, -1)
@@ -1213,18 +928,14 @@ class AgentSession:
         if self.append_only:
             self.messages = [m for m in self.messages if not context.is_memory(m)]
             self._insert_memory()
-        self._snapshot("trim")
-        self._pinned, self._usage_tokens, self._usage_at = None, None, 0
+        self._after_rewrite("trim")
         self.stats["context_trims"] += 1
-        self._cold()
         self._log_event({"event": "context_trim", "tokens_before": before, "tokens_after": self._context_tokens(),
                          "messages_before": len(msgs), "messages_after": len(self.messages),
                          "action_count": self.arc.game.action_count})
 
     def _reset_context(self, reason: str, text: str) -> None:
-        """A clean context in code, with no model call: ``text`` (the level-up message, or the compaction note when even
-        a trimmed context overflows), the kernel's names, and the newest full state. The system prompt and the memory
-        go with every request anyway. Used at every level-up: a new level starts from its own context."""
+        """A clean context: one message (level-up or overflow note), the memory, and the current full view. Called from _on_overflow and _reset_if_level_up."""
         obs = next((m for m in reversed(self.messages) if m.get("_kind") == "observation"), None)
         if obs is None or not obs.get("_full") or obs.get("_step") != self._last_step:
             obs = self._observation_refresh()
@@ -1235,65 +946,45 @@ class AgentSession:
         if self.append_only and self.memory_in_context:
             self._append(self._memory_full())
         self.messages.append(obs)   # logged when it was made
-        self._snapshot(reason)
-        self._pinned, self._usage_tokens, self._usage_at = None, None, 0
+        self._after_rewrite(reason)
         self.stats["context_resets"] += 1
-        self._cold()
         self._log_event({"event": "context_reset", "reason": reason, "messages_dropped": dropped,
                          "tokens_after": self._context_tokens(), "action_count": self.arc.game.action_count})
 
-    def _kernel_names(self) -> str:
-        """One line naming what the agent defined in its kernel, read from the REPL globals (not from a summarizer)."""
-        try:
-            names = self.kernel.user_names()
-        except Exception as exc:  # noqa: BLE001 - the list is a help, never a failure
-            self._log_event({"event": "kernel_names_error", "error": repr(exc)[:300]})
-            return ""
-        parts = [f"{key}: {', '.join(names[key])}" for key in ("functions", "classes", "values", "modules")
-                 if names and names.get(key)]
-        if not parts:
-            return ""
-        text = "Your Python kernel still holds what you defined there; reuse it instead of writing it again. " + \
-            "; ".join(parts)
-        return text if len(text) <= 2000 else text[:1990] + " ..."
+    def _after_rewrite(self, reason: str) -> None:
+        """After the context was rewritten: logs it whole (tracing), drops the measured prompt size and tells the
+        scheduler this game's cache is cold. Called from _drain, _trim_context and _reset_context."""
+        if self.tracing:
+            self._log_event({"event": "context", "reason": reason,
+                             "messages": [context.snapshot(m) for m in self.messages]})
+        self._pinned, self._usage_tokens, self._usage_at = None, None, 0
+        self._full_shown_step = None   # old cell outputs may be cut: the next observe() shows the full view again
+        mark = getattr(self.llm, "mark_cold", None)
+        if callable(mark):
+            mark()
 
     # --- host requests from the REPL ----------------------------------------------------------------------
     def _host(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Requests from the kernel (runs on its host thread): arc.act is one move sent by play() inside a cell, checked
+        by the guardrails and run by _tool_act; arc.surprise means play() saw a wrong prediction. Called from _run_call."""
         kind = str(req.get("type", ""))
-        if kind == "arc.act":
-            return self._act_from_cell(req.get("args") or {})
         if kind == "arc.surprise":   # play() stopped at a move the agent's model got wrong
             self._surprised = True
             self.stats["surprises"] += 1
             self._log_event({"event": "surprise", **(req.get("args") or {})})
             return {}
-        if kind.startswith("arc."):
-            raise PermissionError("in this harness the state is read with `observe()` and moves are made with "
-                                  "`await play([...])`")
-        raise RuntimeError(f"host request {kind!r} is not supported by this harness")
-
-    def _act_from_cell(self, args: dict[str, Any]) -> dict[str, Any]:
-        """One move of ``await play(...)`` in a cell (answered on the kernel's host thread while the main loop waits
-        for the cell). After a level up or the end of the game the cell may not move again: the new level is read
-        first. The first move of a path carries its length: a path over ``act_max_actions`` is refused whole."""
+        if kind != "arc.act":
+            guardrails.refuse_host(kind)
         cell = self._cell
-        if cell is None:
-            raise RuntimeError("play() works only inside an ipython call")
-        args = dict(args)
-        self._act_via = args.pop("via", None)   # the kernel helper that sent it ("play"), for the trace
-        self._act_predicted = args.pop("predicted", None)   # whether the agent predicted this move
-        self._act_play_id = args.pop("play_id", None)       # which play() call of the game sent it
-        path_len = args.pop("path_len", None)
-        cap = int(self.cfg.get("act_max_actions", 5))
-        if path_len is not None and int(path_len) > cap:
-            self.stats["tool_errors"] += 1
-            self.stats["act_arg_errors"] += 1
-            raise RuntimeError(prompts.event_message("act_too_many", sent=int(path_len), act_max=cap))
+        args = dict(req.get("args") or {})
+        if cell is not None:
+            self._act_via = args.pop("via", None)   # the kernel helper that sent it ("play"), for the trace
+            self._act_predicted = args.pop("predicted", None)   # whether the agent predicted this move
+            self._act_play_id = args.pop("play_id", None)       # which play() call of the game sent it
+        guardrails.check_play(self, cell, args.pop("path_len", None))
         if "memory" in args:   # the memory variables, saved before the moves run
             self._sync_memory(args.pop("memory"), cell)
-        if cell["closed"]:
-            raise RuntimeError(f"not run, nothing spent: {cell['closed']} in this cell already. Read the new state "
-                               "in your next reply before you move again.")
+        guardrails.check_cell_open(cell)
         self._act_info = None
         try:
             text = self._tool_act(args, cell["call_id"], cell["turn"], cell["reply"])
@@ -1311,9 +1002,6 @@ class AgentSession:
         return {"text": text, **info}
 
     # --- bookkeeping -------------------------------------------------------------------------------------
-    def _time_left(self) -> str:
-        return f"{max(0, int(self.deadline - time.time())) // 60} min left"
-
     def _append(self, msg: dict[str, Any], **extra: Any) -> None:
         self.messages.append(msg)
         self._log_event({"event": "message", **context.loggable(msg), **{k: v for k, v in extra.items() if v}})

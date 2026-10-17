@@ -24,11 +24,12 @@ DEFAULT: dict[str, Any] = {
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on an act's first action its thought and arguments). Off on the competition rerun.
     "record": True,
+    # The trace for analysis and LoRA SFT: each game's transcript.jsonl (with a snapshot of the context after every
     # rewrite, the reasoning effort and a digest of every request), the pictures sent (games/<id>/frames/), and after
     # the run harness/trace.py (reports + sft_levels.jsonl). Logging only: the agent's context and requests are the same
     # either way. Off: none of it is written. Always off on the competition rerun (its outputs are never seen).
     "tracing": True,
-    # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time    # The trace for analysis and LoRA SFT: each game's transcript.jsonl (with a snapshot of the context after every, each for game_wall_s.
+    # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
     # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
     # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
     "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0,
@@ -50,9 +51,6 @@ DEFAULT: dict[str, Any] = {
         # The thinking budget of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (a note,
         # never a cut, like turn_yield_tokens). 0 = the normal budget.
         "surprise_yield_tokens": 1000,
-        # Replies in a row that ran code but made no move before a "send your best path now" note (and the scheduler
-        # slot goes to a waiting game). 0 = off.
-        "idle_turns": 4,
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
         "stuck_note_tokens": 60000,

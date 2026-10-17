@@ -16,14 +16,13 @@ def _fn(name: str, description: str, properties: dict, required: list[str]) -> d
 
 IPYTHON = _fn(
     "ipython",
-    "Run Python: read the board with `observe()`, model the game and make moves with `await play(path, predict=...)`. "
-    "See \"The `ipython` tool\" in your instructions.",
-    {"code": {"type": "string", "description": "Python code. Top-level `await` works."}},
+    "your coding tool",
+    {"code": {"type": "string", "description": "Implement your code in Python."}},
     ["code"])
 
 RECALL = _fn(
     "recall",
-    "Search your memory and skills. See \"`recall` in detail\" in your instructions.",
+    "Search your memory and skills.",
     {"query": {"type": "string", "description": "A step, a range, \"level N\", or words; \"\" for the latest."},
      "scope": {"type": "string", "enum": ["all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills"],
                "description": "Where to search. Default all."}},

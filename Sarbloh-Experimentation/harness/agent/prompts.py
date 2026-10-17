@@ -6,7 +6,7 @@ How the game loop uses prompts (read from ``harness/agent/agent.py`` and ``harne
     agent.py    -> system prompt, fixed for the game    : game_system()
     agent.py    -> after every move: change lines + new state (built in code, not here)
     agent.py    -> the model ends a turn with no tool    : continuation()
-    agent.py    -> level up, GAME_OVER, WIN, refused move, turn budget spent, idle calls, stuck level, compaction :
+    agent.py    -> level up, GAME_OVER, WIN, refused move, turn budget spent, stuck level, compaction :
                    event_message(kind, ...)
 
 The system prompt is the same text for every game in a run: nothing game-specific (name, level count, folder) is in
@@ -219,9 +219,6 @@ CALL_TOOL_NOW = ("You spent this turn's thinking budget without calling a tool. 
 FIX_NOW = ("A surprise needs a small fix, not a new model. Change the one rule in `step()` that was wrong and send the "
            "new path with `await play(path, predict=...)` now.")
 
-# Several calls in a row ran code but made no move (config idle_turns):
-IDLE_NOW = ("Your last {calls} calls made no move. Looking costs turns. Send your best path now with "
-            "`await play(path, predict=...)`: the game will show you where the model is wrong.")
 
 # The level has eaten another config stuck_note_tokens of thinking without being won:
 STUCK = ("This level has taken about {tokens}k tokens of thinking and is not won yet, so something you believe about it "
@@ -269,12 +266,12 @@ EVENT_SNIPPETS: dict[str, str] = {
     "start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER, "win": WIN,
     "act_now": ACT_NOW, "call_tool_now": CALL_TOOL_NOW, "compacted": COMPACTED, "act_too_many": ACT_TOO_MANY,
     "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "low_budget": LOW_BUDGET, "low_time": LOW_TIME,
-    "fix_now": FIX_NOW, "idle_now": IDLE_NOW, "stuck": STUCK, "reuse_code": REUSE_CODE,
+    "fix_now": FIX_NOW, "stuck": STUCK, "reuse_code": REUSE_CODE,
 }
 
 LEVEL_START_KINDS = ("start", "level_up")   # these get the level note when the level is known
 # these get the low-budget and low-time notes
-NOTE_KINDS = ("continue", "level_up", "game_over", "compacted", "act_now", "call_tool_now", "fix_now", "idle_now")
+NOTE_KINDS = ("continue", "level_up", "game_over", "compacted", "act_now", "call_tool_now", "fix_now")
 
 LOW_BUDGET_MOVES = 20     # add the low-budget note when this many moves or fewer are left
 LOW_TIME_MINUTES = 5      # add the low-time note when this many minutes or fewer are left
