@@ -150,14 +150,14 @@ def read_moves(s: Any, args: dict[str, Any]) -> list[tuple[int, int | None, int 
     elif isinstance(raw, int):
         raw = [raw]
     if not isinstance(raw, list) or not raw:
-        raise ValueError(prompts.event_message("act_bad_args", problem="`actions` must be a list of 1 or more moves"))
+        raise ValueError(prompts.event_message("act_bad_args", problem="the path is empty or is not a list of moves", act_max=int(s.cfg.get("act_max_actions", 5))))
     cap = int(s.cfg.get("act_max_actions", 5))
     if len(raw) > cap:
         raise ValueError(prompts.event_message("act_too_many", sent=len(raw), act_max=cap))
     try:
         parsed = [parse_action(a) for a in raw]
     except ValueError as exc:
-        raise ValueError(prompts.event_message("act_bad_args", problem=str(exc))) from None
+        raise ValueError(prompts.event_message("act_bad_args", problem=str(exc), act_max=int(s.cfg.get("act_max_actions", 5)))) from None
     legal = [a for a in s.arc.game.state.available_actions if a != 0]
     bad = [label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
     if bad:

@@ -17,8 +17,8 @@ a spent thinking budget, low budget) is sent as a short message built by ``event
 when" is the table ``EVENT_SNIPPETS`` plus the if/else in the builders. The messages that start a level (game start,
 level up) also get ``LEVEL_NOTE``. After a compaction the message is only "continue".
 
-The system prompt is the API contract only. ``TOOLS_DETAILED`` (= ``IPYTHON_TOOL_DETAILED``, which includes ``play()``, +
-``RECALL_DETAILED``) gives every argument, limit, refusal and return format, taken from ``tools.py``, ``agent.py``
+The system prompt is the API contract only. ``TOOLS_DETAILED`` (one
+snippet for the ipython tool, ``play()`` and ``recall``) gives every argument, limit, refusal and return format, taken from ``tools.py``, ``agent.py``
 (``_tool_act``, ``_tool_recall``), ``runtime/skills/observation.py`` and ``agent/perception.py``. If those change,
 change these. The agent writes its memory as four variables in its kernel (GOAL, PLAN, HYPOTHESES, FINDINGS; the host
 saves them, ``AgentSession._read_memory``) and reads it with ``recall`` or in the [memory] block (config
@@ -41,15 +41,15 @@ from typing import Any
 # 1. Role and the Python tool
 # =====================================================================================================================
 
-ROLE_OBJECTIVE_COMMUNICATION = """Role: You are a coding agent playing a multi-level game. Your goal is to win every level with as few moves as possible.
+ROLE_OBJECTIVE_COMMUNICATION = """Role: You are a coding agent playing a multi-level game.
 
 Objective:
-Read the board with code and look at the picture. Write what you learn as a Python model of the game, `step(state, move)`. Then search that model for the shortest path to the goal and send it.
+Read the board with code and look at the picture. You need to implement your code in python and create your world model to take optimal actions and execute the actions. 
 
 Working:
-You have to work in observe-plan-act loop in order to win the games observe. you must observe and develop your understanding from the image provided to you
-and you build/update your world model and implement the actions or sequence of actions in every call. Compares each new board with what
-your model predicted, and update the first move the model got wrong. otherwise keep executing.
+Here is the thing, your goal is to win the game, to win the game you must take optimal actions(you send the moves with `play()`), to take optimal 
+actions you must understand the game from board(Read the board with `observe()`) and image provided and build or update the world model in python 
+simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
@@ -71,14 +71,9 @@ Controls:
 - "1" is up, "2" is down, "3" is left and "4" is right.
 - "5" is the special action: it can select, use, rotate, attach or detach something, or carry out a step.
 - "6 r c" clicks the cell at row r and column c.
-- "7" is undo. It takes back your last move, it doesn't count as a move.
+- "7" is undo. It takes back your last move and is not counted as a move.
 - "reset" restarts the current level.
 you have to take the legal actions particular the game you are playing(in some games actions 7 might not work, or some games are click only). 
-
-How to work:
-Here is the thing, your goal is to win the game, to win the game you must take optimal actions(you send the moves with `play()`), to take optimal 
-actions you must understand the game from board(Read the board with `observe()`) and image provided and build or update the world model in python 
-simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
 
 What to watch for:
 - Some games have no player. What you control may be a cursor, a selected object, a region or the whole board.
@@ -103,99 +98,105 @@ The picture is a map of the board. Open floor is light, walls are dark and hatch
 Each object has a box and a tag with its id and its guessed role, for example `10: YOU?`. Use the picture to see the layout and understanding, and your code for exact cells.
 """
 
-IPYTHON_TOOL_DETAILED = """The `ipython` tool:
-This is the tool you use to read the board, write your understanding of the game as code, and make moves. You give it Python in its one argument, `code`. It runs the code and shows you what the code printed. Top-level `await` works.
-
-How to use it:
+TOOLS_DETAILED = """
+How to use tools:
 - Never read, count or copy cells in your head. Filter `observe().objects`, print a small `obs.ascii(...)` window, or compute it.
-- You can call `ipython` many times in one turn, and you see each output right away. Call `observe()` and read the state in the output, then write your code and `play()` in the next call. Read what changed and keep going in the same turn. You have a thinking budget of about 2,000 tokens between moves. When it runs out, run your code and move.
-- Long code is fine, even hundreds of lines.
-- Print short results: counts, positions, or a small window of the board. Don't print the whole board.
-- Your code stays. Variables, functions and imports live for the whole game, across levels. Write functions you can call again, such as `step(state, move)` and a search over it, and fix them when the game shows you something new.{old_code}
+- You can call ipython tool as many times in one turn, and you see each output right away. Call `observe()` and read the state in the output,
+ then write your code and `play()` in the next call. Read what changed and keep going in the same turn.
+- Your code stays. Variables, functions and imports live for the whole game, across levels. Write functions you can call again,
+ such as `step(state, move)` and a search over it, and fix them when the game shows you something new.{old_code}
+ 
+ipython tool:
+The tool is a live Python kernel tied to the game and you can implement your code here(python only). 
 
-What you can call inside it:
-1. `obs = observe()` gives you the current state. It is free and costs no move. Colors are letters, and positions are (row, column). An `obs` does not change after you get it, so call `observe()` again after every `play()` (or use `r.obs`). It has:
-   - `obs.board`: the board, one string of letters per row. `obs.board[r][c]` is the color at row r, column c.
-   - `obs.objects`: a list of dicts with the keys `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash`, `corners`, `parent`, `children`, `adjacent`, `hud` and `cells` (a list of (row, column), or None above 256 cells). Filter it, for example `[o for o in obs.objects if o["letter"] == "R"]`.
-   - `obs.ascii(r0, c0, r1, c1)`: a window of the board with row and column labels. Print it.
-   - `obs.change`: the newest change line. `obs.history`: the last 20 steps, as dicts with `i`, `level`, `action`, `change` and `state`.
-   - `obs.briefing`, `obs.step`, `obs.status`, `obs.background` and `obs.legend`.
-2. `r = await play(path, predict=None, state=None)` is the only way to make moves. Every move counts. It makes the moves of `path` one at a time and sends the whole path unless the level is won, the game ends, or the same move hits a wall twice in a row.
-   - `path` is a list of 1 to {act_max} moves, made in order: "1" to "5", "7", "6 r c" (row first, for example "6 12 40") and "reset". A tuple (6, r, c) works too. For example ["1", "1", "4"] or ["6 12 40"]. One move alone is fine: `await play(["5"])`.
-   - Do not forget `await`: without it nothing happens.
-   - `predict(board, move)` gets `obs.board` before the move and returns the board you expect after it. It can also return a dict {{(r, c): letter}} with only the cells you care about, or None to not check that move. Without `predict`, no move is checked.
-   - If your `step()` works on your own state, pass `state=my_state_of`: then `predict(my_state_of(obs), move)` is compared with `my_state_of(observe())` after the move.
-   - Cells of `hud` objects are not compared, so counters do not count as a surprise.
-   - A timer or an animation changing never stops the path. Only the same move twice in a row with not one pixel changed stops it, as a wall hit.
-   - A move that did not do what you predicted does not stop the path: the first one is reported after the path ends.
-   - "reset" costs a move and throws away the level's progress. Use it after GAME_OVER or when the level is stuck.
-   - Only the legal moves in the status line work. The call is refused before any move, with nothing spent, if the path has more than {act_max} moves or if the first move is not legal or cannot be read. The refusal is a `RuntimeError` in your code. Fix it and call again.
-   - It also stops at a level up, at GAME_OVER, or when the game ends. After a level up `play()` refuses for the rest of that call, so you see the new level first.
-   - It prints `play: 3 of 3 moves done` (plus `; stopped: <reason>`) and one change line per move. A click is written `A6(r12,c40)`, and `[GAME_OVER]` marks the move that lost the level. On a surprise it also prints the cells that differ (predicted and actual) and a small window of the board around them: fix that rule in `step()`, then search again from the new board. `quiet=True` prints nothing.
-   - It returns `r` with `r.done`, `r.stopped` ("level up", "GAME_OVER", "wall hit twice", ... or None when the whole path was made), `r.surprise`, `r.lines`, `r.level_up`, `r.state` and `r.obs`, the board after the last move.
-3. `dir()` lists the names you have already defined.
-4. `show_source("name")` prints the code of a function or class you defined in an earlier call. Read it before you change it.
+Apart from implementing python here are certain things which you can use:
+observe():
+obs = observe() is a frozen copy of the state at the moment it is called. It does not update after moves; a new call to `observe()`, or `r.obs` from `play()`, gives the newer state.
+- obs.board is the board as a list of 64 strings, one per row, one color letter per cell. `obs.board[r][c]` is the color at row r, column c. It is plain Python data, so numpy can turn it into an array: `np.array([list(row) for row in obs.board])`.
+- obs.objects is a list of dicts, one per object (a connected area of one color). Each has `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash` (same shape, same hash), `corners`, `parent`, `children`, `adjacent`, `hud` (True for counters and bars at the edge) and `cells` (a list of (row, column), or None for objects over 256 cells). A list comprehension picks out what matters, for example `[o for o in obs.objects if o["letter"] == "R" and not o["hud"]]`.
+- obs.ascii(r0, c0, r1, c1) returns a labelled text window of the rows r0..r1 and columns c0..c1. A window around the objects of interest is a few hundred characters; the whole 64x64 board is about 4,000.
+- obs.change is the change line of the newest move. `obs.history` is the last 20 steps, newest first, each a dict with `i`, `level`, `action`, `change` and `state`.
+- obs.status holds the level, the moves used and the legal moves; `obs.briefing`, `obs.step`, `obs.background` and `obs.legend` complete it.
 
-Methods you can use:
-- World model, `step(state, move)`: a function that returns the next state the way the game would, used to plan without spending moves. Keep your model updated across 5 parts: (1) Objects (controlled avatar, walls, targets, keys, counters), (2) Actions (what each move does), (3) Goal (winning condition), (4) Unknowns (untested mechanics), and (5) Plan (next moves and reasoning). Every search below runs on it.
-- BFS (breadth-first search with `collections.deque` and a `seen` set): tries all 1-move paths, then all 2-move paths, so the first path that reaches the goal is a shortest one. Used when you move something to a target around walls and every move costs the same, and to check whether a goal can be reached at all.
-- Flood fill: spreads from one cell to every cell it can reach. Used to find what is reachable, which areas are closed off, and which cells form one room or one connected shape.
-- Shortest path with `heapq` (Dijkstra, or A* with a distance guess): takes the cheapest state first. Used when moves cost different amounts, such as slides or clicks, or when there are too many states for BFS.
-- Short sequence search (`itertools.product`): tries every list of moves up to a small length and keeps the best by a score. Used when a move changes many objects at once, or to find the best short combination of buttons or clicks.
-- Beam search: keeps only the best few states at each depth, rated by a score. Used when there are far too many states and you have a good score.
-- Score function, `score(state)`: a number for how close a state is to the goal, such as distance to the target or cells that match. Used to compare candidates, in beam search and A*, and to choose between clicks.
-- Probe: one test move whose result tells two of your ideas apart. Used when you do not know what a move does or what wins. Once you know what you control, what each move does and the goal, searching the model is cheaper than probing.
-- Object tracking: matching objects between two `observe()` calls by `hash`, then color, then nearest `bbox`. Used to find what you control and how far it moved.
-- Board diff: the list of objects that moved, appeared, disappeared or changed size between two `observe()` calls. Used after `play()` to compare the board with what `step()` predicted. If only `hud` objects changed, the move did nothing useful on the board.
-- Act loop: send the path one move at a time, compare with `step()` after each, and stop at the first difference. `play(path, predict=...)` does exactly this, so use it instead of writing the loop. Used for any path from your search, trusted or not: a correct model costs nothing extra.
+play():
+`r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
+- `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo, "reset", or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same). One move is a path of one: `await play(["5"])`.
+- The whole path is sent unless one of these happens: the level is won, GAME_OVER, the game ends, or the same move twice in a row changes not one pixel (a wall). A timer or animation never stops a path.
+- Before any move is spent, a path is refused with a `RuntimeError` when it has more than {act_max} moves, or when its first move is illegal or unreadable. Catching or reading that error costs nothing. An illegal or unreadable move later in the path stops the path there: the moves before it are made, the rest are not sent.
+- After a level up, further `play()` calls in the same cell are refused, so the new level is seen before anything else is sent.
+- `predict` checks the path against your model as it runs. It is a function `predict(board, move)`: it receives `obs.board` before each move and returns the board it expects after it, or a dict {{(r, c): letter}} with only the cells it cares about, or None for a move it does not check. Typically it wraps your step model: `await play(path, predict=lambda b, m: step(b, m))`.
+- `state` lets the model work on its own state instead of the board: with `state=my_state_of`, the check compares `predict(my_state_of(obs), move)` with `my_state_of(observe())` after the move, using `==`.
+- Cells of `hud` objects are left out of the check, so counters never count as a surprise.
+- A wrong prediction does not stop the path. The first one is recorded as the surprise and printed after the path ends: the move, the cells that differ (predicted and actual) and a small window of the board around them.
+- The call prints `play: 3 of 3 moves done` (with `; stopped: <reason>` when it stopped early) and one change line per move. A click is written `A6(r12,c40)` and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
+- It returns `r`: `r.done` (moves made), `r.stopped` ("level up", "GAME_OVER", "wall hit twice", ... or None when the whole path ran), `r.surprise` (None or a dict with `move`, `action` and `cells`), `r.lines` (the change lines), `r.level_up`, `r.state` and `r.obs` (the state after the last move).
+- "reset" is a move too: it restarts the level and loses its progress. "7" takes back the last move where the game allows it, and is not counted.
 
-you can access these in detail by using the `recall` tool, scope "skills", and specifying its name: code_step_model, code_bfs, code_flood_fill, code_weighted_search, code_sequence_search, code_beam_search, code_scoring, code_probe, code_object_tracking, code_frame_diff, code_act_loop."""
+The kernel itself:
+- Everything defined in a cell stays for the whole game, across levels: variables, functions, classes and imports. A `step()` model, a search, a helper written on level 1 is still there on level 5.
+- `dir()` lists the names defined so far, and `show_source("name")` prints the code of a function or class from an earlier cell.
+- Several `ipython` calls fit in one turn, and each output comes back before the next call, so one cell can read and the next can act on what it read.
+- Standard Python works: `collections`, `heapq`, `itertools`, `functools` and `numpy` are available to import.
 
-RECALL_DETAILED = """`recall` in detail:
-- `query` (required): "#12" (one step), "12-20" (a range), "level 1", or words such as "red block". "" gives the latest.
-- `scope` (optional, default "all"): "timeline" (your steps), "plan", "hypotheses", "findings", "goal", "lessons" (from earlier levels and games), "skills", or "all".
-- Scope "skills" or "lessons" gives advice from earlier levels and games.
-Long results are cut, so ask for something narrow."""
+recall tool:
+The `recall` tool searches the record of this game and of earlier levels and games. It returns text and changes nothing in the game.
+- `query` (required) picks what to find: "#12" is one step, "12-20" a range of steps, "level 1" a whole level, words such as "red block" search the text, and "" gives the latest entries.
+- `scope` (optional, default "all") picks where to look: "timeline" (your steps and what they changed), "plan", "hypotheses", "findings", "goal", "lessons" (facts kept from earlier levels and games), "skills" (methods kept from earlier levels and games, and the ones listed below), or "all".
+- Long results are cut at a fixed length, so a narrow query returns the whole answer and a broad one returns only its start.
 
-TOOLS_DETAILED = "\n\n".join([IPYTHON_TOOL_DETAILED, RECALL_DETAILED])
+Existing Skills which you can access using recall tool:
+- code_step_model, `step(state, move)`: a function that returns the next state the way the game would, used to plan without spending moves. Keep your model updated across 5 parts: (1) Objects (controlled avatar, walls, targets, keys, counters), (2) Actions (what each move does), (3) Goal (winning condition), (4) Unknowns (untested mechanics), and (5) Plan (next moves and reasoning). Every search below runs on it.
+- code_bfs (breadth-first search with `collections.deque` and a `seen` set): tries all 1-move paths, then all 2-move paths, so the first path that reaches the goal is a shortest one. Used when you move something to a target around walls and every move costs the same, and to check whether a goal can be reached at all.
+- code_flood_fill: spreads from one cell to every cell it can reach. Used to find what is reachable, which areas are closed off, and which cells form one room or one connected shape.
+- code_weighted_search `heapq` (Dijkstra, or A* with a distance guess): takes the cheapest state first. Used when moves cost different amounts, such as slides or clicks, or when there are too many states for BFS.
+- code_sequence_search (`itertools.product`): tries every list of moves up to a small length and keeps the best by a score. Used when a move changes many objects at once, or to find the best short combination of buttons or clicks.
+- code_beam_search : keeps only the best few states at each depth, rated by a score. Used when there are far too many states and you have a good score.
+- code_scoring function, `score(state)`: a number for how close a state is to the goal, such as distance to the target or cells that match. Used to compare candidates, in beam search and A*, and to choose between clicks.
+- code_probe: one test move whose result tells two of your ideas apart. Used when you do not know what a move does or what wins. Once you know what you control, what each move does and the goal, searching the model is cheaper than probing.
+- code_object_tracking: matching objects between two `observe()` calls by `hash`, then color, then nearest `bbox`. Used to find what you control and how far it moved.
+- code_frame_diff: the list of objects that moved, appeared, disappeared or changed size between two `observe()` calls. Used after `play()` to compare the board with what `step()` predicted. If only `hud` objects changed, the move did nothing useful on the board.
+- code_act_loop: send the path one move at a time and compare each move with `step()`. `play(path, predict=...)` does exactly this, so use it instead of writing the loop. It does not stop at a wrong prediction: the whole path is sent and the first difference is reported at the end. If your `step()` works on your own state, pass `state=` too, because `predict` gets the board by default. Used for any path from your search, trusted or not: a correct model costs nothing extra.
+"""
+
 
 MEMORY = """Your memory:
-{earlier_kept} stay in the messages, and old messages are removed from time to time. {memory_where}
-Your memory is four variables in your `ipython` kernel. Change them in your code when they change, and they are saved after every call and before every move:
+{earlier_kept} stay in the messages. {memory_where}
+Your memory is four variables in your `ipython` kernel. Change them in your code when they change, and they are saved:
 - `GOAL`: text, what you think wins the level.
 - `PLAN`: text, your next steps and why, in one or two sentences.
 - `HYPOTHESES`: a list of the rules you think the game follows, each written concretely (objects, directions, counts). For example `HYPOTHESES.append("1 moves obj 4 up by 5 cells")`. Write any hypothesis you like and remove one when you stop believing it. You do not mark them true or false.
 - `FINDINGS`: a list of facts about this level, one short text each.
-The tool output says what was saved. At a level up, the hypotheses that the level proved and your findings become lessons and skills, `GOAL` is kept, and `PLAN`, `HYPOTHESES` and `FINDINGS` are emptied."""
+Only assign or append to these four at the top level of a cell, for example `PLAN = "push the block right"` or `FINDINGS.append("the bar loses one block per move")`. Do not rename them, do not copy them into other variables, and do not use them inside your functions or your search: they are notes for you, not inputs to your code. A plain assignment inside a function only makes a local copy and is not saved.
+"""
 
-MEMORY_HIDDEN = "Print the variables, or use `recall`, when you need your memory."
+MEMORY_HIDDEN = "use recall tool, when you need your memory."
 MEMORY_SHOWN = ("A [memory] block shows your plan, hypotheses, goal and findings, and a [memory update] shows the parts "
-                "that changed. `recall` searches them too.")
+                "that changed.")
 
-OLD_CODE = (" All the code you write lives in your ipython kernel, and it is not shown back to you: once a call has "
+OLD_CODE = (" All the code you write lives in your ipython kernel, once a call has "
             "run, its code is replaced by a note listing what it defined. Those names are still in the kernel, so call "
             "them directly. Start every function and class with a one-line docstring saying what it does and what it "
             "returns: the note keeps that line, so later you know what each one does without reading its code. "
             "`show_source(\"name\")` prints the full code of one when you need to change it.")
 
-ENVIRONMENT = """Python packages: numpy. `observe` and `play` are already imported. The working directory of `ipython` is your own folder for this game."""
+ENVIRONMENT = """Python packages: `collections`, `heapq`, `itertools`, `functools` and `numpy`. `observe` and `play` are already imported. The working directory of `ipython` is your own folder for this game."""
 
 # =====================================================================================================================
 # 3. Situation messages (user turns or notes sent by the harness at a given moment)
 # =====================================================================================================================
 
-TASK_GAME = """Play the ARC-AGI-3 game `{game_id}` and win it. {levels}You have at most {max_actions} moves and about {minutes} minutes for the whole game.
+TASK_GAME = """So in this game the there are {levels} levels. You have at most {max_actions} moves for the whole game. 
 The first state is below. This is level 1, so nothing is known yet. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and send probe moves that test it. Use what changed to write your first model."""
 
 CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
 The hypotheses the level proved and your findings are now lessons, your goal is kept, and your plan, hypotheses and findings are empty.
-Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel, so do not write them again: run your `step()` and your search on the new board first.
-Look for new objects or a changed layout. New objects usually bring a new rule this level needs: add that rule to `step()` and test it with a few moves. Check whether the goal is still the same.
-Then search and send the whole path with `play(path, predict=...)`. Where it surprises you, fix only that rule."""
+Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel.
+If in case you encounter new objects or a changed layout update your code accordingly.
+"""
 
-NEW_SKILLS = "New skills from the level you just won: {names}. Read them with `recall` and scope \"skills\"."
+NEW_SKILLS = "New skills from the level you just won: {names}. Use these skills whenever it is required \"skills\"."
 
 # The note for the level the agent is on, added to the messages that start a level.
 LEVEL_NOTE = "This is level {level}."
@@ -222,13 +223,10 @@ FIX_NOW = ("A surprise needs a small fix, not a new model. Change the one rule i
 
 
 # The level has eaten another config stuck_note_tokens of thinking without being won:
-STUCK = ("This level has taken about {tokens}k tokens of thinking and is not won yet, so something you believe about it "
-         "is probably wrong. Write down the goal and the rules you are assuming, pick the one you have tested least, "
-         "and test it with one or two moves. If the level is in a bad state, send \"reset\".")
+STUCK = ("You have been on this level for a long time. If it helps, use the recall tool to look back at what you tried and improve your model; otherwise continue.")
 
 # A level was won: the code already in the kernel.
-REUSE_CODE = ("Your code from the last level is still in the kernel: {names}. Check it on the new board before you write "
-              "new code, and fix only what is different.")
+REUSE_CODE = ("Your code from the last level is still in the kernel: {names}.")
 
 COMPACTED = "continue"
 
@@ -237,12 +235,12 @@ ACT_TOO_MANY = ("You sent {sent} moves, but one `play()` takes at most {act_max}
 
 ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal}")
 
-ACT_BAD_ARGS = ("{problem}. Nothing was run and no move was spent. A correct call looks like `await play([\"1\", \"4\"])` "
-                "or `await play([\"6 12 40\"])`.")
+ACT_BAD_ARGS = (""" play() refused this path: {problem}. No move was made and no move was spent, and the game is where it was. A path is a list of 1 to {act_max} moves. A move is 1 to 5 or 7 (as text or an int), reset, or a click written '6 r c' or (6, r, c), where r is the row and c the column of the cell. For example await play(["1", "4", "6 12 40"]).
+""")
 
-LOW_BUDGET = "Only {left} moves are left for this game. Send the moves your model says reach the goal."
+LOW_BUDGET = "Only {left} moves are left for this game."
 
-LOW_TIME = "Only about {minutes} minutes are left. Use the model you have to finish this level."
+LOW_TIME = "Only about {minutes} minutes are left."
 
 # =====================================================================================================================
 # 4. Assembly tables: which snippets go in for which situation

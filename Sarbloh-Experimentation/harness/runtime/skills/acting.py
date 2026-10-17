@@ -3,11 +3,11 @@
 The REPL is the agent's only game tool: it models the game in code, searches the model and sends the moves it finds,
 in the same cell. ``play()`` is the only way to move: it sends the moves one at a time, each as a host request
 (``AgentSession._host``, type ``arc.act``) that runs it exactly like the old act tool did (the same parsing, legality
-check, change lines and stops: level up, GAME_OVER, game end), and it stops early at the first move that did not do
-what the agent predicted or that changed nothing on the board.
+check, change lines and stops: level up, GAME_OVER, game end), and it stops early on a level up, the game's end or a wall hit
+twice; a wrong prediction is reported at the end and the path goes on.
 
     r = await play(["4", "4", "1"])                 # moves, no check
-    r = await play(path, predict=step)              # stops at the first move step() got wrong
+    r = await play(path, predict=step)              # reports the first move step() got wrong
     r.lines        # one change line per move: "#12 A4(right): obj 4 R 3x3 moved right 3 -> ..."
     r.done, r.stopped, r.surprise, r.level_up, r.state
     r.obs          # the state after the last move
@@ -82,7 +82,7 @@ async def _act(actions: list[Any], **extra: Any) -> ActResult:
     return res
 
 
-# --- play(): a whole plan, stopped at the first surprise ----------------------------------------------------------
+# --- play(): a whole plan, checked against the model ----------------------------------------------------------
 
 SHOW_CELLS = 12      # differing cells listed on a surprise
 WINDOW_PAD = 2       # rows and columns shown around them
