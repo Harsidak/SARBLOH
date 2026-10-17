@@ -3,7 +3,8 @@
 after every compaction and every ``curator_every_turns`` turns.
 
 One JSON call, thinking off. From the last steps of the timeline, the agent's working memory and the lessons graph it
-writes: up to three open questions, lessons the agent has already settled (verified or refuted, never proposed ones),
+writes: up to three open questions, lessons (at a level-up it judges which of the agent's hypotheses the level
+proved or refuted, from what the agent tried and what worked),
 skills, and which three skills to load. At a level-up it writes 2 to 5 specific skills from what the level taught;
 otherwise at most 2. The agent never sees the curator's turns; it sees their effect in its pinned memory block (and
 the level-up message names the new skills). A reply that does not parse, or an item that does not validate, is
@@ -22,9 +23,9 @@ from harness.memory.timeline import render_row
 _INTRO = """Your job is to review the memory of the agent that is playing a turn based game you need to return in json only.
 IMPORTANT: Don't think much and reason answer straight from the memory below.
 
-The agent writes its own plan, hypotheses (proposed / verified / refuted), findings and goal. Your job:
+The agent writes its own plan, hypotheses, findings and goal. The agent does not mark its hypotheses true or false: you do. Your job:
 1. open_questions: at most 3 short questions that the last steps raise and that the agent has not answered. Prefer questions whose answer changes what the agent should do next. Do not repeat answered ones.
-2. lessons: facts to keep for later levels and other games. Only rules the agent marked verified or refuted, findings, or a goal that won a level. Never a proposed hypothesis. Each lesson is one short general sentence (name objects by colour and shape, not by id). Link it to the shapes it is about with their key, e.g. "R#a1b2c3"."""
+2. lessons: facts to keep for later levels and other games: findings, a goal that won a level, and hypotheses you judge from the last steps. Read each hypothesis next to the moves the agent made and what they did. A hypothesis is a "rule" when the moves show it held, above all when following it won the level. It is "refuted" when a move did something else. When the steps show neither, leave it out. Each lesson is one short general sentence (name objects by colour and shape, not by id). Link it to the shapes it is about with their key, e.g. "R#a1b2c3"."""
 
 _SKILLS = """
 3. skills: at most 2 short notes (under 120 words each) that turn several lessons into general knowledge for playing such games. Give a snake_case name. Update an existing curated skill by reusing its name. Skip this when the lessons do not support a new note."""

@@ -63,9 +63,8 @@ class GameMemory:
         promoted: list[dict[str, Any]] = []
         if self.lessons is not None:
             shapes = _shapes(objects)
-            items = [("rule" if h["status"] == "verified" else "refuted", h["text"]) for h in w.hypotheses
-                     if h["status"] in ("verified", "refuted")]
-            items += [("rule", f["text"]) for f in w.findings]
+            # Hypotheses are not promoted here: the curator's level-up pass judges which ones the level proved.
+            items = [("rule", f["text"]) for f in w.findings]
             if w.goal:
                 items.append(("goal", f"won a level with goal: {w.goal}"))
             for kind, text in items:

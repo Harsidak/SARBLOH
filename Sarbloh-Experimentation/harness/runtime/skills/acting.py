@@ -54,6 +54,7 @@ class ActResult:
         self.stopped: str | None = data.get("stopped")
         self.level_up: bool = bool(data.get("level_up"))
         self.state: str = data.get("state") or ""
+        self.batch_stop: str | None = data.get("batch_stop")   # the host's reason to send no more of the path
 
     def __repr__(self) -> str:
         return f"ActResult(done={self.done}, stopped={self.stopped!r}, state={self.state!r})"
@@ -77,7 +78,7 @@ async def _act(actions: list[Any], **extra: Any) -> ActResult:
         raise RuntimeError(str(reply.get("error") or "act failed"))
     res = ActResult(reply.get("result") or {})
     if res.level_up:
-        sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES={}, FINDINGS=[])
+        sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES=[], FINDINGS=[])
     return res
 
 
@@ -164,8 +165,8 @@ def _surprise_text(res: PlayResult, obs: Any) -> str:
 
 SURPRISE_NOTE = ("One rule in your model was wrong at this move. Fix only that rule in `step()`, then search again "
                  "from the board now and call `play()` with the new path.")
-NOOP_NOTE = ("That move changed nothing on the board (counters aside), so the rest of the path was not sent. Check "
-             "whether the move is blocked or does something else here before you send it again.")
+NOOP_NOTE = ("The same move hit a wall twice in a row (not one pixel changed), so the rest of the path was not sent. "
+             "Check whether the move is blocked here before you send it again.")
 
 
 def _changed(before: Any, after: Any, skip: set[tuple[int, int]]) -> bool:
@@ -178,14 +179,13 @@ def _changed(before: Any, after: Any, skip: set[tuple[int, int]]) -> bool:
 
 async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool = True,
                quiet: bool = False, stop_if_unchanged: bool = True) -> PlayResult:
-    """Make the moves of ``path`` one at a time and stop at the first move the game did not do as predicted.
+    """Make the moves of ``path`` one at a time. Only a level up, the game's end or a wall hit twice (the same move
+    twice in a row, not one pixel changed) stops the path; a wrong prediction is reported and the path goes on.
 
     ``predict(board, move)`` gets ``obs.board`` before the move and returns the board it expects after it: a list of
     rows, or a dict {(r, c): letter} with only the cells to check, or None to not check this move. With ``state``,
     ``predict(state(obs), move)`` is compared with ``==`` to ``state(obs)`` after the move instead. Cells of ``hud``
-    objects are not compared unless ``skip_hud=False``. A move with no prediction that changes nothing on the board
-    (the HUD aside) stops the path, unless ``stop_if_unchanged=False``. It also stops at a level up, GAME_OVER or the
-    end of the game. Prints one line per move and, on a surprise, the cells that differ, unless ``quiet``."""
+    objects are not compared unless ``skip_hud=False``. ``stop_if_unchanged`` is ignored. Prints one line per move and, on a surprise, the cells that differ, unless ``quiet``."""
     from observation import snapshot   # the kernel puts the skills folder on the path
 
     if isinstance(path, (str, int)) or (isinstance(path, tuple) and path and not
@@ -194,6 +194,7 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
     path = list(path)
     res, obs = PlayResult(), snapshot()
     noop, play_id = False, next(_PLAY_IDS)
+    del stop_if_unchanged   # kept so old calls still work: the host decides when a path stops
     for i, move in enumerate(path):
         want = None
         if predict is not None:
@@ -220,26 +221,23 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
             res.stopped = r.stopped or "no move made"
             break
         skip = _hud_cells(before, obs) if skip_hud else set()
-        if want is None:
-            if stop_if_unchanged and not _changed(before, obs, skip):
-                if i < len(path) - 1:
-                    res.stopped, noop = "no change", True
-                    break
-            continue
-        if state:
-            got = state(obs)
-            if got != want:
-                res.surprise = {"move": i, "action": _move(move), "predicted": want, "actual": got}
-        else:
-            cells = _board_diff(want, obs.board, skip)
-            if cells:
-                res.surprise = {"move": i, "action": _move(move), "cells": cells}
-        if res.surprise:
-            res.stopped = "surprise"
-            try:   # the host gives the next turn a short thinking budget: a surprise needs a small fix
-                await _repl.host_request({"type": "arc.surprise", "args": {"move": i, "action": _move(move)}})
-            except Exception:  # noqa: BLE001 - outside the harness there is no host to tell
-                pass
+        if want is not None and res.surprise is None:   # the first wrong prediction is kept; the path goes on
+            if state:
+                got = state(obs)
+                if got != want:
+                    res.surprise = {"move": i, "action": _move(move), "predicted": want, "actual": got}
+            else:
+                cells = _board_diff(want, obs.board, skip)
+                if cells:
+                    res.surprise = {"move": i, "action": _move(move), "cells": cells}
+            if res.surprise:
+                try:   # the host gives the next turn a short thinking budget: a surprise needs a small fix
+                    await _repl.host_request({"type": "arc.surprise", "args": {"move": i, "action": _move(move)}})
+                except Exception:  # noqa: BLE001 - outside the harness there is no host to tell
+                    pass
+        if r.batch_stop:   # level up, game end or a wall hit twice: the host's guardrails decide
+            if i < len(path) - 1:
+                res.stopped, noop = r.batch_stop, r.batch_stop == "wall hit twice"
             break
     res.obs = obs
     if not quiet:

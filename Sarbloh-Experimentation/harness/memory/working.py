@@ -2,7 +2,8 @@
 
 The agent writes plan, hypotheses, findings and goal as four variables in its kernel (``KERNEL_VARS``); the host
 copies them here after every ipython call and before every move (``sync``). The curator writes the open questions.
-The host checks the shape of what is written and judges nothing: a hypothesis is "verified" because the agent says so.
+The host checks the shape of what is written and judges nothing. The agent only writes hypotheses, never their
+status: every one stays "proposed", and the curator decides at a level up which ones the level proved or refuted.
 Every block is rendered under its token cap (chars / 4); a block over its cap loses its oldest lines, which stay in
 the file and in ``recall``.
 """
@@ -130,7 +131,7 @@ class WorkingMemory:
 
     def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
         """Copies the kernel's memory variables (``KERNEL_VARS``; a missing one is left alone): GOAL and PLAN are text,
-        HYPOTHESES a dict {rule: "open" | "verified" | "refuted"} (a list counts as all "open"), FINDINGS a list of
+        HYPOTHESES a list of text (a dict counts by its keys, its values ignored), FINDINGS a list of
         text. Memory mirrors them: what the agent deleted there is deleted here. A value of the wrong type is not
         copied and is named in ``errors``. Returns what changed: ``plan`` and ``goal`` (the new text, or None),
         ``hypotheses`` (one event per new or changed one), ``findings`` (added), ``removed`` (texts), ``errors``."""
@@ -147,10 +148,12 @@ class WorkingMemory:
                 out[attr] = v.strip()
         if "HYPOTHESES" in values:
             v = values["HYPOTHESES"]
-            if isinstance(v, list):
-                v = {x: "open" for x in v}
-            if not isinstance(v, dict):
-                out["errors"].append(f"HYPOTHESES must be a dict {{rule: status}}, not {type(v).__name__}")
+            if isinstance(v, str):
+                v = [v]
+            if isinstance(v, dict):   # an old habit: the keys are the hypotheses, a status written as a value is ignored
+                v = list(v)
+            if not isinstance(v, list):
+                out["errors"].append(f"HYPOTHESES must be a list of text, not {type(v).__name__}")
             else:
                 self._sync_hypotheses(v, out, turn=turn, level=level)
         if "FINDINGS" in values:
@@ -175,42 +178,28 @@ class WorkingMemory:
                 self.findings = kept
         return out
 
-    def _sync_hypotheses(self, rules: dict[Any, Any], out: dict[str, Any], *, turn: int, level: int) -> None:
+    def _sync_hypotheses(self, rules: list[Any], out: dict[str, Any], *, turn: int, level: int) -> None:
         old = {h["text"].lower(): h for h in self.hypotheses}
         kept: list[dict[str, Any]] = []
-        for text, status in rules.items():
+        for text in rules:
             text = str(text).strip()
             if not text or any(h["text"].lower() == text.lower() for h in kept):
                 continue
-            word = (str(status or "open").strip().lower().split() or ["open"])[0].strip(":,.;")
-            st = _KERNEL_STATUS.get(word)
             h = old.get(text.lower())
-            if st is None:
-                out["errors"].append(f'HYPOTHESES[{text[:40]!r}] is {str(status)[:20]!r}: use "open", "verified" '
-                                     f'or "refuted"')
-                if h is not None:
-                    kept.append(h)
-                continue
             if h is None:
-                h = {"id": f"h{self.next_h}", "text": text, "status": st, "evidence": [], "level": level, "turn": turn,
-                     "history": [[turn, st]]}
+                h = {"id": f"h{self.next_h}", "text": text, "status": "proposed", "evidence": [], "level": level,
+                     "turn": turn, "history": [[turn, "proposed"]]}
                 self.next_h += 1
                 out["hypotheses"].append({**{k: h[k] for k in ("id", "text", "status", "evidence")},
                                           "prev_status": None})
-            elif h["status"] != st:
-                prev, h["status"] = h["status"], st
-                h["history"].append([turn, st])
-                out["hypotheses"].append({**{k: h[k] for k in ("id", "text", "status", "evidence")},
-                                          "prev_status": prev})
             kept.append(h)
         out["removed"] += [h["text"] for h in self.hypotheses if h not in kept]
         self.hypotheses = kept
 
     def kernel_values(self) -> dict[str, Any]:
         """The memory as the kernel variables hold it (to put them back after a kernel restart)."""
-        shown = {v: k for k, v in _KERNEL_STATUS.items() if k != "proposed"}
         return {"GOAL": self.goal, "PLAN": self.plan,
-                "HYPOTHESES": {h["text"]: shown.get(h["status"], h["status"]) for h in self.hypotheses},
+                "HYPOTHESES": [h["text"] for h in self.hypotheses],
                 "FINDINGS": [f["text"] for f in self.findings]}
 
     def set_goal(self, text: str) -> bool:
@@ -242,8 +231,7 @@ class WorkingMemory:
     # --- reads ---------------------------------------------------------------------------------------------
     def hyp_line(self, h: dict[str, Any]) -> str:
         ev = f" (evidence {', '.join('#' + str(e) for e in h['evidence'][:8])})" if h.get("evidence") else ""
-        status = "open" if h["status"] == "proposed" else h["status"]   # the word the agent writes
-        return f"{h['id']} [{status}] {h['text']}{ev}"
+        return f"{h['id']} {h['text']}{ev}"
 
     def blocks(self) -> dict[str, str]:
         """Rendered blocks under their caps; empty blocks are ""."""

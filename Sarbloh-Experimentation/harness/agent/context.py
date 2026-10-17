@@ -45,7 +45,7 @@ TITLES = {
     "goal": "Goal (you write it; kept across levels)",
     "plan": "Plan (from your last act)",
     "skills": "Skills (background knowledge)",
-    "hypotheses": "Hypotheses (status set by you)",
+    "hypotheses": "Hypotheses",
     "findings": "Findings this level",
     "lessons": "Lessons from earlier levels and games",
     "questions": "Open questions (from a review of your last steps)",

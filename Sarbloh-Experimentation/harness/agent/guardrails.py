@@ -4,7 +4,8 @@ and the hard stops. Each one takes the running AgentSession ``s`` (harness/agent
 Where they are called from in ``AgentSession._loop``:
 1. stop?            ``should_stop``
 4. store the reply  ``read_calls`` (unknown tool, broken JSON)
-5. run the tools    ``check_play`` and ``read_moves`` for each move ``play()`` sends; ``refuse_host`` for other requests
+5. run the tools    ``check_play`` and ``read_moves`` for each move ``play()`` sends, ``batch_stop`` after it;
+                    ``refuse_host`` for other requests
 6. after the tools  ``after_tools`` (turn budget notes), ``stuck_note``, ``level_start_note``
 No tool call:       ``over_turn_budget`` and ``yield_turn``
 """
@@ -113,6 +114,24 @@ def check_play(s: Any, cell: dict[str, Any] | None, path_len: Any) -> None:
         s.stats["tool_errors"] += 1
         s.stats["act_arg_errors"] += 1
         raise RuntimeError(prompts.event_message("act_too_many", sent=int(path_len), act_max=cap))
+
+
+def batch_stop(s: Any, cell: dict[str, Any], move: Any, before: Any, after: Any, info: dict[str, Any]) -> str | None:
+    """Why the rest of a play() path must not be sent, or None. Only three things stop it: a level up, the game's
+    end (GAME_OVER or WIN), and a wall hit twice (the same move twice in a row with not one pixel changed). A timer bar
+    or an animation changing never stops it. Called from AgentSession._host after each move."""
+    if info.get("level_up"):
+        return "level up"
+    if info.get("state") in ("GAME_OVER", "WIN") or s.arc.finished:
+        return "GAME_OVER" if info.get("state") == "GAME_OVER" else "game finished"
+    if before != after:
+        cell["noop_move"] = None
+        return None
+    if cell.get("noop_move") == move:
+        s.stats["wall_hits"] += 1
+        return "wall hit twice"
+    cell["noop_move"] = move
+    return None
 
 
 def check_cell_open(cell: dict[str, Any]) -> None:

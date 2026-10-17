@@ -47,10 +47,10 @@ DEFAULT: dict[str, Any] = {
         # The thinking budget of a turn (a turn ends with a move). Once the replies since the last move have written
         # this many tokens and the newest one made no move, a short note says to call the tool and move now, and the
         # game gives its scheduler slot to a waiting game. A reply is never cut by it. 0 = off.
-        "turn_yield_tokens": 4092,
+        "turn_yield_tokens": 16384,
         # The thinking budget of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (a note,
         # never a cut, like turn_yield_tokens). 0 = the normal budget.
-        "surprise_yield_tokens": 1000,
+        "surprise_yield_tokens": 0,
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
         "stuck_note_tokens": 60000,

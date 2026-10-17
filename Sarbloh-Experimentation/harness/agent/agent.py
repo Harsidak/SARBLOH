@@ -120,7 +120,7 @@ class AgentSession:
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
                       "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
                       "memory_full": 0, "memory_updates": 0, "turn_yields": 0,
-                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0}
+                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -761,8 +761,7 @@ class AgentSession:
                              "goal": wrote["goal"]})
         saved = [k for k in ("plan", "goal") if wrote[k] is not None]
         for h in wrote["hypotheses"]:
-            saved.append(f"{h['id']} " + ("new" if h["prev_status"] is None else
-                                          "open" if h["status"] == "proposed" else h["status"]))
+            saved.append(f"{h['id']} new")
         if wrote["findings"]:
             saved.append(f"{len(wrote['findings'])} finding{'s' if len(wrote['findings']) > 1 else ''} added")
         if wrote["removed"]:
@@ -985,6 +984,7 @@ class AgentSession:
             self._sync_memory(args.pop("memory"), cell)
         guardrails.check_cell_open(cell)
         self._act_info = None
+        before = self._frame()
         try:
             text = self._tool_act(args, cell["call_id"], cell["turn"], cell["reply"])
         except Exception as exc:
@@ -995,10 +995,13 @@ class AgentSession:
                              "error": str(exc)[:500], "args": args})
             raise
         info = self._act_info or {}
+        moves = args.get("actions")
+        stop = guardrails.batch_stop(self, cell, moves[0] if isinstance(moves, list) and len(moves) == 1 else moves,
+                                     before, self._frame(), info)
         cell["acts"].append(text)
         if info.get("level_up") or self.arc.finished or info.get("state") == "WIN":
             cell["closed"] = "the level changed" if info.get("level_up") else "the game ended"
-        return {"text": text, **info}
+        return {"text": text, **info, "batch_stop": stop}
 
     # --- bookkeeping -------------------------------------------------------------------------------------
     def _append(self, msg: dict[str, Any], **extra: Any) -> None:

@@ -54,7 +54,7 @@ arc = _NoArc()
 # The agent's memory: it changes these in its code; the host copies them after every call and before every move.
 GOAL = ""
 PLAN = ""
-HYPOTHESES = {}
+HYPOTHESES = []
 FINDINGS = []
 _BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
 """

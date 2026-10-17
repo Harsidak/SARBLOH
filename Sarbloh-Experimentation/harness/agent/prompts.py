@@ -120,18 +120,19 @@ What you can call inside it:
    - `obs.ascii(r0, c0, r1, c1)`: a window of the board with row and column labels. Print it.
    - `obs.change`: the newest change line. `obs.history`: the last 20 steps, as dicts with `i`, `level`, `action`, `change` and `state`.
    - `obs.briefing`, `obs.step`, `obs.status`, `obs.background` and `obs.legend`.
-2. `r = await play(path, predict=None, state=None)` is the only way to make moves. Every move counts. It makes the moves of `path` one at a time and stops at the first move that did not do what you predicted.
+2. `r = await play(path, predict=None, state=None)` is the only way to make moves. Every move counts. It makes the moves of `path` one at a time and sends the whole path unless the level is won, the game ends, or the same move hits a wall twice in a row.
    - `path` is a list of 1 to {act_max} moves, made in order: "1" to "5", "7", "6 r c" (row first, for example "6 12 40") and "reset". A tuple (6, r, c) works too. For example ["1", "1", "4"] or ["6 12 40"]. One move alone is fine: `await play(["5"])`.
    - Do not forget `await`: without it nothing happens.
    - `predict(board, move)` gets `obs.board` before the move and returns the board you expect after it. It can also return a dict {{(r, c): letter}} with only the cells you care about, or None to not check that move. Without `predict`, no move is checked.
    - If your `step()` works on your own state, pass `state=my_state_of`: then `predict(my_state_of(obs), move)` is compared with `my_state_of(observe())` after the move.
    - Cells of `hud` objects are not compared, so counters do not count as a surprise.
-   - A move you did not predict that changes nothing on the board (counters aside) stops the path there, so a blocked move is not repeated. Pass `stop_if_unchanged=False` when you mean to send moves that change nothing visible.
+   - A timer or an animation changing never stops the path. Only the same move twice in a row with not one pixel changed stops it, as a wall hit.
+   - A move that did not do what you predicted does not stop the path: the first one is reported after the path ends.
    - "reset" costs a move and throws away the level's progress. Use it after GAME_OVER or when the level is stuck.
    - Only the legal moves in the status line work. The call is refused before any move, with nothing spent, if the path has more than {act_max} moves or if the first move is not legal or cannot be read. The refusal is a `RuntimeError` in your code. Fix it and call again.
    - It also stops at a level up, at GAME_OVER, or when the game ends. After a level up `play()` refuses for the rest of that call, so you see the new level first.
    - It prints `play: 3 of 3 moves done` (plus `; stopped: <reason>`) and one change line per move. A click is written `A6(r12,c40)`, and `[GAME_OVER]` marks the move that lost the level. On a surprise it also prints the cells that differ (predicted and actual) and a small window of the board around them: fix that rule in `step()`, then search again from the new board. `quiet=True` prints nothing.
-   - It returns `r` with `r.done`, `r.stopped` ("surprise", "no change", "level up", "GAME_OVER", ... or None when the whole path was made), `r.surprise`, `r.lines`, `r.level_up`, `r.state` and `r.obs`, the board after the last move.
+   - It returns `r` with `r.done`, `r.stopped` ("level up", "GAME_OVER", "wall hit twice", ... or None when the whole path was made), `r.surprise`, `r.lines`, `r.level_up`, `r.state` and `r.obs`, the board after the last move.
 3. `dir()` lists the names you have already defined.
 4. `show_source("name")` prints the code of a function or class you defined in an earlier call. Read it before you change it.
 
@@ -163,9 +164,9 @@ MEMORY = """Your memory:
 Your memory is four variables in your `ipython` kernel. Change them in your code when they change, and they are saved after every call and before every move:
 - `GOAL`: text, what you think wins the level.
 - `PLAN`: text, your next steps and why, in one or two sentences.
-- `HYPOTHESES`: a dict from a rule, written concretely (objects, directions, counts), to "open", "verified" or "refuted". For example `HYPOTHESES["1 moves obj 4 up by 5 cells"] = "verified"`.
+- `HYPOTHESES`: a list of the rules you think the game follows, each written concretely (objects, directions, counts). For example `HYPOTHESES.append("1 moves obj 4 up by 5 cells")`. Write any hypothesis you like and remove one when you stop believing it. You do not mark them true or false.
 - `FINDINGS`: a list of facts about this level, one short text each.
-The tool output says what was saved. At a level up, your verified hypotheses and findings become lessons and skills, `GOAL` is kept, and `PLAN`, `HYPOTHESES` and `FINDINGS` are emptied."""
+The tool output says what was saved. At a level up, the hypotheses that the level proved and your findings become lessons and skills, `GOAL` is kept, and `PLAN`, `HYPOTHESES` and `FINDINGS` are emptied."""
 
 MEMORY_HIDDEN = "Print the variables, or use `recall`, when you need your memory."
 MEMORY_SHOWN = ("A [memory] block shows your plan, hypotheses, goal and findings, and a [memory update] shows the parts "
@@ -189,7 +190,7 @@ The first state is below. This is level 1, so nothing is known yet. In your firs
 CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
-Your verified hypotheses and findings are now lessons, your goal is kept, and your plan, hypotheses and findings are empty.
+The hypotheses the level proved and your findings are now lessons, your goal is kept, and your plan, hypotheses and findings are empty.
 Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel, so do not write them again: run your `step()` and your search on the new board first.
 Look for new objects or a changed layout. New objects usually bring a new rule this level needs: add that rule to `step()` and test it with a few moves. Check whether the goal is still the same.
 Then search and send the whole path with `play(path, predict=...)`. Where it surprises you, fix only that rule."""
