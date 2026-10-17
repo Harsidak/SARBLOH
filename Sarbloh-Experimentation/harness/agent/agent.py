@@ -343,7 +343,7 @@ class AgentSession:
                     self._level_start_note()
                 if self._pending_obs is not None:
                     # The new state goes in right after this reply's tool results, before the next turn.
-                    self._push(self._pending_obs)
+                    self._push(self._with_picture(self._pending_obs))
                     self._pending_obs = None
                 if self.stats["act_actions"] > moves:
                     self._turn_tokens, self._idle_turns = 0, 0
@@ -715,10 +715,11 @@ class AgentSession:
                 f"{arc.game.action_count} actions spent ({arc.game.action_count - arc._level_start} this level), "
                 f"{left} left | {self._time_left()}")
 
-    def _observation(self, full: bool = False) -> dict[str, Any]:
-        """The newest state as a user message, with the picture when vision is on. The full view (briefing,
-        every object, the whole board) at a level start or when ``full``; else the short view (the changed region).
-        The full view and the data are also published for ``observe()`` in the REPL."""
+    def _observation(self, full: bool = False, picture: bool = True) -> dict[str, Any]:
+        """The newest state as a user message, with the picture when vision is on and ``picture``. The full view
+        (briefing, every object, the whole board) at a level start or when ``full``; else the short view (the changed
+        region). The full view and the data are also published for ``observe()`` in the REPL. ``picture=False`` for a
+        view that goes into a cell's output as text: its picture would never be sent."""
         t0 = time.time()
         rows = self._frame()
         if not self._objects:   # the first look at the game: ids start at 1 (act re-tracks at every level-up)
@@ -743,18 +744,28 @@ class AgentSession:
             self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
         self._obs_rows, self._level_start = rows, False
         msg = {"role": "user", "_kind": "observation", "content": text}
-        if self.vision:
-            png = self._picture(rows, b)
-            msg = perception.image_message(text, png, self._last_step)
-            self.stats["images_sent"] += 1
-            self._save_picture(msg, png)
         msg.update({"_full": full, "_step": self._last_step})
+        if picture:
+            msg = self._with_picture(msg)
         dt = time.time() - t0
         self.stats["observations"] += 1
         self.stats["observation_chars_max"] = max(self.stats["observation_chars_max"], len(text))
         self.stats["perception_s_total"] = round(self.stats["perception_s_total"] + dt, 3)
         self.stats["perception_s_max"] = round(max(self.stats["perception_s_max"], dt), 3)
         return msg
+
+    def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
+        """``msg`` (a text observation of the current state) with the picture added, when vision is on. The picture
+        is drawn here, only for a message that is sent as it is, so ``images_sent`` counts the pictures sent."""
+        if not self.vision or isinstance(msg.get("content"), list):
+            return msg
+        rows = self._frame()
+        png = self._picture(rows, self._briefing(rows))
+        out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
+        out.update({"_full": msg.get("_full"), "_step": msg.get("_step")})
+        self.stats["images_sent"] += 1
+        self._save_picture(out, png)
+        return out
 
     def _save_picture(self, msg: dict[str, Any], png: bytes) -> None:
         """Tracing: the picture as ``frames/img_NNNNN.png`` next to the transcript, named in the message
@@ -820,7 +831,7 @@ class AgentSession:
         self._pending_obs = None
         self._full_shown_step = self._last_step
         self.stats["observe_pushes"] += 1
-        return f"[observe: the full state at {where}]\n" + compaction._text(self._observation(full=True))
+        return f"[observe: the full state at {where}]\n" + compaction._text(self._observation(full=True, picture=False))
 
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
         arc, mem = self.arc, self.memory
@@ -931,7 +942,7 @@ class AgentSession:
             raise RuntimeError(stop)
         if lines:
             self._last_change = lines[-1]
-        self._pending_obs = self._observation()
+        self._pending_obs = self._observation(picture=False)   # drawn only if it is pushed as a message (level up)
         if level_up:
             self._level_up_text = "\n".join(out)
         return "\n".join(out)
