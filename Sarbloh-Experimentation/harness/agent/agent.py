@@ -30,11 +30,11 @@ Tools (``harness.agent.tools``): ``ipython`` (think, compute and act: ``observe(
 makes the moves one at a time, each a host request to ``_tool_act`` carrying the agent's plan, hypotheses, findings
 and goal, and stops at the first move the agent's model got wrong) and
 ``recall`` (search memory and skills). One tool for code and moves, so the agent can model the game, search the model
-and send the path in one cell. The change lines of every act are printed in the cell output; after a reply that moved,
-the host pushes the new state as the next user message: the short view (changed region) and the picture
-(``harness.agent.perception``). The full view
-(briefing, every object, the whole board, the picture) is pushed at a level start, after a trim or reset, and when the
-agent calls ``observe()`` in ipython (once per state). Append-only (config ``append_only``): nothing already sent is
+and send the path in one cell. The change lines of every act are printed in the cell output; after a cell that moved,
+the host adds the new state to the end of that output, the short view (changed region,
+``harness.agent.perception``), so the turn goes on. The full view
+(briefing, every object, the whole board, the picture) is pushed at a level start and after a trim or reset; when the
+agent calls ``observe()`` in ipython, its text goes in that cell's output (once per state). Append-only (config ``append_only``): nothing already sent is
 changed until a rewrite, so the server's prefix cache keeps the whole prompt; at the trigger a drain in code
 (the newest messages word for word with their thinking; before them old boards as stubs, ipython outputs cut short,
 act results as a short move log, thinking and old pictures out) makes room, with no summary (``harness.agent.context``). The hidden
@@ -183,6 +183,7 @@ class AgentSession:
         self._last_change: str | None = None     # the newest change line, "#12 A1(up): ..." (shown and in observe())
         self._brief: tuple[Any, Any] = (None, None)   # (state key, Briefing): the analysis of the newest frame
         self._pending_obs: dict[str, Any] | None = None
+        self._full_shown_step: int | None = None   # the step whose full view an observe() cell output last showed
         self._act_via: str | None = None
         self._act_predicted: bool | None = None
         self._act_play_id: int | None = None
@@ -498,6 +499,7 @@ class AgentSession:
     def _cold(self) -> None:
         """The prompt was just rewritten, so its next request is prefilled in full wherever it runs: a free moment to
         give the scheduler slot to a game whose cache is still warm (``ScheduledLLM.mark_cold``)."""
+        self._full_shown_step = None   # old cell outputs may be cut: the next observe() shows the full view again
         mark = getattr(self.llm, "mark_cold", None)
         if callable(mark):
             mark()
@@ -629,8 +631,13 @@ class AgentSession:
             text = res.render(self.cfg["tool_output_chars"])
             if any(observation.MIME in d for d in res.displays):
                 self.stats["observe_calls"] += 1
-                if self.perception.get("observe_view", True):   # off: observe() is read in code, nothing is pushed
+                if self.perception.get("observe_view", True):   # off: observe() is read in code, nothing is shown
                     text += "\n" + self._observe_called()
+            if self._pending_obs is not None and self._level_up_text is None:
+                # The new state after this cell's moves goes in the cell's own output, not in a new user message,
+                # so the turn goes on: the agent reads it and plays again in the same turn.
+                text += "\n" + compaction._text(self._pending_obs)
+                self._pending_obs = None
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
                              "acts": len(cell["acts"])})
@@ -802,18 +809,18 @@ class AgentSession:
         return perception.render(rows, cell)
 
     def _observe_called(self) -> str:
-        """``observe()`` ran in ipython: the full view goes in after this reply's tool results, once per state. The
-        returned note is added to the cell's output."""
+        """``observe()`` ran in ipython: the full view is added to the cell's own output, once per state, so the agent
+        reads it at once and acts in the same turn. It replaces the short view of moves made in the same cell."""
         where = f"step #{self._last_step}" if self._last_step is not None else "the game start"
-        if self._pending_obs is not None and self._pending_obs.get("_full"):
-            return f"[observe: the full state at {where} follows in the next message]"
-        newest = self._pending_obs or next((m for m in reversed(self.messages) if m.get("_kind") == "observation"),
-                                           None)
-        if newest is not None and newest.get("_full") and newest.get("_step") == self._last_step:
-            return f"[observe: the full state at {where} is already in the newest board message above]"
-        self._pending_obs = self._observation(full=True)
+        newest = next((m for m in reversed(self.messages) if m.get("_kind") == "observation"), None)
+        shown = self._full_shown_step == self._last_step or (
+            newest is not None and newest.get("_full") and newest.get("_step") == self._last_step)
+        if shown and self._pending_obs is None:
+            return f"[observe: the full state at {where} is already shown above]"
+        self._pending_obs = None
+        self._full_shown_step = self._last_step
         self.stats["observe_pushes"] += 1
-        return f"[observe: the full state at {where} follows in the next message]"
+        return f"[observe: the full state at {where}]\n" + compaction._text(self._observation(full=True))
 
     def _tool_act(self, args: dict[str, Any], call_id: str, turn: int, reply: Any) -> str:
         arc, mem = self.arc, self.memory

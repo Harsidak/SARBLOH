@@ -90,7 +90,7 @@ READING_THE_STATE = """What you see:
 1. Every `play()` prints one line per move in your `ipython` output, for example:
    `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
    `#12` is the step number. `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
-2. After a reply that made moves, the next message has the new state: a status line, the last step{short_objects}{board_after}{picture_after}.
+2. After a call that made moves, the end of the same output has the new state: a status line, the last step{short_objects}{board_after}.
 3. At the start of each level{observe_full}, you get the full state: a briefing{object_list}{board_start}{picture_start}.
 {board_note} {picture_help}
 How to read it:
@@ -108,7 +108,7 @@ This is the tool you use to read the board, write your understanding of the game
 
 How to use it:
 - Never read, count or copy cells in your head. Filter `observe().objects`, print a small `obs.ascii(...)` window, or compute it.
-- A turn ends when you make a move. Each turn has a thinking budget of about 2,000 tokens. When it runs out, run your code and move.
+- You can call `ipython` many times in one turn, and you see each output right away. Call `observe()` and read the state in the output, then write your code and `play()` in the next call. Read what changed and keep going in the same turn. You have a thinking budget of about 2,000 tokens between moves. When it runs out, run your code and move.
 - Long code is fine, even hundreds of lines.
 - Print short results: counts, positions, or a small window of the board. Don't print the whole board.
 - Your code stays. Variables, functions and imports live for the whole game, across levels. Write functions you can call again, such as `step(state, move)` and a search over it, and fix them when the game shows you something new.{old_code}
@@ -344,7 +344,7 @@ def game_system(*, act_max: int, vision: bool = True, code_hidden: bool = False,
     old_code = OLD_CODE if code_hidden else ""
     views = {"short_objects": " and the objects in the area that changed" if short_objects else "",
              "object_list": " and the list of objects" if segmentation else "",
-             "observe_full": ", after old messages are shortened, and when you call `observe()`" if observe_view else
+             "observe_full": ", after old messages are shortened, and in the output of a call that runs `observe()`" if observe_view else
              " and after old messages are shortened. `observe()` gives the same state in your code only"}
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, old_code=old_code,
                            memory_where=memory, **pictures, **board, **views,

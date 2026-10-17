@@ -1,8 +1,8 @@
 """``observe()``: the game state in the REPL, read-only. Pre-imported by the kernel.
 
 The host writes ``$RLM_SESSION_DIR/.prime/observation.json`` after every act and appends one line per step to
-``history.jsonl``. ``observe()`` reads them, and it tells the host (a display event of type ``MIME``) to send the
-full state (briefing, objects, board and picture) as the next message. The host sends it at most once per state.
+``history.jsonl``. ``observe()`` reads them, and it tells the host (a display event of type ``MIME``) to add the
+full state (briefing, objects and board) to the cell's own output. The host shows it at most once per state.
 
     obs = observe()
     obs.board[r][c]            # the colour letter at row r, column c
