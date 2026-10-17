@@ -35,22 +35,20 @@ HostHandler = Callable[[dict[str, Any]], dict[str, Any]]
 BOOT_CODE = """
 import os, sys, json, math, re, itertools, collections, functools, random
 from pathlib import Path
-from rlm import rlm, bash
 import rlm as _rlm_module
+# Shell and subagents stay in the runtime but are not offered: a shell let the agent read the game's source files.
+for _name in ("rlm", "bash", "spawn"):
+    if hasattr(_rlm_module, _name):
+        delattr(_rlm_module, _name)
+del _rlm_module, _name
 try:
     import numpy as np
 except Exception:
     np = None
 from observation import observe   # the state, read-only and free
 from acting import play           # `await play(path, predict=step)`: the only way to move; stops at the first surprise
-from acting import act            # a stub: says act() is gone and to use play()
 from source import show_source    # the code of a name defined in an earlier cell
 from acting import memory_values as _memory_values
-class _NoArc:
-    def __getattr__(self, name):
-        raise RuntimeError("there is no `arc` in this harness: call `observe()` for the current state (free), "
-                           "and make moves with `await play([...])`.")
-arc = _NoArc()
 # The agent's memory: it changes these in its code; the host copies them after every call and before every move.
 GOAL = ""
 PLAN = ""

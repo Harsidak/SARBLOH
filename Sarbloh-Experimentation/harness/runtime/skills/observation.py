@@ -10,7 +10,7 @@ full state (briefing, objects and board) to the cell's own output. The host show
                                #   parent, children, adjacent, hud, cells [(r, c), ...] (None above 256 cells)
     obs.change                 # the newest step's change line
     obs.briefing               # every briefing line (the message shows at most 30)
-    obs.history                # the last 20 steps: {"i", "level", "action", "change", "state"}
+    obs.history                # the last 20 steps, newest first: {"i", "level", "action", "change", "state"}
     print(obs.ascii(r0, c0, r1, c1))   # a window of the board with row and column labels
     obs.step, obs.status, obs.background, obs.legend, obs.text
 """
@@ -95,7 +95,7 @@ def observe() -> Observation:
 
 
 def history(n: int = HISTORY) -> list[dict[str, Any]]:
-    """The last ``n`` steps of the game, oldest first."""
+    """The last ``n`` steps of the game, newest first."""
     try:
         lines = (_dir() / "history.jsonl").read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -106,7 +106,7 @@ def history(n: int = HISTORY) -> list[dict[str, Any]]:
             out.append(json.loads(line))
         except ValueError:   # a line the host is still writing
             continue
-    return out
+    return out[::-1]
 
 
 # --- host side ---------------------------------------------------------------------------------------------------

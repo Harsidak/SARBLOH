@@ -82,12 +82,6 @@ async def _act(actions: list[Any], **extra: Any) -> ActResult:
     return res
 
 
-async def act(*_: Any, **__: Any) -> None:
-    """Gone: kept only so an old habit gets a clear message instead of a NameError."""
-    raise RuntimeError("act() is gone: make moves with `await play(path)` (a list of moves, made one at a time). "
-                       "Add `predict=` to check each move against your model. Nothing was spent.")
-
-
 # --- play(): a whole plan, stopped at the first surprise ----------------------------------------------------------
 
 SHOW_CELLS = 12      # differing cells listed on a surprise
