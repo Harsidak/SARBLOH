@@ -5,8 +5,8 @@ the whole previous one and the server's prefix cache keeps it. On this hybrid mo
 change anywhere in the history makes the server prefill everything again from about that point: in the 2026-10-04
 run, every request after a new board reused ~0% of its prompt (3283 of 5599 requests) and requests inside a tool-call
 chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, a compaction, a level-up reset):
-- every reply keeps its thinking and every picture stays (config `old_images` off: every picture becomes a stub
-  where it was sent, and only the newest one is sent, at the end of the request);
+- every reply keeps its thinking and every picture stays (config `old_images` off: only the newest picture is
+  sent, the older ones become a stub);
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
 - at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
@@ -109,19 +109,6 @@ def images(messages: list[dict[str, Any]], vision: bool) -> list[dict[str, Any]]
     last = max((i for i, m in enumerate(messages) if _has_image(m)), default=None) if vision else None
     return [(_stub(m, "dropped: only the newest image is kept" if vision else "not shown: images are off")
              if _has_image(m) and i != last else m) for i, m in enumerate(messages)]
-
-
-def tail_image(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every image becomes a stub where it was sent, and the newest one is sent again in a user message at the end of
-    the request. The stub text never changes, so the history stays the same from request to request and only the end
-    of the prompt changes when a new picture arrives."""
-    last = max((i for i, m in enumerate(messages) if _has_image(m)), default=None)
-    if last is None:
-        return messages
-    out = [_stub(m, "sent at the end while it is the newest") if _has_image(m) else m for m in messages]
-    pics = [p for p in messages[last]["content"] if p.get("type") == "image_url"]
-    note = {"type": "text", "text": f"[the newest picture of the board, from step {messages[last].get('_image_step')}]"}
-    return out + [{"role": "user", "content": [note, *pics]}]
 
 
 def merge_users(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -361,14 +348,14 @@ def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | 
           vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS,
           append_only: bool = False, old_images: bool = True) -> list[dict[str, Any]]:
     """The request. Append-only: the system prompt and the stored conversation as it is, every thinking included (the
-    memory is already in it), and every picture, or with ``old_images`` off only the newest one, sent again at the end
-    of the request (every picture becomes a one-line stub where it was sent, so the history never changes). Else: the memory
+    memory is already in it), and every picture, or with ``old_images`` off only the newest one (the older ones become
+    a one-line stub, so the prompt changes from the previous picture on whenever a new one arrives). Else: the memory
     joined to the front of the newest user message, so everything before that message is the same as in the last
     request."""
     if append_only:
         msgs = all_reasoning(messages)
         return merge_users([{"role": "system", "content": system}] +
-                           (msgs if vision and old_images else tail_image(msgs) if vision else images(msgs, False)))
+                           (msgs if vision and old_images else images(msgs, vision)))
     msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)
