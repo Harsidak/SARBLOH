@@ -100,9 +100,9 @@ DEFAULT: dict[str, Any] = {
         # after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
         "perception": {
             "image": True,             # the picture with every observation (only if "vision" is True)
-            # Every picture stays in the prompt (prefix-stable); off: only the newest is sent, older ones become a
-            # one-line stub, so each new picture makes the server prefill again from the previous one on.
-            "old_images": True,
+            # Off: only the newest picture is sent, older ones become a one-line stub (every picture is still saved
+            # under frames/). On: every picture stays in the prompt (prefix-stable, but the prompt grows each turn).
+            "old_images": False,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": False,     # object list with ids, hashes, containment, adjacency

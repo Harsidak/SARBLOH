@@ -138,7 +138,7 @@ class AgentSession:
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
         self.vision = bool(cfg.get("vision")) and bool(self.perception.get("image", True))
-        self.old_images = bool(self.perception.get("old_images", True))   # off: only the newest picture is sent
+        self.old_images = bool(self.perception.get("old_images", False))   # off: only the newest picture is sent
         self.tracker = perception.Tracker()
         self._objects: list[Any] = []            # objects of the newest frame, ids stable within the level
         self._obs_rows: list[list[int]] | None = None   # the grid of the last observation pushed (crop baseline)
@@ -581,7 +581,7 @@ class AgentSession:
 
     def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
         """Adds the picture to a view message, only for messages really sent: the briefing picture (the plain frame if
-        the briefing failed), saved under frames/ when tracing. Called from _loop step 5 and _observation."""
+        the briefing failed), always saved under frames/ for analysis. Called from _loop step 5 and _observation."""
         if not self.vision or isinstance(msg.get("content"), list):
             return msg
         rows = self._frame()
@@ -600,16 +600,15 @@ class AgentSession:
         out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
         out.update({"_full": msg.get("_full"), "_step": msg.get("_step")})
         self.stats["images_sent"] += 1
-        if self.tracing:
-            self._frames += 1
-            name = f"frames/img_{self._frames:05d}.png"
-            try:
-                path = self.session_dir / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(png)
-                out["_image_file"] = name
-            except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
-                self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
+        self._frames += 1
+        name = f"frames/img_{self._frames:05d}.png"
+        try:
+            path = self.session_dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(png)
+            out["_image_file"] = name
+        except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
+            self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
         return out
 
     def _observe_called(self) -> str:
