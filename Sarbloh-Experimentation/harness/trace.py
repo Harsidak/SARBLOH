@@ -1,41 +1,50 @@
-"""Trace of a Prime run: for every game, what the agent thought, ran, believed and spent, and a training export.
+"""Trace of a run: for every game, what the agent thought, ran, believed and spent, and a training export.
 
-    uv run python Sarbloh/harness/trace.py <run_dir>     # e.g. runs/kaggle_.../prime_run; run.py calls build_run
+    uv run python Sarbloh-Experimentation/harness/trace.py <run_dir>     # run.py calls build_run
 
 Sources in <run_dir>: ``results.json`` and, per game, ``games/<game_id>/transcript.jsonl`` (every message of the
-root session with the model's reasoning, every cell, and one structured event per step, act, memory write,
-recall and curator pass; older transcripts also have reset, plan, delegation, message and world-model events), plus the ARC SDK recording
-``recordings/<scorecard>/<game_id>-<guid>.jsonl`` (one line per environment step). Without a recording the actions
-come from ``run.history``.
+session with the model's reasoning, and one event per cell, move, memory write, recall, code-graph change, drain, turn
+end and curator pass), plus the ARC SDK recording ``recordings/<scorecard>/<game_id>-<guid>.jsonl`` (one line per
+environment step). Without a recording the actions come from ``run.history``.
+
+How the loop shows up in a transcript (``harness/agent/agent.py``): a *request* is one model call (the ``turn`` field
+of a message is its number); a *turn* is the run of requests between two ``turn_end`` events, which give why it ended
+(``moved``, ``request_cap``, ``token_cap``, ``answered``, ``stop``) and how many requests it took. There is one tool,
+ipython: moves are ``play()`` calls inside cells (``act`` and ``step`` events), and ``recall()`` and ``graph()`` run in
+the kernel (``recall`` and ``code_graph`` events).
 
 Writes, per game (next to the transcript):
-- ``steps.jsonl`` / ``steps.md``: one row per action / the turn-by-turn map (thought, code, tool calls, actions).
+- ``steps.jsonl`` / ``steps.md``: one row per action / the request-by-request map (thought, code, output, events),
+  with the turn boundaries.
 - ``report.md`` / ``trace.json``: five sections, as markdown and as data.
-  1. Actions and causes: per action the turn, call, tool, action, expect, what changed, whether the prediction held,
-     and whether the (state, action) pair was already tried.
-  2. Understanding over time: every memory write and refinement with its evidence, when each belief first appeared,
-     whether it was later refuted, and the plan's goal statements (the "goal first stated correctly" column is left
-     for a human to mark).
-  3. Living code: per ipython cell the functions defined, the earlier helpers reused, full-grid prints and errors.
-     living_code_ratio = cells that call a helper defined in an earlier cell / cells after the first helper.
-  4. Waste per level: actions vs the human baseline, resets with reasons, the largest single spend, repeated
-     (state, action) pairs, and actions spent after the last new belief (stagnation).
-  5. Run context: config hash, git SHA, model, compactions, tokens, wall clock, end reason.
-Writes, per run: ``trace.md`` (one row per game) and ``sft_levels.jsonl``, the LoRA SFT export, tagged per row with
-the level, ``level_cleared`` and ``rhae``, so "successful trajectories" is ``[r for r in rows if r["level_cleared"]]``.
+  1. Actions and causes: per action the request, the turn, the call, the action, the plan written with it, what
+     changed, and whether the (state, action) pair was already tried.
+  2. Understanding over time: every hypothesis, finding and goal the agent wrote, when it first appeared and whether
+     the agent removed it later; the goal statements (the "correct" column is left for a human to mark).
+  3. Living code: per ipython cell the functions defined, the earlier helpers reused, printed boards and errors;
+     living_code_ratio = cells that call a helper defined in an earlier cell / cells after the first helper. From the
+     code graph: its change lines, the functions removed, the calls to missing names it flagged, and
+     ``calls_to_removed``: cells that called a function the graph had reported removed (and not defined again).
+  4. Waste per level: actions vs the human baseline, resets, the largest single spend, repeated (state, action)
+     pairs, and actions spent after the last new belief (stagnation).
+  5. Run context: config hash, git SHA, model, turns and why they ended, requests per turn, drains, trims, resets,
+     curator passes and their time, recalls, surprises, notes, pictures, tokens, wall clock, end reason.
+Writes, per run: ``trace.md`` (one row per game) and ``sft_levels.jsonl``, the LoRA SFT export, tagged per row with the
+level, ``level_cleared`` and ``rhae``, so "successful trajectories" is ``[r for r in rows if r["level_cleared"]]``.
 
 The SFT export is what the model was sent, not the message log (``sft_wire``). The agent rewrites its context while it
-plays (a reset at every level-up, drains, compactions, trims), so the transcript has a snapshot of the stored context
-after every rewrite; the stored context at any turn is the last snapshot plus the messages appended after it, and each
-request is rebuilt from it with the agent's own builder (``harness.agent.context.build``) and checked against the
-digest the agent logged (``wire_sha``). Turns whose request extends the previous request plus its reply form one row,
-so every assistant message in a row follows exactly the messages it was answering (the append-only context makes a
-row of everything between two rewrites). Per reply: ``turn``, ``flags`` (cut_off, tool_error, cell_error, repeat,
-game_over, no_tool_call) and ``train``: false for a flagged reply (all flags but no_tool_call) and for replies of
-earlier rows that are only context here. Pictures are files (``games/<id>/frames/``) named in the image parts. Row
-fields beside ``system``, ``tools`` and ``messages``: ``segment_start`` (start, level_up, drain, compaction, trim,
-overflow), ``template_kwargs`` (the reasoning effort), ``wire_verified``. Transcripts written before these fields fall
-back to ``sft_levels``: one row per level from the message log.
+plays (drains, trims, resets), so the transcript has a snapshot of the stored context after every rewrite; the stored
+context at any request is the last snapshot plus the messages appended after it, and each request is rebuilt from it
+with the agent's own builder (``harness.agent.context.build``) and checked against the digest the agent logged
+(``wire_sha``). Requests whose history extends the previous one plus its reply form one row, so every assistant message
+in a row follows the messages it was answering. With the picture at the tail (``tail`` events: the newest picture is
+the last message of a request and is never stored), each reply in a row follows the picture it saw, and the pictures
+seen by the earlier replies of the row stay where they were. Per reply: ``turn``, ``flags`` (cut_off, tool_error,
+cell_error, repeat, game_over, no_tool_call) and ``train``: false for a flagged reply (all flags but no_tool_call) and
+for replies of earlier rows that are only context here. Pictures are files (``games/<id>/frames/``) named in the image
+parts. Row fields beside ``system``, ``tools`` and ``messages``: ``segment_start`` (start, drain, trim, overflow,
+level_up), ``template_kwargs`` (the reasoning effort), ``wire_verified``. A transcript without wire fields (tracing
+off) has no SFT rows.
 """
 
 from __future__ import annotations
@@ -51,6 +60,8 @@ from typing import Any
 if __package__ in (None, ""):   # run as a script: the package root is the parent of harness/
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.agent import context as agent_context   # the agent's own request builder
+
+TURN_END_REASONS = ("moved", "request_cap", "token_cap", "answered", "stop")
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -147,17 +158,24 @@ def _tool_calls(ev: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
     return out
 
 
+def outer_turns(events: list[dict[str, Any]]) -> dict[Any, int]:
+    """Request number -> the turn it belongs to (1-based): turn k is the requests after the (k-1)th ``turn_end``."""
+    out, turn = {}, 1
+    for ev in events:
+        if ev.get("event") == "message" and ev.get("role") == "assistant" and ev.get("turn") is not None:
+            out[ev["turn"]] = turn
+        elif ev.get("event") == "turn_end":
+            turn += 1
+    return out
+
+
 # --- per-game analysis -----------------------------------------------------------------------------------
-_FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)   # = agent._FENCED
-_GRID_LINE = re.compile(r"^\s*\d{1,2} [0-9a-f]{16,}\s*$")
+_FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)   # = guardrails._FENCED
 
 
-def _full_grid_print(code: str, output: str) -> bool:
-    """A cell that dumped a (near) whole grid into the context: 30+ lines of hex rows in its output, or an
-    ``arc.show(x)`` call without a window."""
-    if sum(1 for ln in (output or "").splitlines() if _GRID_LINE.match(ln)) >= 30:
-        return True
-    return bool(re.search(r"arc\.show\(\s*[^,()]+(\([^()]*\))?\s*\)", code or ""))
+def _printed_board(output: str) -> bool:
+    """A cell that printed a board into the context (what a drain masks)."""
+    return "[a printed board of" in agent_context.mask_boards(output or "")
 
 
 def _code_names(code: str) -> tuple[set[str], set[str], set[str], str | None]:
@@ -177,9 +195,48 @@ def _code_names(code: str) -> tuple[set[str], set[str], set[str], str | None]:
     return defs, assigned, loads, None
 
 
+def _delta_names(line: str) -> tuple[set[str], set[str]]:
+    """(added or changed, removed) names in one ``[code graph: ...]`` line."""
+    body = line.strip()[len("[code graph:"):].rstrip("]") if line.strip().startswith("[code graph:") else line
+    added, removed = set(), set()
+    for part in body.split(" | "):
+        part = part.strip()
+        m = re.match(r"^([+~-])(?:class )?([A-Za-z_]\w*)", part)
+        if m:
+            (removed if m.group(1) == "-" else added).add(m.group(2))
+    return added, removed
+
+
+def code_graph_report(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the code graph saw: its change lines, the names it reported removed, its missing-call warnings, and the
+    cells that later called a removed function without defining it again (the agent trusting an old line)."""
+    deltas = [e for e in events if e.get("event") == "code_graph"]
+    removed: set[str] = set()
+    removed_ever: set[str] = set()
+    stale: list[dict[str, Any]] = []
+    for ev in events:
+        if ev.get("event") == "code_graph":
+            added, gone = _delta_names(ev.get("delta") or "")
+            removed = (removed | gone) - added
+            removed_ever |= gone
+        elif ev.get("event") == "message" and ev.get("role") == "assistant":
+            for cid, name, args in _tool_calls(ev):
+                if name != "ipython":
+                    continue
+                defs, assigned, loads, _ = _code_names(str(args.get("code") or ""))
+                hit = sorted((loads & removed) - defs - assigned)
+                if hit:
+                    stale.append({"turn": ev.get("turn"), "call": cid, "names": hit})
+    return {"deltas": len(deltas), "removed": sorted(removed_ever),
+            "missing_warnings": sum((e.get("delta") or "").count("! ") for e in deltas),
+            "nodes_last": deltas[-1].get("nodes") if deltas else None,
+            "calls_to_removed": len(stale), "calls_to_removed_at": stale[:20]}
+
+
 def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: dict[str, Any],
                  session: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     t0 = events[0]["t"] if events else 0.0
+    turn_of_req = outer_turns(events)
     turn_of_call: dict[str, int] = {}
     tool_of_call: dict[str, str] = {}
     args_of_call: dict[str, dict[str, Any]] = {}
@@ -200,121 +257,55 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
         elif ev.get("event") == "message" and ev.get("role") == "user" and fenced \
                 and str(ev.get("content") or "").startswith("[ipython output]"):
             output_of_call[fenced], fenced = str(ev.get("content") or ""), None
-    steps = [e for e in events if e.get("event") == "step"]
-    acts = [e for e in events if e.get("event") == "act"]
-    resets = [e for e in events if e.get("event") == "reset"]
-    remembers = [e for e in events if e.get("event") == "remember"]
-    plans = [e for e in events if e.get("event") == "plan"]
-    wm_events = [e for e in events if e.get("event") == "wm"]
-    hyps = [e for e in events if e.get("event") == "hypothesis"]
-    goal_events = [e for e in events if e.get("event") == "goal"]
-    level_ups = [e for e in events if e.get("event") == "level_up"]
-    curations = [e for e in events if e.get("event") == "curator"]
-    recalls = [e for e in events if e.get("event") == "recall"]
+    by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for e in events:
+        by_kind[str(e.get("event"))].append(e)
+    steps, acts, hyps = by_kind["step"], by_kind["act"], by_kind["hypothesis"]
 
     # 1. actions and their causes ------------------------------------------------------------------------
     act_by_call = {str(a.get("call")): a for a in acts}
-    next_verdict: dict[str, Any] = {}
-    for a, b in zip(acts, acts[1:]):
-        next_verdict[str(a.get("call"))] = b.get("was_right")
-    reset_by_i = {r.get("i"): r for r in resets}
     actions: list[dict[str, Any]] = []
     if steps:
-        wm_of: dict[int, Any] = {}
-        for a in acts:
-            for s in a.get("steps") or []:
-                wm_of[s.get("i")] = (s.get("wm") or {}).get("match")
         for s in steps:
-            call = str(s.get("call"))
-            act = act_by_call.get(call)
-            tool = "act" if act is not None else "reset_level" if s.get("source") == "tool" else "ipython"
+            act = act_by_call.get(str(s.get("call")))
             actions.append({
-                "i": s.get("i"), "turn": s.get("turn"), "call": s.get("call"), "tool": tool,
-                "action": s.get("action"), "x": s.get("x"), "y": s.get("y"), "level": s.get("level"),
-                "expect": (act.get("expect") or act.get("plan")) if act else
-                (reset_by_i.get(s.get("i")) or {}).get("reason"),
-                "happened": s.get("change"), "changed_px": s.get("changed"), "state": s.get("state"),
-                "level_up": s.get("level_up"), "wm_match": wm_of.get(s.get("i")),
-                "self_verdict": next_verdict.get(call) if act else None, "repeat_of": s.get("repeat_of"),
-                "t": round(s.get("t", t0) - t0, 1)})
-    else:  # old transcripts without step events: the recording has the action, the call and the level
+                "i": s.get("i"), "request": s.get("turn"), "turn": turn_of_req.get(s.get("turn")),
+                "call": s.get("call"), "action": s.get("action"), "x": s.get("x"), "y": s.get("y"),
+                "level": s.get("level"), "plan": act.get("plan") if act else None,
+                "happened": s.get("change"), "state": s.get("state"), "level_up": s.get("level_up"),
+                "repeat_of": s.get("repeat_of"), "t": round(s.get("t", t0) - t0, 1)})
+    else:  # no step events (a run without tracing of the host): the recording has the action, the call and the level
         prev_level = 0
         for r in rows:
-            actions.append({"i": r["i"], "turn": r.get("turn"), "call": r.get("call"), "tool": "ipython",
-                            "action": _ACTION_ID.get(str(r["action"]), r["action"]), "x": r.get("x"), "y": r.get("y"),
-                            "level": prev_level, "expect": None, "happened": None, "changed_px": None,
-                            "state": r.get("state"), "level_up": None, "wm_match": None, "self_verdict": None,
-                            "repeat_of": None, "t": None})
+            actions.append({"i": r["i"], "request": r.get("turn"), "turn": turn_of_req.get(r.get("turn")),
+                            "call": r.get("call"), "action": _ACTION_ID.get(str(r["action"]), r["action"]),
+                            "x": r.get("x"), "y": r.get("y"), "level": prev_level, "plan": None, "happened": None,
+                            "state": r.get("state"), "level_up": None, "repeat_of": None, "t": None})
             prev_level = r["levels"] if r.get("levels") is not None else prev_level
 
     # 2. understanding over time -------------------------------------------------------------------------
     beliefs: dict[str, dict[str, Any]] = {}
-    for m in remembers:
-        b = beliefs.setdefault(m["id"], {"id": m["id"], "title": m.get("title"), "first_turn": m.get("turn"),
-                                         "first_action": m.get("action_count"), "first_level": m.get("level"),
-                                         "kinds": [], "versions": 0, "refuted_at": None, "evidence": []})
-        b["kinds"].append(m.get("kind"))
-        b["versions"] = m.get("version")
-        b["evidence"] = sorted(set(b["evidence"]) | set(m.get("evidence") or []))
-        b["content"] = m.get("content")
-        if m.get("kind") == "refuted" and b["refuted_at"] is None and len(b["kinds"]) > 1:
-            b["refuted_at"] = m.get("action_count")
-    for cid, name in tool_of_call.items():
-        code = str(args_of_call.get(cid, {}).get("code") or "") if name == "ipython" else ""
-        for m in re.finditer(r"rlm\.harness\.(create|update)_memory\((.{0,300})", code, re.S):
-            title = re.search(r"title\s*=\s*(['\"])(.*?)\1", m.group(2))
-            bid = f"repl:{title.group(2)[:60] if title else cid}"
-            b = beliefs.setdefault(bid, {"id": bid, "title": title.group(2) if title else None,
-                                         "first_turn": turn_of_call.get(cid), "first_action": None, "first_level": None,
-                                         "kinds": [], "versions": 0, "refuted_at": None, "evidence": [],
-                                         "content": "(written in ipython: no evidence field)"})
-            b["kinds"].append(f"repl-{m.group(1)}")
-            b["versions"] += 1
-    for e in events:
-        if e.get("event") == "auto_refine" and e.get("applied"):
-            bid = f"refine:{e.get('t')}"
-            beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
-                            "first_level": None, "kinds": ["refine"], "versions": 1, "refuted_at": None,
-                            "evidence": [], "content": _one(json.dumps(e.get("applied"), default=str), 300)}
-    for h in hyps:   # the agent's hypotheses, with the statuses it set
+    for h in hyps:   # the agent's hypotheses
         bid = f"{h.get('level')}:{h.get('id')}"
-        b = beliefs.setdefault(bid, {"id": bid, "title": None, "first_turn": h.get("turn"),
+        b = beliefs.setdefault(bid, {"id": bid, "kind": "hypothesis", "first_turn": h.get("turn"),
                                      "first_action": h.get("action_count"), "first_level": h.get("level"),
-                                     "kinds": [], "versions": 0, "refuted_at": None, "evidence": []})
-        if not b["kinds"] or b["kinds"][-1] != h.get("status"):
-            b["kinds"].append(h.get("status"))
+                                     "versions": 0})
         b["versions"] += 1
-        b["evidence"] = sorted(set(b["evidence"]) | set(h.get("evidence") or []))
         b["content"] = h.get("text")
-        if h.get("status") == "refuted" and b["refuted_at"] is None:
-            b["refuted_at"] = h.get("action_count")
-    for e in events:
-        if e.get("event") == "finding":
-            bid = f"finding:{e.get('t')}"
-            beliefs[bid] = {"id": bid, "title": None, "first_turn": e.get("turn"), "first_action": e.get("action_count"),
-                            "first_level": e.get("level"), "kinds": ["finding"], "versions": 1, "refuted_at": None,
-                            "evidence": e.get("evidence") or [], "content": e.get("text")}
-    goals = []
-    for g in goal_events:
-        goals.append({"version": f"goal (turn {g.get('turn')})", "turn": g.get("turn"),
-                      "action_count": g.get("action_count"), "level": g.get("level"), "phase": "act",
-                      "goal": g.get("goal"), "correct": None})
-    for p in plans:
-        if not goals or goals[-1]["goal"] != p.get("goal"):
-            goals.append({"version": p.get("version"), "turn": p.get("turn"), "action_count": p.get("action_count"),
-                          "level": p.get("level"), "phase": p.get("phase"), "goal": p.get("goal"),
-                          "correct": None})  # marked by hand after the run
-    for m in remembers:
-        if m.get("kind") == "goal":
-            goals.append({"version": f"memory {m['id']} v{m.get('version')}", "turn": m.get("turn"),
-                          "action_count": m.get("action_count"), "level": m.get("level"), "phase": "memory",
-                          "goal": m.get("content"), "correct": None})
-    goals.sort(key=lambda g: (g["action_count"] or 0, g["turn"] or 0))
+    for e in by_kind["finding"]:
+        bid = f"finding:{e.get('t')}"
+        beliefs[bid] = {"id": bid, "kind": "finding", "first_turn": e.get("turn"), "first_action": e.get("action_count"),
+                        "first_level": e.get("level"), "versions": 1, "content": e.get("text")}
+    removed = {t for e in by_kind["memory_removed"] for t in e.get("texts") or []}
+    for b in beliefs.values():
+        b["removed_by_agent"] = b.get("content") in removed
+    goals = [{"turn": g.get("turn"), "action_count": g.get("action_count"), "level": g.get("level"),
+              "goal": g.get("goal"), "correct": None} for g in by_kind["goal"]]   # marked by hand after the run
 
     # 3. living code -------------------------------------------------------------------------------------
     cells = []
     defined_at: dict[str, int] = {}
-    cell_status = {str(e.get("call")): e for e in events if e.get("event") == "cell"}
+    cell_status = {str(e.get("call")): e for e in by_kind["cell"]}
     for cid, name in tool_of_call.items():
         if name != "ipython":
             continue
@@ -325,36 +316,31 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
         for d in defs:
             defined_at.setdefault(d, n)
         ce = cell_status.get(cid) or {}
-        cells.append({"n": n, "turn": turn_of_call.get(cid), "call": cid, "defines": sorted(defs),
+        cells.append({"n": n, "request": turn_of_call.get(cid), "call": cid, "defines": sorted(defs),
                       "reuses": reused, "variables": sorted(assigned - defs)[:20],
-                      "full_grid_print": _full_grid_print(code, output_of_call.get(cid, "")),
+                      "printed_board": _printed_board(output_of_call.get(cid, "")),
                       "status": ce.get("status") or ("syntax" if syntax else None),
                       "error": syntax or ("error" if ce.get("status") not in (None, "ok") else None),
-                      "actions": ce.get("actions"), "output_chars": len(output_of_call.get(cid, "")),
+                      "actions": ce.get("acts"), "output_chars": len(output_of_call.get(cid, "")),
                       "code_lines": code.count("\n") + 1 if code else 0})
     first_def = min(defined_at.values()) if defined_at else None
     after = [c for c in cells if first_def is not None and c["n"] > first_def]
     reused_names = {nm for c in cells for nm in c["reuses"]}
     living = {"cells": len(cells), "helpers_defined": len(defined_at), "helpers_reused": len(reused_names),
               "living_code_ratio": round(sum(1 for c in after if c["reuses"]) / len(after), 3) if after else 0.0,
-              "full_grid_prints": sum(1 for c in cells if c["full_grid_print"]),
-              "cell_errors": sum(1 for c in cells if c["error"])}
+              "printed_boards": sum(1 for c in cells if c["printed_board"]),
+              "cell_errors": sum(1 for c in cells if c["error"]), "graph": code_graph_report(events)}
 
     # 4. waste per level -----------------------------------------------------------------------------------
     per_level = run.get("actions_per_level") or []
     base = run.get("baseline_actions") or []
     cleared = run.get("levels_completed") or 0
-    spend_by_call = Counter(str(a["call"]) for a in actions if a.get("call"))
     belief_marks: dict[int, list[int]] = defaultdict(list)   # level -> action counts of new beliefs
-    for m in remembers:
-        if m.get("created") or (m.get("prev_kind") and m.get("prev_kind") != m.get("kind")):
-            belief_marks[m.get("level") or 0].append(m.get("action_count") or 0)
-    for p in plans:
-        if p.get("goal_changed") or p.get("version") == 1:
-            belief_marks[p.get("level") or 0].append(p.get("action_count") or 0)
     for h in hyps:
         if h.get("prev_status") != h.get("status"):
             belief_marks[h.get("level") or 0].append(h.get("action_count") or 0)
+    for e in by_kind["finding"] + by_kind["goal"]:
+        belief_marks[e.get("level") or 0].append(e.get("action_count") or 0)
     waste = []
     for lvl in range(len(per_level) or (max((a["level"] or 0 for a in actions), default=0) + 1)):
         mine = [a for a in actions if a.get("level") == lvl]
@@ -369,49 +355,56 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
             "level": lvl, "actions": n_act, "baseline": base[lvl] if lvl < len(base) else None,
             "cleared": lvl < cleared,
             "rhae": round(min((base[lvl] / n_act) ** 2, 1.15), 4) if lvl < cleared and lvl < len(base) and n_act else 0.0,
-            "resets": [{"i": a["i"], "reason": a["expect"]} for a in mine if a["action"] == 0],
+            "resets": [{"i": a["i"], "plan": a["plan"]} for a in mine if a["action"] in (0, "RESET", "reset")],
             "largest_spend": max(calls.values(), default=0),
             "repeated_pairs": sum(1 for a in mine if a.get("repeat_of") is not None) if steps else None,
             "actions_after_last_new_belief": stagnation if last_belief is not None else (len(mine) if steps else None),
             "first_i": min(idx, default=None), "last_i": max(idx, default=None)})
 
     # 5. run context ---------------------------------------------------------------------------------------
-    comps = [{"turn": None, "t": round(e.get("t", t0) - t0, 1), "reason": e.get("reason"),
-              "tokens_before": e.get("tokens_before"), "summarized_messages": e.get("summarized_messages"),
-              "kept_messages": e.get("kept_messages"), "summary_chars": e.get("summary_chars"),
-              "action_count": e.get("action_count")} for e in events if e.get("event") == "compaction"]
     end = next((e for e in reversed(events) if e.get("event") == "end"), {})
     stats = end.get("stats") or {}
-    tool_counts = stats.get("tool_counts") or dict(Counter(tool_of_call.values()))
+    ends = by_kind["turn_end"]
+    curations = by_kind["curator"]
+    recalls = by_kind["recall"]
+    drains = [{"t": round(e.get("t", t0) - t0, 1), "reason": e.get("reason"), "tokens_before": e.get("tokens_before"),
+               "tokens_after_est": e.get("tokens_after_est"), "action_count": e.get("action_count")}
+              for e in by_kind["drain"]]
     ctx = {**context, "end_reason": session.get("end_reason") or end.get("reason"),
            "wall_s": session.get("wall_s"), "tokens_total": session.get("tokens_total"),
            "output_tokens": stats.get("output_tokens"), "prompt_tokens_last": stats.get("prompt_tokens_last"),
-           "turns": stats.get("turns"), "compactions": comps, "tool_counts": tool_counts,
-           "tool_errors": stats.get("tool_errors"), "act_calls": len(acts),
-           "act_batch_mean": round(sum(a.get("done", 0) for a in acts) / len(acts), 2) if acts else None,
-           "wm_events": [{k: v for k, v in e.items() if k not in ("event",)} for e in wm_events],
-           "wm_checks": stats.get("wm_checks"), "wm_mispredictions": stats.get("wm_mispredictions"),
-           "plan_versions": len(plans),
-           # memory and curator
+           "requests": stats.get("turns"), "turns": len(ends),
+           "turn_ends": dict(Counter(e.get("reason") for e in ends)),
+           "requests_per_turn": round(sum(e.get("requests") or 0 for e in ends) / len(ends), 2) if ends else None,
+           "requests_per_turn_max": max((e.get("requests") or 0 for e in ends), default=None),
+           "tool_counts": stats.get("tool_counts") or dict(Counter(tool_of_call.values())),
+           "tool_errors": stats.get("tool_errors"), "cell_errors": stats.get("cell_errors"),
+           "play_calls": len(acts),
+           "moves_per_play": round(sum(a.get("done", 0) for a in acts) / len(acts), 2) if acts else None,
+           "drains": drains, "trims": len(by_kind["context_trim"]), "resets": len(by_kind["context_reset"]),
+           "overflows": len(by_kind["context_overflow"]),
            "act_arg_errors": stats.get("act_arg_errors"), "recalls": len(recalls),
            "recall_scopes": dict(Counter(str(r.get("scope")) for r in recalls)),
+           "skills_recalled": sorted({s for r in recalls for s in r.get("loaded") or []}),
            "hypotheses": len({(h.get("level"), h.get("id")) for h in hyps}),
-           "hypothesis_statuses": dict(Counter(h.get("status") for h in hyps)),
            "levels_without_hypothesis": sorted({a["level"] for a in actions if a.get("level") is not None}
                                                - {h.get("level") for h in hyps}) if hyps or acts else None,
-           "promotions": sum(len(e.get("promoted") or []) for e in level_ups),
-           "curator_runs": len([c for c in curations if not c.get("error")]),
+           "promotions": sum(len(e.get("promoted") or []) for e in by_kind["level_up"]),
+           "curator_runs": dict(Counter(c.get("reason") or "level_up" for c in curations if not c.get("error"))),
            "curator_errors": len([c for c in curations if c.get("error")]),
+           "curator_s": round(sum(c.get("duration_s") or 0 for c in curations), 1),
            "skills_written": sorted({s for c in curations for s in c.get("skills") or []}),
+           "skills_loaded_by_curator": sorted({s for c in curations for s in c.get("loaded") or []}),
+           "surprises": len(by_kind["surprise"]), "stuck_notes": len(by_kind["stuck_note"]),
+           "cut_off_notes": len(by_kind["cut_off_note"]), "tail_pictures": len(by_kind["tail"]),
            "images_sent": stats.get("images_sent"), "observation_chars_max": stats.get("observation_chars_max"),
-           "pinned_chars_max": stats.get("pinned_chars_max"),
            "repeated_share": round(sum(1 for r in actions if r.get("repeat_of") is not None) / len(actions), 3)
            if actions and steps else None}
     return {"game_id": run.get("game_id"), "levels_completed": cleared, "number_of_levels": run.get("number_of_levels"),
             "score": run.get("final_score"), "actions": actions,
-            "repeats": sum(1 for r in actions if r.get("repeat_of") is not None) if steps else None, "beliefs": list(beliefs.values()), "goals": goals,
-            "memory_events": remembers, "plans": plans, "cells": cells, "living_code": living, "waste": waste,
-            "context": ctx}
+            "repeats": sum(1 for r in actions if r.get("repeat_of") is not None) if steps else None,
+            "beliefs": list(beliefs.values()), "goals": goals, "cells": cells, "living_code": living,
+            "waste": waste, "context": ctx}
 
 
 def render_report(a: dict[str, Any]) -> str:
@@ -421,89 +414,90 @@ def render_report(a: dict[str, Any]) -> str:
            f"| end {c.get('end_reason')}", ""]
     # 1
     out += ["## 1. Actions and their causes", "",
-            "`expect / plan` = the plan written with the act (a prediction in old transcripts); `wm` / `self` = "
-            "old transcripts only; `repeat` = "
-            "same state and action as an earlier step.", "",
-            "| # | turn | call | tool | action | expect / plan | what happened | wm | self | repeat |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
-    for r in a["actions"]:
-        act = "RESET" if r["action"] == 0 else f"A{r['action']}" + (f"({r['x']},{r['y']})" if r.get("x") is not None else "")
-        wm = {True: "ok", False: "WRONG", None: ""}.get(r.get("wm_match"), "")
-        out.append(f"| {r['i']} | {r.get('turn')} | {str(r.get('call') or '')[-8:]} | {r['tool']} | {act} | {_md(r.get('expect'), 90)} | "
-                   f"{_md(r.get('happened'), 110)}{' LEVEL UP' if r.get('level_up') else ''} | {wm} | "
-                   f"{r.get('self_verdict') or ''} | {'' if r.get('repeat_of') is None else '#' + str(r['repeat_of'])} |")
-    n_act = sum(1 for r in a["actions"] if r["tool"] == "act")
-    stated = sum(1 for r in a["actions"] if r.get("expect"))
-    out += ["", f"Actions with a stated cause: {stated}/{len(a['actions'])}. Through act: {n_act}. "
-                f"World-model checked: {sum(1 for r in a['actions'] if r.get('wm_match') is not None)} "
-                f"(wrong: {sum(1 for r in a['actions'] if r.get('wm_match') is False)}). "
-                f"Repeated pairs: {a['repeats'] if a['repeats'] is not None else 'n/a (no step events)'}.", ""]
-    # 2
-    out += ["## 2. Understanding over time", "", "### Beliefs (memory writes)", "",
-            "| id | kinds over time | first at action | level | versions | refuted at | evidence | latest content |",
+            "`plan` = PLAN when the move was sent; `repeat` = same state and action as an earlier step.", "",
+            "| # | request | turn | call | action | plan | what happened | repeat |",
             "|---|---|---|---|---|---|---|---|"]
+    for r in a["actions"]:
+        act = "RESET" if r["action"] == 0 else f"{r['action']}" + (f"({r['x']},{r['y']})" if r.get("x") is not None else "")
+        out.append(f"| {r['i']} | {r.get('request')} | {r.get('turn')} | {str(r.get('call') or '')[-8:]} | {act} | "
+                   f"{_md(r.get('plan'), 90)} | {_md(r.get('happened'), 110)}{' LEVEL UP' if r.get('level_up') else ''} | "
+                   f"{'' if r.get('repeat_of') is None else '#' + str(r['repeat_of'])} |")
+    planned = sum(1 for r in a["actions"] if r.get("plan"))
+    out += ["", f"Actions with a plan: {planned}/{len(a['actions'])}. Repeated pairs: "
+                f"{a['repeats'] if a['repeats'] is not None else 'n/a (no step events)'}.", ""]
+    # 2
+    out += ["## 2. Understanding over time", "", "### Hypotheses and findings", "",
+            "| id | kind | first at action | level | versions | removed by agent | latest text |",
+            "|---|---|---|---|---|---|---|"]
     for b in a["beliefs"]:
-        out.append(f"| {b['id']} | {' -> '.join(b['kinds'])} | {b['first_action']} (turn {b['first_turn']}) | "
-                   f"{b['first_level']} | {b['versions']} | {b['refuted_at'] if b['refuted_at'] is not None else ''} | "
-                   f"{', '.join('#' + str(e) for e in b['evidence'][:8])} | {_md(b.get('content'), 120)} |")
+        out.append(f"| {b['id']} | {b['kind']} | {b['first_action']} (request {b['first_turn']}) | {b['first_level']} | "
+                   f"{b['versions']} | {'yes' if b.get('removed_by_agent') else ''} | {_md(b.get('content'), 120)} |")
     if not a["beliefs"]:
-        out.append("| (no memory writes) | | | | | | | |")
+        out.append("| (no memory writes) | | | | | | |")
     out += ["", "### Goal statements (mark `correct` by hand after the run)", "",
-            "| source | at action | level | phase | goal | correct? |", "|---|---|---|---|---|---|"]
+            "| request | at action | level | goal | correct? |", "|---|---|---|---|---|"]
     for g in a["goals"]:
-        out.append(f"| plan v{g['version']} | {g['action_count']} | {g['level']} | {g['phase']} | {_md(g['goal'], 140)} | |"
-                   if isinstance(g["version"], int) else
-                   f"| {g['version']} | {g['action_count']} | {g['level']} | memory | {_md(g['goal'], 140)} | |")
+        out.append(f"| {g['turn']} | {g['action_count']} | {g['level']} | {_md(g['goal'], 140)} | |")
     if not a["goals"]:
-        out.append("| (no goal stated) | | | | | |")
+        out.append("| (no goal stated) | | | | |")
     # 3
     lv = a["living_code"]
+    gr = lv["graph"]
     out += ["", "## 3. Living code", "",
             f"{lv['cells']} cells, {lv['helpers_defined']} helpers defined, {lv['helpers_reused']} reused later, "
-            f"living-code ratio {lv['living_code_ratio']}, {lv['full_grid_prints']} full-grid prints, "
-            f"{lv['cell_errors']} cell errors.", "",
-            "| cell | turn | defines | reuses | variables | full grid | error | actions |", "|---|---|---|---|---|---|---|---|"]
+            f"living-code ratio {lv['living_code_ratio']}, {lv['printed_boards']} cells printed a board, "
+            f"{lv['cell_errors']} cell errors.",
+            f"Code graph: {gr['deltas']} change lines, {gr['nodes_last']} functions and classes at the last change, "
+            f"removed {', '.join(gr['removed']) or 'none'}, {gr['missing_warnings']} missing-call warnings, "
+            f"{gr['calls_to_removed']} cells called a function after the graph reported it removed"
+            + (": " + "; ".join(f"request {s['turn']} {', '.join(s['names'])}" for s in gr["calls_to_removed_at"])
+               if gr["calls_to_removed_at"] else "") + ".", "",
+            "| cell | request | defines | reuses | variables | printed board | error | moves |",
+            "|---|---|---|---|---|---|---|---|"]
     for cl in a["cells"]:
-        out.append(f"| {cl['n']} | {cl['turn']} | {', '.join(cl['defines'])} | {', '.join(cl['reuses'])} | "
-                   f"{_md(', '.join(cl['variables']), 60)} | {'yes' if cl['full_grid_print'] else ''} | "
+        out.append(f"| {cl['n']} | {cl['request']} | {', '.join(cl['defines'])} | {', '.join(cl['reuses'])} | "
+                   f"{_md(', '.join(cl['variables']), 60)} | {'yes' if cl['printed_board'] else ''} | "
                    f"{cl['error'] or ''} | {cl['actions'] or ''} |")
     # 4
     out += ["", "## 4. Waste per level", "",
-            "| level | actions | human | cleared | rhae | resets (reason) | largest spend | repeated pairs | "
+            "| level | actions | human | cleared | rhae | resets | largest spend | repeated pairs | "
             "after last new belief |", "|---|---|---|---|---|---|---|---|---|"]
     for w in a["waste"]:
-        rs = "; ".join(f"#{r['i']}: {_md(r['reason'], 60)}" for r in w["resets"][:5]) + \
-             (f" (+{len(w['resets']) - 5})" if len(w["resets"]) > 5 else "")
         out.append(f"| {w['level']} | {w['actions']} | {w['baseline']} | {'yes' if w['cleared'] else ''} | {w['rhae']} | "
-                   f"{len(w['resets'])}{': ' + rs if rs else ''} | {w['largest_spend']} | "
+                   f"{len(w['resets'])} | {w['largest_spend']} | "
                    f"{'n/a' if w['repeated_pairs'] is None else w['repeated_pairs']} | "
                    f"{w['actions_after_last_new_belief'] if w['actions_after_last_new_belief'] is not None else ''} |")
     # 5
     out += ["", "## 5. Run context", "",
             f"- experiment `{c.get('experiment')}`, config hash `{c.get('config_hash')}`, git `{c.get('git_sha')}`, "
             f"model `{c.get('model')}`",
-            f"- end reason {c.get('end_reason')}, wall {c.get('wall_s')} s, turns {c.get('turns')}, output tokens "
-            f"{c.get('output_tokens')}, all tokens {c.get('tokens_total')}, last prompt "
-            f"{c.get('prompt_tokens_last')}",
-            f"- tool calls {json.dumps(c.get('tool_counts'))}, tool errors {c.get('tool_errors')}, act calls "
-            f"{c.get('act_calls')} (mean batch {c.get('act_batch_mean')}), plan versions {c.get('plan_versions')}",
-            f"- world model: {c.get('wm_checks')} act steps checked, {c.get('wm_mispredictions')} wrong; events: "
-            + (", ".join(f"{e.get('kind')} {e.get('name', '')} v{e.get('version', '')}"
-                         + (f" {e.get('passed')}/{e.get('tested')}" if e.get('kind') == 'check' else "")
-                         for e in c.get("wm_events") or []) or "none"),
-            f"- memory: act argument errors {c.get('act_arg_errors')}, recalls {c.get('recalls')} "
-            f"{json.dumps(c.get('recall_scopes'))}, hypotheses {c.get('hypotheses')} "
-            f"{json.dumps(c.get('hypothesis_statuses'))}, levels without a hypothesis "
-            f"{c.get('levels_without_hypothesis')}, promotions {c.get('promotions')}, curator runs "
-            f"{c.get('curator_runs')} (errors {c.get('curator_errors')}), skills written {c.get('skills_written')}, "
-            f"images {c.get('images_sent')}, largest observation {c.get('observation_chars_max')} chars, largest "
-            f"memory block {c.get('pinned_chars_max')} chars, repeated (state, action) share {c.get('repeated_share')}",
-            f"- compactions: {len(c.get('compactions') or [])}"]
-    for cp in c.get("compactions") or []:
-        out.append(f"  - +{cp['t']}s ({cp['reason']}) at action {cp['action_count']}: {cp['summarized_messages']} "
-                   f"messages summarized into {cp['summary_chars']} chars, {cp['kept_messages']} kept, "
-                   f"{cp['tokens_before']} tokens before")
+            f"- end reason {c.get('end_reason')}, wall {c.get('wall_s')} s, output tokens {c.get('output_tokens')}, "
+            f"all tokens {c.get('tokens_total')}, last prompt {c.get('prompt_tokens_last')}",
+            f"- {c.get('requests')} requests in {c.get('turns')} turns ({c.get('requests_per_turn')} per turn, at most "
+            f"{c.get('requests_per_turn_max')}); turns ended by {json.dumps(c.get('turn_ends'))}",
+            f"- tool calls {json.dumps(c.get('tool_counts'))}, tool errors {c.get('tool_errors')}, cell errors "
+            f"{c.get('cell_errors')}, play() calls {c.get('play_calls')} ({c.get('moves_per_play')} moves each), "
+            f"play() argument errors {c.get('act_arg_errors')}, surprises {c.get('surprises')}",
+            f"- context: {len(c.get('drains') or [])} drains, {c.get('trims')} trims, {c.get('resets')} resets, "
+            f"{c.get('overflows')} overflows; {c.get('tail_pictures')} pictures at the tail, {c.get('images_sent')} "
+            f"pictures drawn, largest observation {c.get('observation_chars_max')} chars",
+            f"- memory: {c.get('hypotheses')} hypotheses, levels without one {c.get('levels_without_hypothesis')}, "
+            f"promotions {c.get('promotions')}, recalls {c.get('recalls')} {json.dumps(c.get('recall_scopes'))}, "
+            f"skills recalled {c.get('skills_recalled')}",
+            f"- curator: passes {json.dumps(c.get('curator_runs'))} (errors {c.get('curator_errors')}), "
+            f"{c.get('curator_s')} s in all, skills written {c.get('skills_written')}, loaded "
+            f"{c.get('skills_loaded_by_curator')}",
+            f"- notes: stuck {c.get('stuck_notes')}, cut off {c.get('cut_off_notes')}; repeated (state, action) share "
+            f"{c.get('repeated_share')}"]
+    for d in c.get("drains") or []:
+        out.append(f"  - drain +{d['t']}s ({d['reason']}) at action {d['action_count']}: {d['tokens_before']} -> "
+                   f"{d['tokens_after_est']} tokens")
     return "\n".join(out) + "\n"
+
+
+_MAP_EVENTS = ("hypothesis", "finding", "goal", "memory_removed", "memory_error", "recall", "code_graph", "level_up",
+               "curator", "memory_init", "tool_error", "surprise", "stuck_note", "cut_off_note")
+_MAP_MARKS = ("drain", "context_trim", "context_reset", "context_overflow", "crash", "llm_error", "end")
 
 
 def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], session: dict[str, Any]) -> str:
@@ -515,18 +509,18 @@ def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], se
     game_id = run.get("game_id", game_dir.name)
     out = [f"# {game_id}: step map", "",
            f"level {run.get('levels_completed')}/{run.get('number_of_levels')} | {len(rows)} actions | "
-           f"score {run.get('final_score')} | end {session.get('end_reason')} | turns {session.get('turns')} | "
-           f"compactions {session.get('compactions')}",
+           f"score {run.get('final_score')} | end {session.get('end_reason')} | requests {session.get('turns')}",
            f"actions per level {run.get('actions_per_level')} vs baseline {run.get('baseline_actions')}", ""]
     events = _jsonl(game_dir / "transcript.jsonl") if (game_dir / "transcript.jsonl").exists() else []
     t0 = events[0]["t"] if events else 0.0
-    levels = 0
+    turn_of_req = outer_turns(events)
+    levels, turn = 0, 1
     for ev in events:
         kind, t = ev.get("event"), f"+{ev.get('t', t0) - t0:.0f}s"
         if kind == "message" and ev.get("role") == "assistant":
             usage = ev.get("usage") or ["?", "?"]
-            out += ["", f"## Turn {ev.get('turn', '?')} ({t}, prompt {usage[0]} / out {usage[1]} tokens"
-                        f"{', CUT OFF' if ev.get('finish') == 'length' else ''})"]
+            out += ["", f"## Request {ev.get('turn', '?')} of turn {turn_of_req.get(ev.get('turn'), '?')} ({t}, prompt "
+                        f"{usage[0]} / out {usage[1]} tokens{', CUT OFF' if ev.get('finish') == 'length' else ''})"]
             if ev.get("reasoning"):
                 out += [f"**Thought** ({len(ev['reasoning'])} chars):", "", "> " + _cut(ev["reasoning"], 1600)
                         .replace("\n", "\n> "), ""]
@@ -540,126 +534,37 @@ def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], se
         elif kind == "message" and ev.get("role") == "tool":
             out += ["**Output:**", "````", _cut(ev.get("content"), 1500), "````"]
         elif kind == "message" and ev.get("role") == "user":
-            first = str(ev.get("content") or "").strip().splitlines()[:1]
-            label = ev.get("_kind") or "host"
-            out += ["", f"> **{label} -> agent** ({t}): {_cut(first[0] if first else '', 300)}"]
-        elif kind in ("cell", "act", "reset"):
+            first = str(ev.get("content") or "").strip().splitlines()[:1] if isinstance(ev.get("content"), str) else \
+                ["(picture)"]
+            out += ["", f"> **{ev.get('_kind') or 'host'} -> agent** ({t}): {_cut(first[0] if first else '', 300)}"]
+        elif kind == "cell":
             acts = by_call.get(str(ev.get("call")), [])
             shown.update(r["i"] for r in acts)
-            status = "" if kind != "cell" or ev.get("status") == "ok" else f" (cell {ev.get('status')})"
+            status = "" if ev.get("status") == "ok" else f" (cell {ev.get('status')})"
             if acts:
                 out += [f"**Actions** ({len(acts)}){status}: " + render_actions(acts, levels), ""]
                 levels = acts[-1].get("levels") if acts[-1].get("levels") is not None else levels
             elif status:
                 out += [f"**No actions**{status}", ""]
-        elif kind in ("plan", "remember", "wm", "delegate", "message_sent", "tool_error", "hypothesis", "finding",
-                      "goal", "recall", "level_up", "curator", "memory_init"):
-            detail = {k: v for k, v in ev.items() if k not in ("t", "event", "prev_content", "steps")}
+        elif kind == "turn_end":
+            out += ["", f"--- turn {turn} ended: {ev.get('reason')} after {ev.get('requests')} requests, "
+                        f"{ev.get('tokens')} tokens since the last move ---"]
+            turn += 1
+        elif kind in _MAP_EVENTS:
+            detail = {k: v for k, v in ev.items() if k not in ("t", "event", "steps")}
             out += [f"- **[{kind}]** {t} " + _cut(json.dumps(detail, default=str, ensure_ascii=False), 500)]
-        elif kind in ("compaction", "compaction_error", "compaction_skipped", "auto_refine", "spawn", "crash",
-                      "llm_error", "reflection_due", "reflection_done", "reflection_skipped", "end"):
+        elif kind in _MAP_MARKS:
             detail = {k: v for k, v in ev.items() if k not in ("t", "event", "stats", "traceback")}
             out += ["", f"- **[{kind}]** {t} " + _cut(json.dumps(detail, default=str), 600)]
             if kind == "crash":
                 out += ["````", _cut(ev.get("traceback"), 3000), "````"]
     rest = [r for r in rows if r["i"] not in shown]
     if rest:
-        out += ["", "## Actions not matched to a call (background tasks or no transcript)", "",
-                render_actions(rest, None)]
+        out += ["", "## Actions not matched to a call (no transcript)", "", render_actions(rest, None)]
     return "\n".join(out) + "\n"
 
 
 # --- SFT export --------------------------------------------------------------------------------------------
-def _chat_message(ev: dict[str, Any]) -> dict[str, Any]:
-    m = {"role": ev["role"], "content": ev.get("content") or ""}
-    if ev.get("tool_calls"):
-        m["tool_calls"] = ev["tool_calls"]
-    if ev.get("tool_call_id"):
-        m["tool_call_id"] = ev["tool_call_id"]
-    if ev.get("reasoning"):
-        m["reasoning_content"] = ev["reasoning"]
-    if ev.get("_kind"):
-        m["kind"] = ev["_kind"]
-    return m
-
-
-def _merge_users(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Consecutive user messages joined, as the agent sends them (agent._wire): chat templates need alternation."""
-    out: list[dict[str, Any]] = []
-    for m in msgs:
-        if out and m["role"] == "user" and out[-1]["role"] == "user":
-            a, b = out[-1]["content"], m["content"]
-            if isinstance(a, str) and isinstance(b, str):
-                out[-1] = {**out[-1], "content": f"{a}\n\n{b}"}
-            else:   # observations are lists of parts (text + image marker)
-                out[-1] = {**out[-1], "content": _as_parts(a) + _as_parts(b)}
-        else:
-            out.append(m)
-    return out
-
-
-def _as_parts(content: Any) -> list[dict[str, Any]]:
-    return content if isinstance(content, list) else [{"type": "text", "text": str(content)}]
-
-
-def sft_levels(events: list[dict[str, Any]], run: dict[str, Any], context: dict[str, Any],
-               rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """One row per level played: the messages produced while that level was current, tagged for filtering.
-
-    The level switches after the tool round that cleared it (at the next message that is not a tool result), so a
-    row never splits an assistant tool call from its result. Level-ups come from ``step`` events or, for older
-    transcripts, from the recording rows (the call that raised ``levels``)."""
-    system = next((e for e in events if e.get("event") == "system_prompt"), {})
-    task = next((e for e in events if e.get("event") == "message" and e.get("role") == "user" and not e.get("_kind")),
-                None)
-    per_level = run.get("actions_per_level") or []
-    base = run.get("baseline_actions") or []
-    cleared = run.get("levels_completed") or 0
-    n_levels = run.get("number_of_levels") or 10 ** 6
-    has_steps = any(e.get("event") == "step" for e in events)
-    level_of_call: dict[str, int] = {}     # fallback: call id -> levels completed after it
-    if not has_steps:
-        prev = 0
-        for r in rows or []:
-            if r.get("levels") is not None and r["levels"] > prev and r.get("call"):
-                level_of_call[str(r["call"])] = r["levels"]
-            prev = r["levels"] if r.get("levels") is not None else prev
-    level, pending, last_turn = 0, None, None
-    segs: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for ev in events:
-        if ev.get("event") == "message":
-            is_result = ev.get("role") == "tool" or (
-                ev.get("role") == "user" and str(ev.get("content") or "").startswith("[ipython output]"))
-            if pending is not None and not is_result:
-                level, pending = pending, None
-            segs[level].append(_chat_message(ev))
-            if ev.get("role") == "assistant":
-                last_turn = ev.get("turn")
-            elif not has_steps and is_result:
-                cid = str(ev.get("tool_call_id") or f"fenced-t{last_turn}")
-                if level_of_call.get(cid, 0) > level:
-                    pending = level_of_call[cid]
-        elif ev.get("event") == "step" and (ev.get("level_after") or 0) > max(level, pending or 0):
-            pending = ev["level_after"]
-    out = []
-    for lvl in sorted(segs):
-        n = per_level[lvl] if lvl < len(per_level) else None
-        ok = lvl < cleared
-        if lvl >= n_levels or (not ok and not n):
-            continue   # after the last level, or a level with no action spent: nothing to learn from
-        msgs = segs[lvl]
-        if lvl > 0 and task is not None:
-            msgs = [_chat_message(task), *msgs]
-        out.append({
-            "game_id": run.get("game_id"), "level": lvl, "level_cleared": ok,
-            "rhae": round(min((base[lvl] / n) ** 2, 1.15), 4) if ok and n and lvl < len(base) else 0.0,
-            "actions": n, "baseline": base[lvl] if lvl < len(base) else None, "starts_mid_conversation": lvl > 0,
-            "system": system.get("content"), "tools": system.get("tools"), "messages": _merge_users(msgs),
-            "level_source": "steps" if has_steps else "recording",
-            **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model")}})
-    return out
-
-
 _EVENT_KEYS = {"t", "event", "reasoning", "usage", "finish", "turn", "wire_sha", "effort", "reasoning_unsent"}
 BAD_FLAGS = ("cut_off", "tool_error", "cell_error", "repeat", "game_over")
 
@@ -675,8 +580,8 @@ def _stored(m: dict[str, Any], prefix: str) -> dict[str, Any]:
 
 
 def _turn_flags(events: list[dict[str, Any]]) -> dict[Any, set[str]]:
-    """Per turn, what went wrong in it: cut off, a refused tool call, a failed cell, a repeated (state, action) pair, a
-    GAME_OVER, or no tool call at all."""
+    """Per request, what went wrong in it: cut off, a refused tool call, a failed cell, a repeated (state, action)
+    pair, a GAME_OVER, or no tool call at all."""
     flags: dict[Any, set[str]] = defaultdict(set)
     for ev in events:
         kind, turn = ev.get("event"), ev.get("turn")
@@ -729,12 +634,19 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
             counts["turns_dropped"] += len(g["turns"])
             return   # after the last level, or a level with no action spent: nothing to learn from
         msgs = [({k: v for k, v in m.items() if k != "reasoning"} if m["role"] == "assistant" else m)
-                for m in g["request"]] + [g["turns"][-1]["target"]]
+                for m in g["history"]] + [g["turns"][-1]["target"]]
         msgs = [({**m, "train": False} if m["role"] == "assistant" else m) for m in msgs]
         for t in g["turns"]:
             bad = sorted(t["flags"] & set(BAD_FLAGS))
             msgs[t["pos"]] = {**t["target"], "turn": t["turn"], "flags": sorted(t["flags"]), "train": not bad}
             counts["trainable" if not bad else "flagged"] += 1
+        for t in reversed(g["turns"]):   # each reply follows the picture it saw (newest first: positions hold)
+            if t["last"] is None:
+                continue
+            if t["merged"]:   # the request joined the picture to its last user message
+                msgs[t["pos"] - 1] = t["last"]
+            else:
+                msgs.insert(t["pos"], t["last"])
         if not any(m.get("train") for m in msgs if m["role"] == "assistant"):
             counts["rows_without_target"] += 1
             return
@@ -751,15 +663,15 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
             **{k: context.get(k) for k in ("experiment", "config_hash", "git_sha", "model")}})
 
     state: list[dict[str, Any]] = []
-    pinned, start, level, group = None, "start", 0, None
+    pinned, tail, start, level, group = None, None, "start", 0, None
     for ev in events:
         kind = ev.get("event")
         if kind == "context":
             state, start = [_stored(m, prefix) for m in ev.get("messages") or []], ev.get("reason") or "rewrite"
         elif kind == "pinned":
             pinned = _stored(ev, prefix)
-        elif kind == "code_stub" and 0 <= (ev.get("index") or 0) < len(state):   # an old reply's code became a note
-            state[ev["index"]] = {**state[ev["index"]], "tool_calls": ev.get("tool_calls"), "_code_stubbed": True}
+        elif kind == "tail":   # the picture sent last in the next requests
+            tail = _stored(ev, prefix)
         elif kind == "step":
             level = max(level, ev.get("level_after") or 0)
         elif kind == "message":
@@ -767,26 +679,29 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
             if ev.get("role") == "assistant":
                 if ev.get("reasoning") and not ev.get("reasoning_unsent"):
                     m["_reasoning"] = ev["reasoning"]
-                request = agent_context.build(system, state, None if append_only else pinned, vision=vision,
-                                              reasoning_budget=budget, append_only=append_only,
-                                              old_images=old_images)
+                kw = dict(pinned=None if append_only else pinned, vision=vision, reasoning_budget=budget,
+                          append_only=append_only, old_images=old_images)
+                request = agent_context.build(system, state, tail=tail, **kw)
+                history = agent_context.build(system, state, **kw) if tail is not None else request
                 verified = agent_context.digest(request) == ev.get("wire_sha")
                 counts["verified"] += verified
                 target = {k: v for k, v in _as_sent(m).items() if k != "reasoning"}
                 if ev.get("reasoning"):
                     target["reasoning_content"] = ev["reasoning"]   # what it generated, sent back or not
-                turn = {"turn": ev.get("turn"), "pos": len(request), "target": target, "verified": verified,
-                        "flags": flags.get(ev.get("turn"), set())}
+                pictured = tail is not None and request != history
+                turn = {"turn": ev.get("turn"), "pos": len(history), "target": target, "verified": verified,
+                        "flags": flags.get(ev.get("turn"), set()), "last": request[-1] if pictured else None,
+                        "merged": pictured and len(request) == len(history)}
                 g = group
                 if g is not None and g["effort"] == ev.get("effort") and g["level"] == level \
-                        and len(request) > len(g["request"]) and request[:len(g["request"])] == g["request"] \
-                        and request[len(g["request"])] == g["reply"]:
+                        and len(history) > len(g["history"]) and history[:len(g["history"])] == g["history"] \
+                        and history[len(g["history"])] == g["reply"]:
                     g["turns"].append(turn)
-                    g["request"], g["reply"] = request, _as_sent(m)
+                    g["history"], g["reply"] = history, _as_sent(m)
                 else:
                     if g is not None:
                         emit(g)
-                    group = {"turns": [turn], "request": request, "reply": _as_sent(m), "effort": ev.get("effort"),
+                    group = {"turns": [turn], "history": history, "reply": _as_sent(m), "effort": ev.get("effort"),
                              "level": level, "start": start}
                     start = "continued"   # a row that breaks without a rewrite (the old builder, a new effort)
             state.append(m)
@@ -809,12 +724,12 @@ def build_run(run_dir: Path) -> Path:
     table = ["# Trace index", "",
              f"experiment `{context['experiment']}` | config `{context['config_hash']}` | git `{context['git_sha']}` | "
              f"model `{context['model']}`", "",
-             "| game | levels | actions | turns | tools used | act calls | resets | GAME_OVERs | repeats | "
-             "beliefs | living code | wm checks | promotions | compactions | end | report | map |",
+             "| game | levels | actions | requests | turns | play calls | resets | GAME_OVERs | repeats | beliefs | "
+             "living code | calls to removed | drains | curator s | end | report | map |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     sft: list[dict[str, Any]] = []
     sft_counts: Counter = Counter()
-    legacy_games = 0
+    unexported = 0
     for game_id, run in sorted(runs.items()):
         game_dir = run_dir / "games" / game_id
         session = sessions.get(game_id, {})
@@ -835,20 +750,18 @@ def build_run(run_dir: Path) -> Path:
             got, counts = sft_wire(events, run, context, f"games/{game_id}")
             sft += got
             sft_counts.update(counts)
-        else:   # a transcript from before the wire fields
-            sft += sft_levels(events, run, context, rows)
-            legacy_games += 1
-        acts = a["actions"]
-        tools = a["context"].get("tool_counts") or {}
+        else:
+            unexported += 1
+        acts, c = a["actions"], a["context"]
         table.append(
             f"| {game_id} | {run.get('levels_completed')}/{run.get('number_of_levels')} | {run.get('actions')} | "
-            f"{session.get('turns')} | {', '.join(f'{k} {v}' for k, v in sorted(tools.items()))} | "
-            f"{a['context'].get('act_calls')} | {sum(1 for r in acts if r['action'] == 0)} | "
+            f"{c.get('requests')} | {c.get('turns')} | {c.get('play_calls')} | "
+            f"{sum(1 for r in acts if r['action'] in (0, 'RESET', 'reset'))} | "
             f"{sum(1 for r in acts if r.get('state') == 'GAME_OVER')} | "
             f"{sum(1 for r in acts if r.get('repeat_of') is not None)} | {len(a['beliefs'])} | "
-            f"{a['living_code']['living_code_ratio']} | {a['context'].get('wm_checks')} | "
-            f"{a['context'].get('promotions')} | {session.get('compactions')} | "
-            f"{session.get('end_reason')} | [report](games/{game_id}/report.md) | [map](games/{game_id}/steps.md) |")
+            f"{a['living_code']['living_code_ratio']} | {a['living_code']['graph']['calls_to_removed']} | "
+            f"{len(c.get('drains') or [])} | {c.get('curator_s')} | {session.get('end_reason')} | "
+            f"[report](games/{game_id}/report.md) | [map](games/{game_id}/steps.md) |")
     with (run_dir / "sft_levels.jsonl").open("w", encoding="utf-8") as fh:
         for r in sft:
             fh.write(json.dumps(r, default=str, ensure_ascii=False) + "\n")
@@ -862,9 +775,8 @@ def build_run(run_dir: Path) -> Path:
                      f"flagged out (train false), {c['turns_dropped']} after the last level or on levels with no "
                      f"action, {c['rows_without_target']} rows dropped with nothing to train; {len(frames)} pictures "
                      f"({sum(f.stat().st_size for f in frames) / 1e6:.1f} MB).")
-    if legacy_games:
-        table.append(f"{legacy_games} games without wire fields (older transcripts): one row per level from the "
-                     f"message log, not exactly what the model saw.")
+    if unexported:
+        table.append(f"{unexported} games without wire fields (tracing off): not in the SFT export.")
     out = run_dir / "trace.md"
     out.write_text("\n".join(table) + "\n", encoding="utf-8")
     return out

@@ -38,7 +38,8 @@ DEFAULT: dict[str, Any] = {
     # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
     # every game's first request (and each one after a drain) finds them in the server's prefix cache.
     "prewarm_system": True,
-    # --- agent: tools ipython (`observe()` reads, `await play([...])` moves) and recall (harness/agent/tools.py)
+    # --- agent: one tool, ipython (`observe()` reads, `await play([...])` moves, `recall()` searches the timeline and
+    # the skills, `graph()` maps the agent's code; harness/agent/tools.py)
     "agent": {
         "act_max_actions": 100,        # moves per play() path: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
@@ -70,16 +71,18 @@ DEFAULT: dict[str, Any] = {
         # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
         # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
-        # trigger_tokens sits 30k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
+        # trigger_tokens sits 40k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
         # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
-        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 90000,
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 80000,
                        "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
-        # every thinking and every picture stay, and the memory is a stored message, in full after a rewrite and
-        # every memory_full_every states, else only its changed sections. A drain: before the word-for-word tail
-        # every board becomes a one-line stub, every ipython output is cut to drain_output_chars, every act result
-        # becomes a short move log (one cut line per step), and the thinking, the pictures and the memory messages
-        # go (a full memory goes back).
+        # every thinking stays, the newest picture goes last in every request (never stored, see perception
+        # old_images), and the memory is a stored message, in full after a rewrite and every memory_full_every
+        # states, else only its changed sections. A drain masks what is before the word-for-word tail: the code and
+        # every error traceback stay, every board (shown or printed) becomes a one-line stub, the rest of an ipython
+        # output is cut to drain_output_chars, every act result becomes a short move log (one cut line per step), and
+        # the thinking, the code-graph change lines and the memory messages go (a full memory and the whole code
+        # graph go back).
         "append_only": True,
         "memory_full_every": 10,
         "drain_output_chars": 400,
@@ -90,10 +93,11 @@ DEFAULT: dict[str, Any] = {
         # included): a reply that wrote real code is sent back as the code alone. Decided once, when the reply is
         # stored, so the prompt stays a prefix of the next one. None: every reply keeps its thinking.
         "reasoning_max_code_words": 200,
-        # On: once an ipython call has run, its code is never sent back, the newest call's included. It becomes a
-        # short note naming what it defined (the kernel still holds it; `show_source("name")` prints it), and the
-        # system prompt says so. The thinking and the outputs stay. Off: every call keeps its code.
-        "hide_code": False,
+        # The code graph (harness/runtime/skills/codegraph.py): after every ipython call the host reads the agent's
+        # live functions and classes and what each calls, and ends the output with one line of what changed (added,
+        # changed, removed, calls a missing name); after a drain, trim or reset the whole map goes back in once.
+        # `graph()` prints it in the kernel either way. Off: no change lines and no map in the context.
+        "code_graph": True,
         # On: every level-up resets the context to the level-up message and the new level's full state (the whole
         # prompt is prefilled again). Off: both are appended and the old level stays until a drain.
         "level_up_reset": False,
@@ -104,8 +108,9 @@ DEFAULT: dict[str, Any] = {
         # after a compaction and on `observe()`; after an act the short view (changed region) and the picture.
         "perception": {
             "image": True,             # the picture with every observation (only if "vision" is True)
-            # Off: only the newest picture is sent, older ones become a one-line stub (every picture is still saved
-            # under frames/). On: every picture stays in the prompt (prefix-stable, but the prompt grows each turn).
+            # Off: no picture is stored in the history; the picture of the board now is the last message of every
+            # request, so a new one never changes the cached prefix (every picture is still saved under frames/).
+            # On: every picture stays in the prompt where it was sent (prefix-stable, but the prompt grows each turn).
             "old_images": False,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
@@ -121,17 +126,18 @@ DEFAULT: dict[str, Any] = {
             "observe_view": False,
         },
         "memory": {
-            # The memory (goal, plan, hypotheses, findings, skills, lessons, questions) as messages in the context.
-            # Off: the agent still writes it in its kernel variables and reads it with `recall`; nothing is pushed into the prompt.
+            # The memory block (GOAL, PLAN, HYPOTHESES, FINDINGS and the names of the SKILLS loaded) as messages in the
+            # context. Off: the agent still has it in its kernel variables; nothing is pushed into the prompt.
             "in_context": False,
-            "lessons": True,           # the cross-game lessons graph
-            "curator": True,           # hidden curator: open questions, lessons, skills (2 to 5 at every level-up)
-            "curator_every_turns": 35,  # also at every level-up (before its memory is cleared)
+            "lessons": True,           # the cross-game lessons graph (read and written only by the curator)
+            "curator": True,           # hidden curator: lessons, skills (2 to 5 at every level-up), skills to load
+            # The curator always runs at every level-up (before its memory is cleared); above 0 also at the end of a
+            # turn once this many requests have gone by since its last pass.
+            "curator_every_turns": 0,
             "curator_max_tokens": 1536,
-            "recall_tokens": 1000,
-            # context blocks, in tokens (chars / 4); a block over its cap is trimmed oldest first
-            "caps": {"goal": 150, "plan": 200, "skills": 800, "hypotheses": 400, "findings": 300, "lessons": 400,
-                     "questions": 100},
+            "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
+            # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
+            "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},
         },
     },
     # --- model ---------------------------------------------------------------------------------------------

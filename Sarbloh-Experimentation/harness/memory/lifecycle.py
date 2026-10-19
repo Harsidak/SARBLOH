@@ -1,13 +1,16 @@
 """``GameMemory``: all memories of one game, and what happens to them at a level-up and at a new game.
 
-Files: ``<root>/<game>/timeline.jsonl`` (#1), ``<root>/<game>/working.json`` (#2 #3 #5 #6 #7),
-``<root>/<game>/levels.jsonl`` (what each level-up erased, still searchable by ``recall``), and, shared by all games,
-``<root>/lessons.json`` (#8) and ``<root>/skills.json``.
+Files: ``<root>/<game>/timeline.jsonl`` (#1), ``<root>/<game>/working.json`` (the five kernel variables GOAL, PLAN,
+HYPOTHESES, FINDINGS and SKILLS), ``<root>/<game>/levels.jsonl`` (what each level-up erased), and, shared by all
+games, ``<root>/lessons.json`` (#8) and ``<root>/skills.json``.
 
-Level-up: hypotheses the agent marked ``verified`` and its findings become ``rule`` nodes of the lessons graph
-(``refuted`` hypotheses become ``refuted`` nodes, the goal a ``goal`` node), each linked to the shapes it names as
-"obj N"; the goal gets "confirmed: won level N"; then plan, hypotheses, findings and open questions are erased.
-New game: the timeline is archived and everything except the lessons graph and the skills is erased.
+Level-up: the findings become ``rule`` nodes of the lessons graph and the goal a ``goal`` node, each linked to the
+shapes it names as "obj N" (the curator judges the hypotheses); the goal gets "confirmed: won level N"; then plan,
+hypotheses and findings are erased (SKILLS is kept). New game: the timeline is archived and everything except the
+lessons graph and the skills is erased.
+
+The agent reads two of them with ``recall()`` in its kernel (``recall_text``): the timeline and the skills. The lessons
+graph is read only by the curator.
 """
 
 from __future__ import annotations
@@ -16,12 +19,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from harness.memory.lessons import LessonsGraph, SkillBook, shape_id
-from harness.memory.store import append_jsonl, clip, read_jsonl
+from harness.memory.lessons import LessonsGraph, SkillBook
+from harness.memory.store import append_jsonl, clip
 from harness.memory.timeline import Timeline, render_row
 from harness.memory.working import WorkingMemory
 
-SCOPES = ("all", "timeline", "plan", "hypotheses", "findings", "goal", "lessons", "skills")
+SCOPES = ("all", "timeline", "skills")   # what `recall()` searches; memory and lessons are not in it
+LOADED_SKILLS = 5   # SKILLS in the kernel holds at most this many skills, the oldest dropped first
+TEXT_MATCHES = 2    # a recall whose words name no skill loads this many of the skills whose text matches
 _OBJ = re.compile(r"\bobj(?:ect)?s?\s*#?(\d+)", re.IGNORECASE)
 
 
@@ -121,63 +126,64 @@ class GameMemory:
         self.timeline.append({"kind": "act", **row})
 
     # --- reads ---------------------------------------------------------------------------------------------
-    def blocks(self, objects: list[Any]) -> dict[str, str]:
-        """The pinned context blocks, each under its cap, in context order."""
+    def blocks(self, objects: list[Any] | None = None) -> dict[str, str]:
+        """The agent's memory block (config memory.in_context), each section under its cap, in context order: the five
+        kernel variables, SKILLS by name and purpose. The lessons are not in it: only the curator reads them."""
         b = self.working.blocks()
-        lessons = ""
-        if self.lessons is not None:
-            on_screen = [shape_id(o.label()[0], o.hash) for o in objects or []]
-            lessons = self.lessons.subgraph(on_screen, self.caps["lessons"])
-        return {"goal": b["goal"], "plan": b["plan"], "skills": self.skills.render(self.game, self.caps["skills"]),
-                "hypotheses": b["hypotheses"], "findings": b["findings"], "lessons": lessons,
-                "questions": b["questions"]}
+        return {"goal": b["goal"], "plan": b["plan"], "skills": b["skills"], "hypotheses": b["hypotheses"],
+                "findings": b["findings"]}
 
-    def recall(self, query: str, scope: str = "all", cap_tokens: int = 1500) -> tuple[str, int]:
-        """Text for the agent (at most ``cap_tokens``) and the number of hits."""
-        scope = (scope or "all").lower()
-        if scope not in SCOPES:
-            raise ValueError(f"scope must be one of {list(SCOPES)}")
-        q = (query or "").strip()
-        words = [x for x in q.lower().split() if x]
-        match = (lambda s: all(x in s.lower() for x in words)) if words else (lambda s: True)
-        sections: list[tuple[str, list[str]]] = []
-        if scope in ("all", "timeline"):
-            rows = self.timeline.search(q) if q else self.timeline.rows[-30:]
-            sections.append(("timeline", [render_row(r) for r in rows]))
-        if scope in ("all", "plan"):
-            sections.append(("plan", [self.working.plan] if self.working.plan and match(self.working.plan) else []))
-        if scope in ("all", "hypotheses"):
-            past = [h for lv in read_jsonl(self.dir / "levels.jsonl") for h in lv.get("hypotheses", [])]
-            lines = [f"(level {h.get('level')}) {self.working.hyp_line(h)}" for h in past + self.working.hypotheses
-                     if match(h["text"] + " " + h["status"] + " " + h["id"])]
-            sections.append(("hypotheses", lines))
-        if scope in ("all", "findings"):
-            past = [f for lv in read_jsonl(self.dir / "levels.jsonl") for f in lv.get("findings", [])]
-            sections.append(("findings", [f"(level {f.get('level')}) {f['text']}" for f in past + self.working.findings
-                                          if match(f["text"])]))
-        if scope in ("all", "goal"):
-            sections.append(("goal", [x for x in [self.working.goal, *self.working.goal_log] if x and match(x)]))
-        if scope in ("all", "lessons") and self.lessons is not None:
-            sections.append(("lessons", self.lessons.search(q)))
-        if scope in ("all", "skills"):
-            sections.append(("skills", self.skills.search(q)))
-        hits = sum(len(v) for _, v in sections)
-        out: list[str] = [f"recall {q!r} in {scope}: {hits} hit{'s' if hits != 1 else ''}"]
-        room = cap_tokens * 4 - 60   # chars, with space for one "(+ more ...)" note
-        used = len(out[0])
-        cut = False
-        for name, lines in sections:
-            if not lines or cut:
-                continue
-            block = [f"## {name} ({len(lines)})"]
-            for line in lines[-60:]:
-                if used + sum(len(x) + 1 for x in block) + len(line) + 1 > room:
-                    cut = True
-                    break
-                block.append(line)
-            if len(block) > 1:
-                out += block
-                used += sum(len(x) + 1 for x in block)
-            if cut:
-                out.append(f"(more hits in {name} and later scopes: narrow the query or the scope)")
-        return "\n".join(out), hits
+    def recall(self, query: str, scope: str = "all", cap_tokens: int = 1500) -> tuple[str, int, list[str]]:
+        """``recall_text`` over this game's timeline and the skills."""
+        return recall_text(self.timeline, self.skills, query, scope, cap_tokens)
+
+
+def recall_text(timeline: Timeline, skills: SkillBook, query: str, scope: str = "all",
+                cap_tokens: int = 1500) -> tuple[str, int, list[str]]:
+    """What ``recall()`` in the kernel prints (at most ``cap_tokens``), its number of hits, and the names of the skills it
+    found (the kernel loads them into ``SKILLS``). Two places to search: "timeline" (every step and what it changed:
+    "#12", "12-20", "level 1" or words) and "skills" (words; "" lists every skill by name, one line each, and loads
+    none); "all" is both."""
+    scope = (scope or "all").lower()
+    if scope not in SCOPES:
+        raise ValueError(f"scope must be one of {list(SCOPES)}")
+    q = (query or "").strip()
+    sections: list[tuple[str, list[str]]] = []
+    found: list[str] = []
+    if scope in ("all", "timeline"):
+        rows = timeline.search(q) if q else timeline.rows[-30:]
+        sections.append(("timeline", [render_row(r) for r in rows]))
+    if scope in ("all", "skills"):
+        if q:
+            # The skills a query word names are loaded; if none is named, the best TEXT_MATCHES text matches.
+            matches = skills.find(q)
+            words = q.lower().split()
+            named = [n for n in matches if any(w in n.lower() for w in words)]
+            found = (named or matches[:TEXT_MATCHES])[:LOADED_SKILLS]
+            lines = [f"### {n}\n{skills.text(n)}" for n in found]
+            rest = [n for n in matches if n not in found]
+            if rest:
+                lines.append(f"(also matching, not loaded: {', '.join(rest)})")
+            sections.append(("skills", lines))
+        else:
+            sections.append(("skills", [f"- {n}: {skills.purpose(n)}" for n in skills.names()]))
+    hits = sum(len(v) for _, v in sections)
+    out: list[str] = [f"recall {q!r} in {scope}: {hits} hit{'s' if hits != 1 else ''}"]
+    room = cap_tokens * 4 - 60   # chars, with space for one "(+ more ...)" note
+    used = len(out[0])
+    cut = False
+    for name, lines in sections:
+        if not lines or cut:
+            continue
+        block = [f"## {name} ({len(lines)})"]
+        for line in lines[-60:]:
+            if used + sum(len(x) + 1 for x in block) + len(line) + 1 > room:
+                cut = True
+                break
+            block.append(line)
+        if len(block) > 1:
+            out += block
+            used += sum(len(x) + 1 for x in block)
+        if cut:
+            out.append(f"(more hits in {name} and later scopes: narrow the query or the scope)")
+    return "\n".join(out), hits, found

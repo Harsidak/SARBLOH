@@ -5,18 +5,20 @@ the whole previous one and the server's prefix cache keeps it. On this hybrid mo
 change anywhere in the history makes the server prefill everything again from about that point: in the 2026-10-04
 run, every request after a new board reused ~0% of its prompt (3283 of 5599 requests) and requests inside a tool-call
 chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, a compaction, a level-up reset):
-- every reply keeps its thinking and every picture stays (config `old_images` off: only the newest picture is
-  sent, the older ones become a stub);
+- every reply keeps its thinking (with config ``old_images`` on, every picture also stays where it was sent);
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
+- the picture of the board (config ``old_images`` off) is not stored in the history at all: it is one extra user
+  message at the very end of each request (``tail``), always the newest board. A new picture then changes only the
+  last few hundred tokens of the next request, never the cached history before it;
+- each ipython output ends with a one-line change note of the code graph (the agent's live functions and what they
+  call, ``harness/runtime/skills/codegraph.py``); the old lines stay as they were, so the prompt keeps its prefix;
 - at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
-  included, so the agent carries on mid-thought; before them the old boards become one-line stubs, the ipython outputs
-  are cut short, act results become a short move log (one cut line per step), and the thinking, the old pictures and
-  the memory messages go; a full memory goes back in. If that is not enough, the history is trimmed;
-- with ``hide_code`` on (the default), each reply's ipython code becomes a short note as soon as the reply is stored
-  (``code_note``: the names it defined; the code itself is still in the kernel), so no code is ever sent back, the
-  newest call's included. The thinking and the outputs stay. The note is stored before any request, so the prompt
-  stays a prefix of the next one.
+  included, so the agent carries on mid-thought; before them the thinking goes and the outputs are masked
+  (``short_cell_output``): the code itself and every error traceback stay, a printed board becomes a one-line stub, the
+  state shown after moves becomes a one-line stub, the rest of an output is cut short, act results become a short move
+  log (one cut line per step), the code-graph change lines go, and the memory and code-graph messages go; a full
+  memory and the whole code graph go back in once. If that is not enough, the history is trimmed.
 
 The old builder (``append_only`` off): the memory is built once per user message and joined to the front of the newest
 one; only the newest image is kept (older image parts become a one-line text stub); thinking is sent back only within
@@ -29,7 +31,6 @@ alternating roles).
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import re
@@ -37,18 +38,20 @@ from typing import Any
 
 PINNED_KIND = "pinned"
 MEMORY_UPDATE_KIND = "memory_update"
+GRAPH_KIND = "code_graph"          # the whole code graph, put back once after a drain, trim or reset
+TAIL_KIND = "tail"                 # the picture of the board now, sent last in every request, never stored
 STUB_KIND = "board_stub"           # an old board after a drain: one line, no picture
 ACT_LINE_CHARS = 200               # an old act result's change line after a drain
+ERROR_CHARS = 1500                 # an old error traceback after a drain keeps this many characters (its end)
+BOARD_RUN = 4                      # this many board-like lines in a row are a printed board
 REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
-ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "lessons", "questions")
+ORDER = ("goal", "plan", "skills", "hypotheses", "findings")
 TITLES = {
-    "goal": "Goal (you write it; kept across levels)",
-    "plan": "Plan (from your last act)",
-    "skills": "Skills (background knowledge)",
-    "hypotheses": "Hypotheses",
-    "findings": "Findings this level",
-    "lessons": "Lessons from earlier levels and games",
-    "questions": "Open questions (from a review of your last steps)",
+    "goal": "Goal (GOAL; kept across levels)",
+    "plan": "Plan (PLAN)",
+    "skills": "Skills you loaded (SKILLS; print(SKILLS[name]) shows one)",
+    "hypotheses": "Hypotheses (HYPOTHESES)",
+    "findings": "Findings this level (FINDINGS)",
 }
 EMPTY = {"goal": "(none yet: write a Goal: line as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
@@ -82,6 +85,14 @@ def memory_update(blocks: dict[str, str], keys: list[str]) -> dict[str, Any]:
 
 def is_memory(m: dict[str, Any]) -> bool:
     return m.get("_kind") in (PINNED_KIND, MEMORY_UPDATE_KIND)
+
+
+def graph_message(text: str) -> dict[str, Any]:
+    """The whole code graph as one message, put back after a drain, trim or reset (the change lines before it are
+    gone by then)."""
+    return {"role": "user", "_kind": GRAPH_KIND,
+            "content": f"[code graph] Your functions and classes as they are in your kernel now. Later outputs end with "
+                       f"a line of what changed; graph() prints the current map.\n{text}"}
 
 
 def _parts(content: Any) -> list[dict[str, Any]]:
@@ -216,25 +227,102 @@ def short_act_result(m: dict[str, Any], line_chars: int = ACT_LINE_CHARS) -> dic
     return {**m, "content": "\n".join(out)}
 
 
+_BOARD_LINE = re.compile(r"^\s*\d{0,3}\s?[A-Za-z0-9.#|]{8,70}\s*$")          # a row of letters, maybe labelled
+_NUMPY_LINE = re.compile(r"^\s*\[*\s*(?:-?\d+[\s,]+){7,}-?\d*\s*\]*,?\s*$")    # a row of a printed array
+_LONG_BOARD = re.compile(r"^[\s\[\]'\",A-Za-z0-9.]{400,}$")                    # a whole board printed as one list
+
+
+def mask_boards(text: str) -> str:
+    """``text`` with every printed board replaced by one line: ``BOARD_RUN`` or more board-like lines in a row (rows
+    of colour letters, labelled or not, or rows of a printed array), or one very long line that is only a list of
+    them."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and (_BOARD_LINE.match(lines[j]) or _NUMPY_LINE.match(lines[j])):
+            j += 1
+        if j - i >= BOARD_RUN:
+            out.append(f"[a printed board of {j - i} rows, removed to save space]")
+            i = j
+        elif _LONG_BOARD.match(lines[i]) and sum(ch.isalpha() for ch in lines[i]) > len(lines[i]) // 2:
+            out.append(f"[a printed board of {len(lines[i])} characters, removed to save space]")
+            i += 1
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out)
+
+
+def cell_output(pieces: list[tuple[str, str]]) -> tuple[str, list[list[Any]]]:
+    """The text of an ipython output from its pieces (kind, text), joined by newlines, and where each piece is in it:
+    [[kind, start, end], ...]. The kinds: "out" (what the code printed), "error" (its traceback), "observe" (the full
+    state an `observe()` call shows), "state" (the state after its moves), "memory" (the memory receipt), "graph" (the
+    code-graph change line), "status" (the game status line). A drain masks each kind its own way."""
+    text, spans = "", []
+    for kind, piece in pieces:
+        if not piece:
+            continue
+        if text:
+            text += "\n"
+        spans.append([kind, len(text), len(text) + len(piece)])
+        text += piece
+    return text, spans
+
+
+def _stub_line(text: str, what: str) -> str:
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    head = first[1:first.index("]")] if first.startswith("[") and "]" in first else what
+    return f"[{head}: removed to save space]"
+
+
+def short_cell_output(m: dict[str, Any], chars: int) -> dict[str, Any]:
+    """An old ipython output as a drain leaves it: what the code printed has its printed boards masked
+    (``mask_boards``) and is then cut to ``chars``; the error traceback stays (its last ``ERROR_CHARS``); the states
+    shown become one-line stubs; the code-graph change line goes (the whole graph goes back after the drain); the
+    memory receipt and the status line stay. Its moves are added as a move log when it made any."""
+    text = _text_of(m)
+    out = []
+    for kind, a, b in m["_spans"]:
+        piece = text[a:b]
+        if kind == "out":
+            piece = mask_boards(piece)
+            if len(piece) > chars:
+                piece = f"{piece[:chars].rstrip()}\n[... {len(piece) - chars} more characters removed to save space]"
+        elif kind == "error":
+            piece = piece if len(piece) <= ERROR_CHARS else f"[... start of the traceback removed]\n{piece[-ERROR_CHARS:]}"
+        elif kind in ("observe", "state"):
+            piece = _stub_line(piece, "state")
+        elif kind == "graph":
+            continue
+        out.append(piece)
+    if m.get("_act_log"):
+        out.append("[moves made by this call]\n" + short_act_result({"content": m["_act_log"]})["content"])
+    content = "\n".join(out)
+    return {k: v for k, v in m.items() if k != "_spans"} | {"content": content}
+
+
 def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
           output_chars: int | None = None) -> list[dict[str, Any]]:
     """A smaller history with no model call. The messages from ``keep_from`` on (default: the current tool-call
-    chain) stay word for word, thinking included. Before them: every reply loses its thinking (its tool calls stay),
-    every board but the newest becomes a one-line stub, every ipython output is cut to ``output_chars`` and every act
-    result becomes a short move log (``short_act_result``); None keeps boards and outputs whole. Every picture but the
-    newest becomes a stub, and the memory messages go (the caller puts a full one back)."""
+    chain) stay word for word, thinking included. Before them: every reply loses its thinking (its code stays), every
+    board but the newest becomes a one-line stub, every ipython output is masked (``short_cell_output``: printed boards
+    and shown states become stubs, errors stay, the rest is cut to ``output_chars``) and every act result becomes a
+    short move log (``short_act_result``); None keeps boards and outputs whole. Every picture but the newest becomes a
+    stub, and the memory and code-graph messages go (the caller puts a full one of each back)."""
     start = chain_start(messages) if keep_from is None else keep_from
     newest = max((i for i, m in enumerate(messages) if m.get("_kind") == "observation"), default=None)
     out = []
     for i, m in enumerate(messages[:start]):
-        if is_memory(m):
+        if is_memory(m) or m.get("_kind") == GRAPH_KIND:
             continue
         if m["role"] == "assistant":
             m = {k: v for k, v in m.items() if k != "_reasoning"}
         elif output_chars is not None and m.get("_kind") == "observation" and i != newest:
             m = board_stub(m)
         elif output_chars is not None and m["role"] == "tool":
-            if m.get("_act_log"):   # an ipython cell that moved: its output cut short, then its move log whole
+            if m.get("_spans"):
+                m = short_cell_output(m, output_chars)
+            elif m.get("_act_log"):   # an ipython cell that moved: its output cut short, then its move log whole
                 log = short_act_result({"content": m["_act_log"]})["content"]
                 cut = _text_of(cut_output(m, output_chars))
                 m = {**m, "content": f"{cut}\n[moves made by this call]\n{log}"}
@@ -243,100 +331,8 @@ def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
             else:
                 m = cut_output(m, output_chars)
         out.append(m)
-    out += [m for m in messages[start:] if not is_memory(m)]
+    out += [m for m in messages[start:] if not is_memory(m) and m.get("_kind") != GRAPH_KIND]
     return images(out, True)
-
-
-def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    try:
-        sig = ast.unparse(node.args)
-    except Exception:  # noqa: BLE001 - a name without its arguments is still a help
-        sig = "..."
-    return f"{node.name}({sig if len(sig) <= 60 else sig[:57] + '...'})"
-
-
-def _described(node: ast.AST, name: str, src: list[str]) -> str:
-    """``name`` plus what the agent wrote about it: the first line of its docstring, else the comment lines just
-    above it (above its decorators)."""
-    text = (ast.get_docstring(node) or "").strip().splitlines()[:1]
-    if not text:
-        i = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])]) - 2
-        above = []
-        while i >= 0 and src[i].strip().startswith("#"):
-            above.insert(0, src[i].strip().lstrip("#").strip())
-            i -= 1
-        text = [" ".join(a for a in above if a)]
-    about = text[0] if text and text[0] else ""
-    if len(about) > 120:
-        about = about[:117] + "..."
-    return f"{name}: {about}" if about else name
-
-
-def code_note(code: str, kept: set[str] | None = None) -> str:
-    """The note that stands in for an ipython call's code: its size, the names it defined at the top level
-    (functions with their arguments and classes, each with its docstring or the comment above it, and variables)
-    and how to read the code again from the kernel. It is Python comments, so the call still reads as code. ``kept``:
-    the names really in the kernel; a name the code set but the kernel lacks (the cell crashed first) is left out."""
-    src = code.splitlines()
-    lines = len(src)
-    defs, classes, values = [], [], []
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        tree = None
-    for node in (tree.body if tree is not None else []):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            defs.append(_described(node, _signature(node), src))
-        elif isinstance(node, ast.ClassDef):
-            classes.append(_described(node, node.name, src))
-        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for t in targets:
-                for n in ast.walk(t):
-                    if isinstance(n, ast.Name) and n.id not in values and not n.id.startswith("_"):
-                        values.append(n.id)
-    if kept is not None:
-        missing = [n for n in [d.split("(")[0] for d in defs] + [c.split(":")[0] for c in classes] + values
-                   if n not in kept]
-        defs = [d for d in defs if d.split("(")[0] in kept]
-        classes = [c for c in classes if c.split(":")[0] in kept]
-        values = [v for v in values if v in kept]
-    else:
-        missing = []
-    out = [f"# [All the code you write lives in your ipython kernel. This call's code ({lines} lines) ran there and "
-           "is not shown again; the output below is what it printed.]"]
-    if tree is None:
-        out.append("# it did not parse, so it defined nothing")
-    if defs:
-        out += ["# defined functions:"] + [f"#   {d}" for d in defs]
-    if classes:
-        out += ["# defined classes:"] + [f"#   {c}" for c in classes]
-    if values:
-        out.append("# set variables: " + ", ".join(values[:30]) + (" ..." if len(values) > 30 else ""))
-    if missing:
-        out.append("# not in the kernel (the cell stopped before it set them): " + ", ".join(missing[:30]))
-    if defs or classes or values:
-        out.append('# They are all still in your kernel: call them as they are, no import needed. '
-                   'show_source("name") prints the current code of one.')
-    return "\n".join(out)
-
-
-def stub_code(m: dict[str, Any], kept: set[str] | None = None) -> dict[str, Any] | None:
-    """A reply with the code of each ipython call replaced by ``code_note``; None when it has no ipython code.
-    Other tools stay as they are."""
-    calls, changed = [], False
-    for tc in m.get("tool_calls") or []:
-        fn = tc.get("function") or {}
-        try:
-            args = json.loads(fn.get("arguments") or "{}")
-        except ValueError:
-            args = None
-        code = args.get("code") if isinstance(args, dict) and fn.get("name") == "ipython" else None
-        if isinstance(code, str):
-            tc = {**tc, "function": {**fn, "arguments": json.dumps({**args, "code": code_note(code, kept)})}}
-            changed = True
-        calls.append(tc)
-    return {**m, "tool_calls": calls, "_code_stubbed": True} if changed else None
 
 
 def _text_of(m: dict[str, Any]) -> str:
@@ -346,16 +342,17 @@ def _text_of(m: dict[str, Any]) -> str:
 
 def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | None = None,
           vision: bool = True, reasoning_budget: int = REASONING_BUDGET_TOKENS,
-          append_only: bool = False, old_images: bool = True) -> list[dict[str, Any]]:
+          append_only: bool = False, old_images: bool = True,
+          tail: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """The request. Append-only: the system prompt and the stored conversation as it is, every thinking included (the
-    memory is already in it), and every picture, or with ``old_images`` off only the newest one (the older ones become
-    a one-line stub, so the prompt changes from the previous picture on whenever a new one arrives). Else: the memory
-    joined to the front of the newest user message, so everything before that message is the same as in the last
-    request."""
+    memory is already in it), and every stored picture, or with ``old_images`` off only the newest one (the older ones
+    become a one-line stub); then ``tail``, the picture of the board now, as the last message, so a new picture never
+    changes the history before it. Else: the memory joined to the front of the newest user message, so everything
+    before that message is the same as in the last request."""
     if append_only:
         msgs = all_reasoning(messages)
-        return merge_users([{"role": "system", "content": system}] +
-                           (msgs if vision and old_images else images(msgs, vision)))
+        msgs = msgs if vision and old_images else images(msgs, vision)
+        return merge_users([{"role": "system", "content": system}] + msgs + ([tail] if tail and vision else []))
     msgs = images(reasoning(messages, reasoning_budget), vision)
     if pinned:
         at = max(chain_start(msgs) - 1, 0)

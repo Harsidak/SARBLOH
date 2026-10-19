@@ -1,8 +1,10 @@
-"""The agent's working memory: #2 plan, #3 hypotheses, #5 open questions, #6 findings, #7 goal.
+"""The agent's working memory: #2 plan, #3 hypotheses, #6 findings, #7 goal, and the skills it has loaded.
 
-The agent writes plan, hypotheses, findings and goal as four variables in its kernel (``KERNEL_VARS``); the host
-copies them here after every ipython call and before every move (``sync``). The curator writes the open questions.
-The host checks the shape of what is written and judges nothing. The agent only writes hypotheses, never their
+They are five variables in the agent's kernel (``KERNEL_VARS``): GOAL, PLAN, HYPOTHESES and FINDINGS the agent writes,
+and SKILLS, a dict of skill name -> text, which ``recall()`` fills (at most five, the oldest dropped first) and the
+curator adds to at a level-up. The host copies them here after every ipython call and before every move (``sync``); an
+edit the agent makes to SKILLS stays in this game's memory and never reaches the shared skill book. The host checks
+the shape of what is written and judges nothing. The agent only writes hypotheses, never their
 status: every one stays "proposed", and the curator decides at a level up which ones the level proved or refuted.
 Every block is rendered under its token cap (chars / 4); a block over its cap loses its oldest lines, which stay in
 the file and in ``recall``.
@@ -17,7 +19,8 @@ from typing import Any
 from harness.memory.store import clip, fit_lines, read_json, write_json
 
 STATUSES = ("proposed", "verified", "refuted")
-KERNEL_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")   # the memory variables in the agent's kernel
+KERNEL_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS", "SKILLS")   # the memory variables in the agent's kernel
+SKILL_TEXT_CHARS = 1200   # a SKILLS entry is kept up to this many characters
 # A hypothesis status as the agent writes it in HYPOTHESES -> as stored ("open" is shown for "proposed").
 _KERNEL_STATUS = {"open": "proposed", "proposed": "proposed", "verified": "verified", "refuted": "refuted"}
 _HYP_STR = re.compile(r"^\s*(?:(h\d+)\b[\s:.-]*)?(?:\[?(proposed|verified|refuted)\]?\b[\s:.-]*)?(.*)$", re.IGNORECASE | re.DOTALL)
@@ -64,12 +67,12 @@ class WorkingMemory:
         self.findings: list[dict[str, Any]] = d.get("findings", [])
         self.goal: str = d.get("goal", "")
         self.goal_log: list[str] = d.get("goal_log", [])
-        self.questions: list[str] = d.get("questions", [])
+        self.skills: dict[str, str] = d.get("skills", {})
         self.next_h: int = d.get("next_h", 1)
 
     def save(self) -> None:
         write_json(self.path, {"plan": self.plan, "hypotheses": self.hypotheses, "findings": self.findings,
-                               "goal": self.goal, "goal_log": self.goal_log, "questions": self.questions,
+                               "goal": self.goal, "goal_log": self.goal_log, "skills": self.skills,
                                "next_h": self.next_h})
 
     # --- writes --------------------------------------------------------------------------------------------
@@ -132,11 +135,12 @@ class WorkingMemory:
     def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
         """Copies the kernel's memory variables (``KERNEL_VARS``; a missing one is left alone): GOAL and PLAN are text,
         HYPOTHESES a list of text (a dict counts by its keys, its values ignored), FINDINGS a list of
-        text. Memory mirrors them: what the agent deleted there is deleted here. A value of the wrong type is not
-        copied and is named in ``errors``. Returns what changed: ``plan`` and ``goal`` (the new text, or None),
-        ``hypotheses`` (one event per new or changed one), ``findings`` (added), ``removed`` (texts), ``errors``."""
+        text, SKILLS a dict of name -> text. Memory mirrors them: what the agent deleted there is deleted here. A value
+        of the wrong type is not copied and is named in ``errors``. Returns what changed: ``plan`` and ``goal`` (the new
+        text, or None), ``hypotheses`` (one event per new or changed one), ``findings`` (added), ``removed`` (texts),
+        ``skills`` (the names, when a skill was loaded, dropped or changed, else None), ``errors``."""
         out: dict[str, Any] = {"plan": None, "goal": None, "hypotheses": [], "findings": [], "removed": [],
-                               "errors": []}
+                               "skills": None, "errors": []}
         for name, attr in (("PLAN", "plan"), ("GOAL", "goal")):
             if name not in values:
                 continue
@@ -176,6 +180,15 @@ class WorkingMemory:
                     kept.append(f)
                 out["removed"] += [f["text"] for f in self.findings if f not in kept]
                 self.findings = kept
+        if "SKILLS" in values:
+            v = values["SKILLS"]
+            if not isinstance(v, dict):
+                out["errors"].append(f"SKILLS must be a dict of skill name -> text, not {type(v).__name__}")
+            else:
+                new = {str(k): str(t)[:SKILL_TEXT_CHARS] for k, t in v.items()}
+                if new != self.skills:
+                    self.skills = new
+                    out["skills"] = list(new)
         return out
 
     def _sync_hypotheses(self, rules: list[Any], out: dict[str, Any], *, turn: int, level: int) -> None:
@@ -200,7 +213,7 @@ class WorkingMemory:
         """The memory as the kernel variables hold it (to put them back after a kernel restart)."""
         return {"GOAL": self.goal, "PLAN": self.plan,
                 "HYPOTHESES": [h["text"] for h in self.hypotheses],
-                "FINDINGS": [f["text"] for f in self.findings]}
+                "FINDINGS": [f["text"] for f in self.findings], "SKILLS": dict(self.skills)}
 
     def set_goal(self, text: str) -> bool:
         text = str(text or "").strip()
@@ -209,24 +222,20 @@ class WorkingMemory:
         self.goal = text
         return True
 
-    def set_questions(self, questions: list[str]) -> None:
-        self.questions = [str(q).strip() for q in questions if str(q).strip()][:3]
-
     def confirm_goal(self, level: int) -> str:
         line = f"confirmed: won level {level}" + (f" with goal: {self.goal}" if self.goal else "")
         self.goal_log.append(line)
         return line
 
     def clear_level(self) -> dict[str, Any]:
-        """Erases #2, #3, #5 and #6 (the goal stays). Returns what was erased, for promotion and the log."""
-        gone = {"plan": self.plan, "hypotheses": self.hypotheses, "findings": self.findings,
-                "questions": self.questions}
-        self.plan, self.hypotheses, self.findings, self.questions = "", [], [], []
+        """Erases #2, #3 and #6 (the goal and SKILLS stay). Returns what was erased, for promotion and the log."""
+        gone = {"plan": self.plan, "hypotheses": self.hypotheses, "findings": self.findings}
+        self.plan, self.hypotheses, self.findings = "", [], []
         return gone
 
     def clear_game(self) -> None:
         self.clear_level()
-        self.goal, self.goal_log, self.next_h = "", [], 1
+        self.goal, self.goal_log, self.next_h, self.skills = "", [], 1, {}
 
     # --- reads ---------------------------------------------------------------------------------------------
     def hyp_line(self, h: dict[str, Any]) -> str:
@@ -244,6 +253,13 @@ class WorkingMemory:
         hyps = fit_lines([self.hyp_line(h) for h in self.hypotheses], c["hypotheses"])
         finds = fit_lines([f"- {f['text']}" + (f" (evidence {', '.join('#' + str(e) for e in f['evidence'][:6])})"
                                                if f.get("evidence") else "") for f in self.findings], c["findings"])
-        qs = fit_lines([f"- {q}" for q in self.questions[:3]], c["questions"], older_note="")
+        skills = fit_lines([f"- {n}: {first_sentence(t)}" for n, t in self.skills.items()], c["skills"])
         return {"goal": goal, "plan": clip(self.plan, c["plan"]), "hypotheses": "\n".join(hyps),
-                "findings": "\n".join(finds), "questions": "\n".join(x for x in qs if x)}
+                "findings": "\n".join(finds), "skills": "\n".join(skills)}
+
+
+def first_sentence(text: str, chars: int = 120) -> str:
+    """A skill's purpose: its first sentence (without a leading "What it is:"), cut to ``chars``."""
+    text = re.sub(r"^What it is:\s*", "", " ".join(str(text or "").split()))
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return first if len(first) <= chars else first[:chars - 3] + "..."

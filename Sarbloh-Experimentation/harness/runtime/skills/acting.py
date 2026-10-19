@@ -14,8 +14,9 @@ twice; a wrong prediction is reported at the end and the path goes on.
 
 A move is "1".."5", "7", "reset", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c).
 
-Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS), so the host saves them before the
-move runs; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in memory.
+Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS), so the host saves them
+before the move runs; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in
+memory, and the skills the curator picked at that level-up are loaded into SKILLS.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from typing import Any
 
 from rlm import repl as _repl
 
-MEMORY_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")
+MEMORY_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS", "SKILLS")
 _PLAY_IDS = itertools.count(1)   # numbers each play() call, so the trace can group its moves
 
 
@@ -79,6 +80,11 @@ async def _act(actions: list[Any], **extra: Any) -> ActResult:
     res = ActResult(reply.get("result") or {})
     if res.level_up:
         sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES=[], FINDINGS=[])
+    skills = (reply.get("result") or {}).get("load_skills")
+    if isinstance(skills, dict) and skills:   # the skills the curator wrote and picked at this level-up
+        from recalling import load_skills   # the kernel puts the skills folder on the path
+
+        load_skills(skills)
     return res
 
 

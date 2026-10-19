@@ -48,12 +48,17 @@ except Exception:
 from observation import observe   # the state, read-only and free
 from acting import play           # `await play(path, predict=step)`: the only way to move; stops at the first surprise
 from source import show_source    # the code of a name defined in an earlier cell
+from codegraph import graph       # the live map of the agent's functions and classes
+from codegraph import snapshot as _graph_snapshot
+from recalling import recall      # search the timeline and the skills; found skills go into SKILLS
+from recalling import load_skills as _load_skills
 from acting import memory_values as _memory_values
 # The agent's memory: it changes these in its code; the host copies them after every call and before every move.
 GOAL = ""
 PLAN = ""
 HYPOTHESES = []
 FINDINGS = []
+SKILLS = {}
 _BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
 """
 
@@ -103,24 +108,33 @@ class ExecResult:
     displays: list[dict[str, Any]] = field(default_factory=list)   # display events: dicts of MIME type -> payload
 
     def render(self, limit: int) -> str:
+        out, err = self.split(limit)
+        return "\n".join(x for x in (out, err) if x)
+
+    def split(self, limit: int) -> tuple[str, str]:
+        """(what the cell printed and returned, with the timeout or restart note; its error traceback), each cut to
+        ``limit`` characters. "[no output]" when there is neither."""
         parts: list[str] = []
         if self.stdout:
             parts.append(self.stdout.rstrip("\n"))
         if self.result is not None:
             parts.append(self.result)
-        if self.error:
-            parts.append(self.error.rstrip("\n"))
         if self.status == "timeout":
             parts.append("[cell interrupted: execution timeout]")
         elif self.status == "dead":
             parts.append("[kernel died; it was restarted and Python state was lost]")
-        text = "\n".join(parts) if parts else "[no output]"
-        if len(text) > limit:
-            head = limit * 2 // 3
-            tail = limit - head
-            text = (f"{text[:head]}\n... [{len(text) - limit} characters truncated; keep large values in variables "
-                    f"and print slices] ...\n{text[-tail:]}")
+        out = _cut("\n".join(parts), limit)
+        err = _cut(self.error.rstrip("\n"), limit) if self.error else ""
+        return (out or ("" if err else "[no output]")), err
+
+
+def _cut(text: str, limit: int) -> str:
+    if len(text) <= limit:
         return text
+    head = limit * 2 // 3
+    tail = limit - head
+    return (f"{text[:head]}\n... [{len(text) - limit} characters truncated; keep large values in variables "
+            f"and print slices] ...\n{text[-tail:]}")
 
 
 @dataclass
@@ -270,9 +284,21 @@ class Kernel:
             return None
         return names if isinstance(names, dict) else None
 
+    def code_graph(self, timeout_s: float = 30.0) -> dict[str, Any] | None:
+        """The live map of the agent's functions and classes (``codegraph.snapshot``); None when the kernel cannot
+        tell."""
+        if not self.alive():
+            return None
+        res = self.execute("print(json.dumps(_graph_snapshot()))", timeout_s=timeout_s)
+        try:
+            nodes = json.loads(res.stdout.strip().splitlines()[-1]) if res.status == "ok" else None
+        except (ValueError, IndexError):
+            return None
+        return nodes if isinstance(nodes, dict) else None
+
     def memory_values(self, timeout_s: float = 30.0) -> dict[str, Any] | None:
-        """The memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS) as JSON values; a deleted one is missing. None when
-        the kernel cannot tell."""
+        """The memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS) as JSON values; a deleted one is missing.
+        None when the kernel cannot tell."""
         if not self.alive():
             return None
         res = self.execute("print(json.dumps(_memory_values()))", timeout_s=timeout_s)
@@ -281,6 +307,11 @@ class Kernel:
         except (ValueError, IndexError):
             return None
         return values if isinstance(values, dict) else None
+
+    def load_skills(self, skills: dict[str, str], timeout_s: float = 30.0) -> bool:
+        """Adds skills (name -> text) to SKILLS in the kernel, as ``recall()`` does (at most five, the oldest go)."""
+        return self.alive() and self.execute(f"_load_skills(json.loads({json.dumps(json.dumps(skills))}))",
+                                             timeout_s=timeout_s).status == "ok"
 
     def set_memory(self, values: dict[str, Any], timeout_s: float = 30.0) -> bool:
         """Puts memory variables back (after a restart lost them, or when the agent deleted one)."""

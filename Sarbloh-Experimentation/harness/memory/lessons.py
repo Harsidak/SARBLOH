@@ -6,8 +6,9 @@ Lessons graph. Nodes: ``shape`` (a colour + shape hash seen on screen), ``rule``
 same lesson written twice, by two games at once, is one node. The graph reaches the context as a subgraph: the nodes
 linked to the shapes on screen now, then the most used goal patterns and rules, under a token cap.
 
-Skills. Short knowledge notes (<= 200 tokens): three base notes shipped in ``harness/agent/skills/*.md`` and the notes
-the curator writes from lessons. At most three are loaded into the context; the curator picks them.
+Skills. Short knowledge notes (<= 200 tokens): the base notes shipped in ``harness/agent/skills/*.md`` and the notes
+the curator writes. The agent loads them into its kernel's ``SKILLS`` dict with ``recall()`` (at most five at a time,
+the oldest dropped first); at a level-up the curator's picks are loaded the same way.
 """
 
 from __future__ import annotations
@@ -20,12 +21,12 @@ from pathlib import Path
 from typing import Any
 
 from harness.memory.store import clip, lock_for, read_json, tokens, write_json
+from harness.memory.working import first_sentence
 
 NODE_TYPES = ("shape", "rule", "refuted", "goal")
 EDGE_TYPES = ("moves", "blocks", "wins-when", "appears-in-level", "contradicts", "about")
 BASE_SKILLS_DIR = Path(__file__).resolve().parents[1] / "agent" / "skills"
 SKILL_TOKENS = 200
-START_SKILLS = ("game_intuition", "planning", "world_model")   # loaded before the curator's first pick
 
 _SHARED: dict[str, Any] = {}
 _SHARED_LOCK = threading.Lock()
@@ -139,8 +140,7 @@ class LessonsGraph:
 
 
 class SkillBook:
-    """Base notes (read-only markdown files) plus curated notes (JSON, shared across games). ``loaded[game]`` is the
-    curator's pick of at most three; before its first pick a game loads ``START_SKILLS``."""
+    """Base notes (read-only markdown files) plus curated notes (JSON, shared across games)."""
 
     def __init__(self, path: Path, base_dir: Path = BASE_SKILLS_DIR) -> None:
         self.path = Path(path)
@@ -149,7 +149,6 @@ class SkillBook:
                                      for p in sorted(Path(base_dir).glob("*.md"))}
         d = read_json(self.path, {})
         self.curated: dict[str, dict[str, Any]] = d.get("curated", {})
-        self.loaded: dict[str, list[str]] = d.get("loaded", {})
 
     @classmethod
     def shared(cls, path: Path) -> SkillBook:
@@ -157,7 +156,7 @@ class SkillBook:
 
     def save(self) -> None:
         with self.lock:
-            write_json(self.path, {"curated": self.curated, "loaded": self.loaded})
+            write_json(self.path, {"curated": self.curated})
 
     def names(self) -> list[str]:
         return list(self.base) + [n for n in self.curated if n not in self.base]
@@ -181,29 +180,13 @@ class SkillBook:
                 s["games"].append(game)
         return name
 
-    def set_loaded(self, game: str, names: list[str]) -> list[str]:
-        known = [n for n in dict.fromkeys(names) if self.text(n) is not None][:3]
-        with self.lock:
-            self.loaded[game] = known
-        return known
+    def purpose(self, name: str) -> str:
+        """The first sentence of a skill, cut to 120 characters: what ``recall("")`` lists."""
+        return first_sentence(self.text(name) or "")
 
-    def loaded_for(self, game: str) -> list[str]:
-        return self.loaded.get(game) or ([n for n in START_SKILLS if n in self.base] or list(self.base))[:3]
-
-    def render(self, game: str, cap_tokens: int) -> str:
-        out: list[str] = []
-        for name in self.loaded_for(game):
-            block = f"### {name}\n{self.text(name)}"
-            if tokens("\n\n".join(out + [block])) > cap_tokens:
-                break
-            out.append(block)
-        return "\n\n".join(out)
-
-    def search(self, query: str) -> list[str]:
+    def find(self, query: str) -> list[str]:
+        """The names of the skills whose name and text hold every word of ``query``, those with more of the words in
+        their name first (then base skills before curated ones, in file order)."""
         words = [w for w in re.split(r"\s+", (query or "").lower()) if w]
-        out = []
-        for name in self.names():
-            text = self.text(name) or ""
-            if all(w in f"{name} {text}".lower() for w in words):
-                out.append(f"### {name}\n{text}")
-        return out
+        hits = [n for n in self.names() if all(w in f"{n} {self.text(n) or ''}".lower() for w in words)]
+        return sorted(hits, key=lambda n: -sum(w in n.lower() for w in words))
