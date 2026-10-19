@@ -1,14 +1,15 @@
 """The curator: the hidden reviewer that turns the agent's trajectory into memory. It runs at every level-up (inside
-``Play()``, before the level-up clears the level's plan, hypotheses and findings, so it can write skills from them),
-after every compaction and every ``curator_every_turns`` turns.
+``play()``, before the level-up clears the level's plan, hypotheses and findings, so it can write skills from them),
+and at the end of a turn once ``curator_every_turns`` model requests have gone by since its last pass.
 
 One JSON call, thinking off. From the last steps of the timeline, the agent's working memory and the lessons graph it
 writes: up to three open questions, lessons (at a level-up it judges which of the agent's hypotheses the level
 proved or refuted, from what the agent tried and what worked),
 skills, and which three skills to load. At a level-up it writes 2 to 5 specific skills from what the level taught;
-otherwise at most 2. The agent never sees the curator's turns; it sees their effect in its pinned memory block (and
-the level-up message names the new skills). A reply that does not parse, or an item that does not validate, is
-dropped and logged; the rest is applied.
+otherwise at most 2. The agent never sees the curator's turns. With memory in the context it sees their effect in
+its memory message; with memory out of it (the default), only the level-up message (it names the new skills) and
+``recall`` (lessons and skills) show it. A reply that does not parse, or an item that does not validate, is dropped
+and logged; the rest is applied.
 """
 
 from __future__ import annotations
