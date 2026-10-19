@@ -134,7 +134,7 @@ DEFAULT: dict[str, Any] = {
             # The curator always runs at every level-up (before its memory is cleared); above 0 also at the end of a
             # turn once this many requests have gone by since its last pass.
             "curator_every_turns": 0,
-            "curator_max_tokens": 1536,
+            "curator_max_tokens": 4000,
             "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
             # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},
