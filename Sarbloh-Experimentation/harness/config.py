@@ -45,8 +45,9 @@ DEFAULT: dict[str, Any] = {
         "act_max_actions": 100,        # moves per play() path: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
         # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
-        # int for every level. Room for a world model of several hundred lines. run.py caps it at reserve_tokens.
-        "max_tokens_per_turn": 12288,
+        # int for every level. A reply cut at this cap gets a note to call the tool sooner. run.py caps it at
+        # reserve_tokens.
+        "max_tokens_per_turn": 2000,
         # One turn of the outer loop is up to this many model requests, sent back to back. While the model only runs
         # Python (looks, computes, reads its own output) the turn goes on: no note, no change of scheduler slot. The
         # turn ends at the first request whose cells moved (await play), or at a cap; then the slot is handed over.
@@ -66,7 +67,7 @@ DEFAULT: dict[str, Any] = {
         "reasoning_effort": {"early": "medium", "later": "medium"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
-        "tool_output_chars": 5000,     # upstream: 65536 per stream; ours is cut to fit small context windows
+        "tool_output_chars": 8000,     # about 2000 tokens (upstream: 65536 per stream)
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # No summary: the context is kept under cap_tokens by draining old messages in code (no model call). Above
         # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
@@ -135,7 +136,7 @@ DEFAULT: dict[str, Any] = {
             # The curator always runs at every level-up (before its memory is cleared); above 0 also at the end of a
             # turn once this many requests have gone by since its last pass.
             "curator_every_turns": 0,
-            "curator_max_tokens": 4000,
+            "curator_max_tokens": 2000,
             "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
             # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},
