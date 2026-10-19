@@ -66,6 +66,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                board_text=bool(p.get("ascii", True)),
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
                                segmentation=bool(p.get("segmentation", True)),
+                               briefing=bool(p.get("briefing", True)),
                                observe_view=bool(p.get("observe_view", True)),
                                memory_shown=bool(cfg.get("append_only", True))
                                and bool((cfg.get("memory") or {}).get("in_context", True)))
@@ -567,10 +568,10 @@ class AgentSession:
         s = arc.game.state
         legal = " ".join(str(a) for a in s.available_actions if a != 0)
         left = arc.budget_left if arc.max_actions else "unlimited"
-        return (f"game {arc.game.game_id} | level {s.levels_completed + 1} of {arc.game.number_of_levels} "
+        return (f"level {s.levels_completed + 1} of {arc.game.number_of_levels} "
                 f"({s.levels_completed} done) | {s.engine_state.name} | legal actions {legal} | "
                 f"{arc.game.action_count} actions spent ({arc.game.action_count - arc._level_start} this level), "
-                f"{left} left | {self._left()['minutes_left']} min left")
+                f"{left} left")
 
     def _observation(self, full: bool = False, picture: bool = True) -> dict[str, Any]:
         """Builds the view of the current state as a user message: the full view at a level start or when full=True, else the short view (what changed). Also writes the board to disk for observe()/play(). Called from _tool_act (after moves), run (first state), _observe_called and _observation_refresh."""
@@ -681,7 +682,7 @@ class AgentSession:
             return
         png, name = self._picture()
         where = f"after step #{self._last_step}" if self._last_step is not None else "at the start"
-        msg = perception.image_message(f"[picture of the board now, {where}]", png, self._last_step)
+        msg = perception.image_message(f"[picture of current state(board), {where}]", png, self._last_step)
         msg.update({"_kind": context.PICTURE_KIND, "_picture_key": key})
         if name:
             msg["_image_file"] = name

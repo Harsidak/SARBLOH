@@ -47,7 +47,7 @@ DEFAULT: dict[str, Any] = {
         # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
         # int for every level. A reply cut at this cap gets a note to call the tool sooner. run.py caps it at
         # reserve_tokens.
-        "max_tokens_per_turn": 2000,
+        "max_tokens_per_turn": 12000,
         # One turn of the outer loop is up to this many model requests, sent back to back. While the model only runs
         # Python (looks, computes, reads its own output) the turn goes on: no note, no change of scheduler slot. The
         # turn ends at the first request whose cells moved (await play), or at a cap; then the slot is handed over.
@@ -90,7 +90,7 @@ DEFAULT: dict[str, Any] = {
         "drain_output_chars": 400,
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
-        "chain_reasoning_tokens": 4000,
+        "chain_reasoning_tokens": 2000,
         # A stored reply keeps its thinking only when its code is shorter than this many words (no code at all
         # included): a reply that wrote real code is sent back as the code alone. Decided once, when the reply is
         # stored, so the prompt stays a prefix of the next one. None: every reply keeps its thinking.
@@ -117,7 +117,7 @@ DEFAULT: dict[str, Any] = {
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": False,     # object list with ids, hashes, containment, adjacency
-            "briefing": True,          # briefing: MEASURED facts and GUESSES, in the full view
+            "briefing": False,         # briefing: MEASURED facts and GUESSES, in the full view
             "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)
@@ -136,7 +136,7 @@ DEFAULT: dict[str, Any] = {
             # The curator always runs at every level-up (before its memory is cleared); above 0 also at the end of a
             # turn once this many requests have gone by since its last pass.
             "curator_every_turns": 0,
-            "curator_max_tokens": 2000,
+            "curator_max_tokens": 4000,
             "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
             # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},

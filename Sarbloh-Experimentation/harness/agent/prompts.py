@@ -86,7 +86,7 @@ READING_THE_STATE = """What you see:
    `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
    `#12` is the step number. `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
 2. After a call that made moves, the end of the same output has the new state: a status line, the last step{short_objects}{board_after}.
-3. At the start of each level{observe_full}, you get the full state: a briefing{object_list}{board_start}{picture_start}.
+3. At the start of each level{observe_full}, you get the full state: the status line{briefing}{object_list}{board_start}{picture_start}.{observe_code}
 {board_note} {picture_help}
 How to read it:
 - Positions are rows and columns. `r10-12 c20-22` means rows 10 to 12 and columns 20 to 22. Row 0 is the top, and column 0 is the left.
@@ -116,7 +116,7 @@ obs = observe() is a frozen copy of the state at the moment it is called. It doe
 - obs.objects is a list of dicts, one per object (a connected area of one color). Each has `id`, `letter`, `name`, `size`, `bbox` [r0, c0, r1, c1], `hash` (same shape, same hash), `corners`, `parent`, `children`, `adjacent`, `hud` (True for counters and bars at the edge) and `cells` (a list of (row, column), or None for objects over 256 cells). A list comprehension picks out what matters, for example `[o for o in obs.objects if o["letter"] == "R" and not o["hud"]]`.
 - obs.ascii(r0, c0, r1, c1) returns a labelled text window of the rows r0..r1 and columns c0..c1. A window around the objects of interest is a few hundred characters; the whole 64x64 board is about 4,000.
 - obs.change is the change line of the newest move. `obs.history` is the last 20 steps, newest first, each a dict with `i`, `level`, `action`, `change` and `state`.
-- obs.status holds the level, the moves used and the legal moves; `obs.briefing`, `obs.step`, `obs.background` and `obs.legend` complete it.
+- obs.status holds the level, the moves used and the legal moves; {obs_briefing}`obs.step`, `obs.background` and `obs.legend` complete it.
 
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
@@ -330,7 +330,7 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 
 def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True, code_graph: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
-                observe_view: bool = True, segmentation: bool = True, thinking_dropped: bool = False,
+                observe_view: bool = True, segmentation: bool = True, briefing: bool = True, thinking_dropped: bool = False,
                 **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
@@ -351,9 +351,12 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
                        "`obs.objects` or a small `obs.ascii(...)` window.\n"}
     memory = MEMORY_SHOWN if memory_shown else MEMORY_HIDDEN
     views = {"short_objects": " and the objects in the area that changed" if short_objects else "",
+             "briefing": ", a briefing" if briefing else "",
+             "obs_briefing": "`obs.briefing`, " if briefing else "",
              "object_list": " and the list of objects" if segmentation else "",
              "observe_full": ", after old messages are shortened, and in the output of a call that runs `observe()`" if observe_view else
-             " and after old messages are shortened. `observe()` gives the same state in your code only"}
+             " and after old messages are shortened",
+             "observe_code": "" if observe_view else " `observe()` gives the same state in your code only."}
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
                            memory_where=memory, **pictures, **board, **views,
                            earlier_kept="Your earlier code and tool outputs (and your thinking, when a reply wrote "

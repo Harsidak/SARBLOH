@@ -65,8 +65,7 @@ def _section(blocks: dict[str, str], key: str) -> str:
 
 
 def pinned_message(blocks: dict[str, str], status: str) -> dict[str, Any]:
-    parts = ["[memory] Your memory, from the memory variables in your code. When a section changes, the new version is shown "
-             "with the next state. It is not a message to answer.", f"## Game\n{status}"]
+    parts = ["[memory] Your memory, don't reply to this message."]
     for key in ORDER:
         text = _section(blocks, key)
         if text:
@@ -81,7 +80,7 @@ def changed_sections(blocks: dict[str, str], shown: dict[str, str]) -> list[str]
 
 def memory_update(blocks: dict[str, str], keys: list[str]) -> dict[str, Any]:
     """Only the sections in ``keys``, as they are now; the others are as last shown."""
-    parts = ["[memory update] These sections of your memory changed; the others are as shown before."]
+    parts = ["[memory update] These sections of your memory changed."]
     parts += [f"## {TITLES[key]}\n{_section(blocks, key) or '(empty)'}" for key in keys]
     return {"role": "user", "_kind": MEMORY_UPDATE_KIND, "content": "\n\n".join(parts)}
 
