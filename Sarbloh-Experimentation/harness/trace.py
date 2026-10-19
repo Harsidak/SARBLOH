@@ -37,9 +37,9 @@ plays (drains, trims, resets), so the transcript has a snapshot of the stored co
 context at any request is the last snapshot plus the messages appended after it, and each request is rebuilt from it
 with the agent's own builder (``harness.agent.context.build``) and checked against the digest the agent logged
 (``wire_sha``). Requests whose history extends the previous one plus its reply form one row, so every assistant message
-in a row follows the messages it was answering. With the picture at the tail (``tail`` events: the newest picture is
-the last message of a request and is never stored), each reply in a row follows the picture it saw, and the pictures
-seen by the earlier replies of the row stay where they were. Per reply: ``turn``, ``flags`` (cut_off, tool_error,
+in a row follows the messages it was answering. Pictures are stored messages now; in older runs with the picture at the
+tail (``tail`` events: the newest picture is the last message of a request and is never stored), each reply in a row
+follows the picture it saw, and the pictures seen by the earlier replies of the row stay where they were. Per reply: ``turn``, ``flags`` (cut_off, tool_error,
 cell_error, repeat, game_over, no_tool_call) and ``train``: false for a flagged reply (all flags but no_tool_call) and
 for replies of earlier rows that are only context here. Pictures are files (``games/<id>/frames/``) named in the image
 parts. Row fields beside ``system``, ``tools`` and ``messages``: ``segment_start`` (start, drain, trim, overflow,
@@ -397,6 +397,7 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "skills_loaded_by_curator": sorted({s for c in curations for s in c.get("loaded") or []}),
            "surprises": len(by_kind["surprise"]), "stuck_notes": len(by_kind["stuck_note"]),
            "cut_off_notes": len(by_kind["cut_off_note"]), "tail_pictures": len(by_kind["tail"]),
+           "stored_pictures": sum(1 for e in by_kind["message"] if e.get("_kind") == "picture"),
            "images_sent": stats.get("images_sent"), "observation_chars_max": stats.get("observation_chars_max"),
            "repeated_share": round(sum(1 for r in actions if r.get("repeat_of") is not None) / len(actions), 3)
            if actions and steps else None}
@@ -479,8 +480,9 @@ def render_report(a: dict[str, Any]) -> str:
             f"{c.get('cell_errors')}, play() calls {c.get('play_calls')} ({c.get('moves_per_play')} moves each), "
             f"play() argument errors {c.get('act_arg_errors')}, surprises {c.get('surprises')}",
             f"- context: {len(c.get('drains') or [])} drains, {c.get('trims')} trims, {c.get('resets')} resets, "
-            f"{c.get('overflows')} overflows; {c.get('tail_pictures')} pictures at the tail, {c.get('images_sent')} "
-            f"pictures drawn, largest observation {c.get('observation_chars_max')} chars",
+            f"{c.get('overflows')} overflows; {c.get('stored_pictures')} pictures stored, {c.get('tail_pictures')} "
+            f"at the tail, {c.get('images_sent')} pictures drawn, largest observation {c.get('observation_chars_max')} "
+            f"chars",
             f"- memory: {c.get('hypotheses')} hypotheses, levels without one {c.get('levels_without_hypothesis')}, "
             f"promotions {c.get('promotions')}, recalls {c.get('recalls')} {json.dumps(c.get('recall_scopes'))}, "
             f"skills recalled {c.get('skills_recalled')}",
@@ -615,7 +617,7 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
     system = system_ev.get("content") or ""
     vision = bool(system_ev.get("vision"))
     append_only = system_ev.get("append_only", True)
-    old_images = system_ev.get("old_images", True)
+    old_images = system_ev.get("keep_pictures", system_ev.get("old_images", True))
     budget = int(system_ev.get("reasoning_budget") or agent_context.REASONING_BUDGET_TOKENS)
     flags = _turn_flags(events)
     base = run.get("baseline_actions") or []

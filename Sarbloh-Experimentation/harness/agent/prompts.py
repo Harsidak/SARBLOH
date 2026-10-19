@@ -182,7 +182,7 @@ GRAPH_NOTE = ("\n- When a call adds, changes or removes a function or class, its
               "functions as they are now, each followed by what it calls, and `graph(\"name\")` shows one function "
               "with what calls it.")
 
-PICTURE_LAST = "\nThe last message you get is always a picture of the board as it is now."
+PICTURE_LAST = "\nEvery time the board changes, a picture of the new board comes right after the output that changed it."
 
 ENVIRONMENT = """Python packages: `collections`, `heapq`, `itertools`, `functools` and `numpy`. `observe` and `play` are already imported. The working directory of `ipython` is your own folder for this game."""
 

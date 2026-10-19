@@ -30,10 +30,11 @@ DEFAULT: dict[str, Any] = {
     # either way. Off: none of it is written. Always off on the competition rerun (its outputs are never seen).
     "tracing": True,
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
-    # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for one turn (agent
-    # max_inner_requests), then the waiting game with the best (next-level weight x hope) gets it. `quantum_calls` is
-    # only for callers that do not end their own turns (the agent does). Set game_wall_s to the budget.
-    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0,
+    # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for whole turns until
+    # it has made `quantum_calls` requests, then at its next turn end the waiting game with the best (next-level weight
+    # x hope) gets it. Each hand-over costs the game one request prefilled in full (a waiting game's prefix is evicted
+    # from the server cache), so the cache hit rate is about 1 - 1/quantum_calls. Set game_wall_s to the budget.
+    "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 20, "token_scale": 40000.0,
                   "action_scale": 115.0, "human_actions": 25.0, "tail_fade_fraction": 0.2},
     # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
     # every game's first request (and each one after a drain) finds them in the server's prefix cache.

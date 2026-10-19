@@ -2,8 +2,11 @@
 
 A game must hold a slot to call the LLM. ``ScheduledLLM`` wraps the shared client for one game: its first ``chat``
 waits for a slot, the game keeps the slot for ``quantum_calls`` LLM calls (its tool runs in between take
-milliseconds), then gives it back and competes again. A turn-driven game (the agent) keeps it instead until it ends
-its turn with ``yield_turn``: after a move or a cap, never while it only runs code. A level-up also sends it back to
+milliseconds), then gives it back and competes again. A turn-driven game (the agent) never loses it inside a turn:
+it gives it back at the first turn end (``yield_turn``, after a move or a cap) once it has made ``quantum_calls``
+calls since it got the slot. A game that waits for a slot loses its prefix in the server's cache (the other games
+evict it), so every hand-over costs one request prefilled in full: handing over at every turn end (about two requests)
+kept 10% of the prompt cached in the Qwen run of 2026-10-19. A level-up also sends it back to
 compete at once, and so does a rewrite of the game's prompt (a drain, compaction or reset, ``mark_cold``) once it has
 used its slot, unless the game is turn-driven: the next request is prefilled in full anyway, so the slot is handed over
 when it costs nothing, not in the middle of a warm prefix the server would have to prefill again later. When a slot is free, the waiting game with the highest priority gets it;
@@ -287,7 +290,10 @@ class ScheduledLLM:
 
     def yield_turn(self) -> None:
         """The game's turn ended (a move, or a cap without one): the slot goes to the best waiting game now (this game
-        queues again and may get it straight back)."""
+        queues again and may get it straight back). A turn-driven game does so only once it has made ``quantum_calls``
+        calls since it got the slot; before that it keeps the slot for its next turn."""
+        if self.turn_driven and self._calls_in_quantum < self._sched.quantum_calls:
+            return
         if self._calls_in_quantum > 0:
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "yield")

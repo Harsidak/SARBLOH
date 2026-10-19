@@ -103,9 +103,7 @@ class AgentSession:
     _frames = 0
     code_graph = True
     _graph: dict[str, Any] = {}   # replaced, never changed in place
-    tail_picture = False
-    _tail: dict[str, Any] | None = None
-    _tail_key: tuple[Any, ...] | None = None
+    picture_last = False
 
     def __init__(self, *, cfg: dict[str, Any], llm: LLM, name: str, session_dir: Path, task: str,
                  arc: ArcHost, deadline: float, stop_event: threading.Event, memory_root: Path | None = None,
@@ -163,10 +161,13 @@ class AgentSession:
         self.perception = dict(cfg.get("perception") or {})
         self.vision = bool(cfg.get("vision")) and bool(self.perception.get("image", True))
         self.old_images = bool(self.perception.get("old_images", False))   # off: only the newest picture is sent
-        # With old_images off (append-only), the picture is never stored: it is the last message of every request.
-        self.tail_picture = self.vision and not self.old_images and bool(cfg.get("append_only", True))
-        self._tail: dict[str, Any] | None = None
-        self._tail_key: tuple[Any, ...] | None = None
+        # With old_images off (append-only), the views stay text and the picture of the board is its own stored
+        # message, added once per new state right after the output that changed it. It is never moved or removed
+        # before a rewrite: on this hybrid model the server reuses a prefix only up to the end of an earlier request,
+        # so a picture sent last and then dropped made every request prefill from the system prompt again (Qwen run of
+        # 2026-10-19: 4416 cached tokens on every one of 960 requests, 10% of the prompt).
+        self.picture_last = self.vision and not self.old_images and bool(cfg.get("append_only", True))
+        self.keep_pictures = self.old_images or self.picture_last   # stored pictures stay until a rewrite
         self.tracker = perception.Tracker()
         self._objects: list[Any] = []            # objects of the newest frame, ids stable within the level
         self._obs_rows: list[list[int]] | None = None   # the grid of the last observation pushed (crop baseline)
@@ -214,7 +215,8 @@ class AgentSession:
             self.kernel.start()
             self._log_event({"event": "system_prompt", "content": self._system_prompt(), "tools": self.tools,
                              "vision": self.vision, "append_only": self.append_only, "old_images": self.old_images,
-                             "tail_picture": self.tail_picture, "reasoning_budget": self._reasoning_budget()})
+                             "picture_last": self.picture_last, "keep_pictures": self.keep_pictures,
+                             "reasoning_budget": self._reasoning_budget()})
             # The memory is the pinned block; the first state comes with the task.
             self._log_event({"event": "memory_init", **self.memory.on_new_game()})
             self._append({"role": "user", "content": self.task})
@@ -280,10 +282,10 @@ class AgentSession:
                 self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
                 self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
             pinned = self._pinned
-        tail = self._tail_picture()
+        self._add_picture()
         msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
                              reasoning_budget=self._reasoning_budget(), append_only=self.append_only,
-                             old_images=self.old_images, tail=tail)
+                             old_images=self.keep_pictures)
         effort = self._effort()
 
         # 3) send the current message to LLM and handles a context overflow (drain, trim, reset), llm failures and time outs
@@ -319,7 +321,7 @@ class AgentSession:
         if reply.reasoning and (native or self.append_only) and self._keeps_reasoning(calls):
             assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
         estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
-            sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0) + self._tail_tokens(tail)
+            sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
         if reply.prompt_tokens > 0 and estimate > 0:
             self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
         # For the trace: the request's digest (harness/trace.py rebuilds it from the transcript and checks it), the
@@ -330,9 +332,8 @@ class AgentSession:
         self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
                      finish=reply.finish_reason, turn=self.stats["turns"], **trace)
         # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
-        # while it is still sent (until the next user message), so completion_tokens would overcount. The picture at
-        # the tail is not part of the stored history, so its tokens come off the anchor.
-        self._usage_tokens = max(0, reply.prompt_tokens - int(self._token_scale * self._tail_tokens(tail)))
+        # while it is still sent (until the next user message), so completion_tokens would overcount.
+        self._usage_tokens = reply.prompt_tokens
         self._usage_at = len(self.messages) - 1
 
         # 5) The tool calls (each ipython call saves the memory variables of the kernel). Code that only looks keeps
@@ -628,10 +629,10 @@ class AgentSession:
 
     def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
         """Adds the picture to a view message, only for messages really sent: the briefing picture (the plain frame if
-        the briefing failed), always saved under frames/ for analysis. With the picture at the tail
-        (``tail_picture``) the message stays text: the newest picture goes last in every request instead. Called from
+        the briefing failed), always saved under frames/ for analysis. With ``picture_last`` the message stays text: the
+        picture is its own stored message instead (``_add_picture``). Called from
         _request step 5 and _observation."""
-        if not self.vision or self.tail_picture or isinstance(msg.get("content"), list):
+        if not self.vision or self.picture_last or isinstance(msg.get("content"), list):
             return msg
         png, name = self._picture()
         out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
@@ -668,27 +669,23 @@ class AgentSession:
             name = None
         return png, name
 
-    def _tail_picture(self) -> dict[str, Any] | None:
-        """The picture of the board now, sent as the last message of the request (``tail_picture``), or None. It is
-        drawn again only when the state changed (a move, a level); a new one is logged for the trace. Called from
-        _request step 3."""
-        if not self.tail_picture:
-            return None
-        key = (self.arc.game.action_count, self.arc.game.state.levels_completed, self._last_step)
-        if self._tail is None or self._tail_key != key:
-            png, name = self._picture()
-            where = f"after step #{self._last_step}" if self._last_step is not None else "at the start"
-            tail = perception.image_message(f"[picture of the board now, {where}]", png, self._last_step)
-            tail["_kind"] = context.TAIL_KIND
-            if name:
-                tail["_image_file"] = name
-            self._tail, self._tail_key = tail, key
-            self._log_event({"event": "tail", **context.loggable(tail)})
-        return self._tail
-
-    def _tail_tokens(self, tail: dict[str, Any] | None) -> int:
-        """The estimate of the tail picture message: its picture and its line of text."""
-        return IMAGE_TOKENS + 20 if tail else 0
+    def _add_picture(self) -> None:
+        """With ``picture_last``, stores the picture of the board now as a user message at the end of the history, once
+        per state (a move, a level): the request after a move ends with it, and it stays where it is until a rewrite.
+        Drawn again after a rewrite that stubbed or dropped it. Called from _request step 3."""
+        if not self.picture_last:
+            return
+        key = [self.arc.game.action_count, self.arc.game.state.levels_completed, self._last_step]
+        newest = next((m for m in reversed(self.messages) if m.get("_kind") == context.PICTURE_KIND), None)
+        if newest is not None and newest.get("_picture_key") == key and context.has_image(newest):
+            return
+        png, name = self._picture()
+        where = f"after step #{self._last_step}" if self._last_step is not None else "at the start"
+        msg = perception.image_message(f"[picture of the board now, {where}]", png, self._last_step)
+        msg.update({"_kind": context.PICTURE_KIND, "_picture_key": key})
+        if name:
+            msg["_image_file"] = name
+        self._append(msg)
 
     def _observe_called(self) -> str:
         """The agent called observe() in a cell: adds the full view to that cell's output, once per state. Called from _run_call."""
@@ -936,7 +933,7 @@ class AgentSession:
     def _estimate(self, m: dict[str, Any]) -> int:
         """chars/4 of one message (pictures counted)."""
         return compaction.estimate_tokens(m, reasoning=False,
-                                          image_tokens=IMAGE_TOKENS if self.append_only and self.old_images else 0)
+                                          image_tokens=IMAGE_TOKENS if self.append_only and self.keep_pictures else 0)
 
     def _chain_reasoning_tokens(self, start: int) -> int:
         """chars/4 of the thinking still sent, from message start on. Used by _context_tokens."""
@@ -952,7 +949,7 @@ class AgentSession:
             if self.append_only and self.memory_in_context else None
         graph = context.graph_message(codegraph.render(self._graph)) if self.code_graph and self._graph else None
         fixed = (len(self._system_prompt()) + (len(mem["content"]) if mem else 0) +
-                 (len(graph["content"]) if graph else 0) + 3) // 4 + self._tail_tokens(self._tail)
+                 (len(graph["content"]) if graph else 0) + 3) // 4
         # The tail sizes to try, mildest first: keep_recent_tokens, halved down to DRAIN_MIN_KEEP, then the smallest
         # tail with shorter tool outputs.
         keep0 = int(self.cfg["compaction"]["keep_recent_tokens"])

@@ -8,9 +8,11 @@ chain reused 90%+. So nothing already sent is changed until a rewrite (a drain, 
 - every reply keeps its thinking (with config ``old_images`` on, every picture also stays where it was sent);
 - the memory is a stored message: in full at a level start and after every rewrite (``pinned_message``), then after
   each new board only the sections that changed (``memory_update``), and in full again every few boards;
-- the picture of the board (config ``old_images`` off) is not stored in the history at all: it is one extra user
-  message at the very end of each request (``tail``), always the newest board. A new picture then changes only the
-  last few hundred tokens of the next request, never the cached history before it;
+- the picture of the board (config ``old_images`` off) is its own stored user message, added once per new state
+  right after the output that changed it, and kept where it is until a rewrite. It is never sent last and then taken
+  away: the server keeps the hybrid model's recurrent state only at the end of an earlier request, so a request that
+  drops anything the previous one ended with is prefilled from the system prompt again (2026-10-19, picture at the
+  tail: 4416 cached tokens on every request, 10% of the prompt);
 - each ipython output ends with a one-line change note of the code graph (the agent's live functions and what they
   call, ``harness/runtime/skills/codegraph.py``); the old lines stay as they were, so the prompt keeps its prefix;
 - at the compaction trigger the agent first drains (``drain``): the newest messages stay word for word, thinking
@@ -39,7 +41,8 @@ from typing import Any
 PINNED_KIND = "pinned"
 MEMORY_UPDATE_KIND = "memory_update"
 GRAPH_KIND = "code_graph"          # the whole code graph, put back once after a drain, trim or reset
-TAIL_KIND = "tail"                 # the picture of the board now, sent last in every request, never stored
+TAIL_KIND = "tail"                 # the old picture sent last and never stored; kept so older transcripts rebuild
+PICTURE_KIND = "picture"           # the picture of the board after a new state, a stored message
 STUB_KIND = "board_stub"           # an old board after a drain: one line, no picture
 ACT_LINE_CHARS = 200               # an old act result's change line after a drain
 ERROR_CHARS = 1500                 # an old error traceback after a drain keeps this many characters (its end)
@@ -103,6 +106,9 @@ def _parts(content: Any) -> list[dict[str, Any]]:
 
 def _has_image(m: dict[str, Any]) -> bool:
     return isinstance(m.get("content"), list) and any(p.get("type") == "image_url" for p in m["content"])
+
+
+has_image = _has_image
 
 
 def _stub(m: dict[str, Any], why: str) -> dict[str, Any]:
