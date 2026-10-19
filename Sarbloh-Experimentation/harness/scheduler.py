@@ -2,10 +2,11 @@
 
 A game must hold a slot to call the LLM. ``ScheduledLLM`` wraps the shared client for one game: its first ``chat``
 waits for a slot, the game keeps the slot for ``quantum_calls`` LLM calls (its tool runs in between take
-milliseconds), then gives it back and competes again. A level-up also sends it back to compete at once, and so does a
-rewrite of the game's prompt (a drain, compaction or reset, ``mark_cold``) once it has used its slot: the next request
-is prefilled in full anyway, so the slot is handed over when it costs nothing, not in the middle of a warm prefix the
-server would have to prefill again later. When a slot is free, the waiting game with the highest priority gets it;
+milliseconds), then gives it back and competes again. A turn-driven game (the agent) keeps it instead until it ends
+its turn with ``yield_turn``: after a move or a cap, never while it only runs code. A level-up also sends it back to
+compete at once, and so does a rewrite of the game's prompt (a drain, compaction or reset, ``mark_cold``) once it has
+used its slot, unless the game is turn-driven: the next request is prefilled in full anyway, so the slot is handed over
+when it costs nothing, not in the middle of a warm prefix the server would have to prefill again later. When a slot is free, the waiting game with the highest priority gets it;
 ties go to the one that has waited longest.
 
 Priority of a game playing level L+1 of n (L levels won), ``t`` output tokens and ``a`` actions spent on that level:
@@ -240,8 +241,11 @@ class ScheduledLLM:
 
     def __init__(self, llm: Any, scheduler: PriorityScheduler, key: str, levels_won: Callable[[], int],
                  n_levels: int | None, should_stop: Callable[[], bool],
-                 actions_on_level: Callable[[], int] = lambda: 0) -> None:
+                 actions_on_level: Callable[[], int] = lambda: 0, turn_driven: bool = False) -> None:
         self._llm, self._sched, self._key = llm, scheduler, key
+        # turn_driven: the agent ends its own turns (``yield_turn`` after a move or a cap), so a turn is never cut by
+        # ``quantum_calls`` or by a cold prompt in the middle; the level-up hand-over stays.
+        self.turn_driven = bool(turn_driven)
         self._levels_won, self._should_stop = levels_won, should_stop
         self._n_levels = n_levels
         self._actions_on_level = actions_on_level
@@ -266,7 +270,7 @@ class ScheduledLLM:
             self._level, self.tokens_on_level = level, 0
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "level_up")
-        elif self._cold and self._calls_in_quantum > 0:   # its prompt was rewritten: hand over while it is cold
+        elif self._cold and self._calls_in_quantum > 0 and not self.turn_driven:   # rewritten: hand over while cold
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "cold")
         self._cold = False
@@ -277,13 +281,13 @@ class ScheduledLLM:
             return reply
         finally:
             self._calls_in_quantum += 1
-            if self._calls_in_quantum >= self._sched.quantum_calls:
+            if not self.turn_driven and self._calls_in_quantum >= self._sched.quantum_calls:
                 self._calls_in_quantum = 0
                 self._sched.handover(self._key, "quantum")
 
     def yield_turn(self) -> None:
-        """The game spent its turn's thinking budget without a move: the slot goes to the best waiting game now (this
-        game queues again and may get it straight back)."""
+        """The game's turn ended (a move, or a cap without one): the slot goes to the best waiting game now (this game
+        queues again and may get it straight back)."""
         if self._calls_in_quantum > 0:
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "yield")

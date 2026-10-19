@@ -30,8 +30,9 @@ DEFAULT: dict[str, Any] = {
     # either way. Off: none of it is written. Always off on the competition rerun (its outputs are never seen).
     "tracing": True,
     # Priority scheduler (harness/scheduler.py). Off: `concurrency` games at a time, each for game_wall_s.
-    # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for `quantum_calls`
-    # LLM calls, then the waiting game with the best (next-level weight x hope) gets it. Set game_wall_s to the budget.
+    # On: every game starts at once and only `slots` of them hold the GPU; a game keeps its slot for one turn (agent
+    # max_inner_requests), then the waiting game with the best (next-level weight x hope) gets it. `quantum_calls` is
+    # only for callers that do not end their own turns (the agent does). Set game_wall_s to the budget.
     "scheduler": {"enabled": True, "slots": 10, "quantum_calls": 10, "token_scale": 40000.0,
                   "action_scale": 115.0, "human_actions": 25.0, "tail_fade_fraction": 0.2},
     # Before the games start, one 1-token request per reasoning effort with the shared system prompt and tools, so
@@ -44,12 +45,15 @@ DEFAULT: dict[str, Any] = {
         # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
         # int for every level. Room for a world model of several hundred lines. run.py caps it at reserve_tokens.
         "max_tokens_per_turn": 12288,
-        # The thinking budget of a turn (a turn ends with a move). Once the replies since the last move have written
-        # this many tokens and the newest one made no move, a short note says to call the tool and move now, and the
-        # game gives its scheduler slot to a waiting game. A reply is never cut by it. 0 = off.
+        # One turn of the outer loop is up to this many model requests, sent back to back. While the model only runs
+        # Python (looks, computes, reads its own output) the turn goes on: no note, no change of scheduler slot. The
+        # turn ends at the first request whose cells moved (await play), or at a cap; then the slot is handed over.
+        "max_inner_requests": 12,
+        # The thinking cap of a turn: once the replies since the last move have written this many tokens without a
+        # move, the turn ends and the slot goes to a waiting game. No note is sent and a reply is never cut. 0 = off.
         "turn_yield_tokens": 16384,
-        # The thinking budget of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (a note,
-        # never a cut, like turn_yield_tokens). 0 = the normal budget.
+        # The thinking cap of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (never a
+        # cut, like turn_yield_tokens). 0 = the normal cap.
         "surprise_yield_tokens": 0,
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.

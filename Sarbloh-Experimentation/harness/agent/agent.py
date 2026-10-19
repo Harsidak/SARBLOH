@@ -1,14 +1,18 @@
 """The agent's main loop: one AgentSession plays one game.
 
-How a game runs (``AgentSession._loop``, one pass per model reply):
+How a game runs: ``AgentSession._loop`` is the outer loop, one pass per turn. A turn is up to max_inner_requests
+model requests (``_request``) sent back to back; it ends at the first request whose cells moved, at a cap
+(max_inner_requests, turn_yield_tokens) or at a stop, and ``guardrails.end_turn`` then gives the scheduler slot back.
+One request:
 1. stop?            ``guardrails.should_stop`` (time, actions, turns, tokens, game over)
 2. room?            ``_drain`` shrinks old messages when the context is past the trigger
 3. ask the model    ``self.llm.chat``; an overflow goes to ``_on_overflow`` (drain, then trim, then reset)
 4. store the reply  its tool calls are read by ``guardrails.read_calls``
 5. run the tools    ``_run_call``: ipython runs in the kernel; each move of ``await play(...)`` comes back to
-                    ``_host`` -> ``_tool_act``, which steps the game and builds the new view (``_observation``)
-6. after the tools  level-up note, turn budget notes (``guardrails.after_tools``), curator (``_maybe_curate``)
-No tool call: a continuation message is sent and the loop goes on.
+                    ``_host`` -> ``_tool_act``, which steps the game and builds the new view (``_observation``);
+                    then the level-up note
+No tool call: a continuation message (or, if the reply was cut off, the "call the tool now" note) and the turn goes on.
+End of a turn: stuck note, curator (``_maybe_curate``), scheduler slot (``guardrails.end_turn``).
 The guardrails (refused moves, notes that push the model to act, tool-call checks, hard stops) are in guardrails.py.
 """
 
@@ -119,7 +123,8 @@ class AgentSession:
                       "observation_chars_max": 0, "pinned_chars_max": 0, "observe_calls": 0, "observe_pushes": 0,
                       "perception_errors": 0, "perception_s_total": 0.0, "perception_s_max": 0.0,
                       "context_overflows": 0, "context_trims": 0, "context_resets": 0, "drains": 0, "code_stubs": 0,
-                      "memory_full": 0, "memory_updates": 0, "turn_yields": 0,
+                      "memory_full": 0, "memory_updates": 0, "turn_yields": 0, "outer_turns": 0,
+                      "turn_requests_max": 0,
                       "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
@@ -208,115 +213,140 @@ class AgentSession:
             self._log_event({"event": "end", "reason": self.end_reason, "stats": self.stats})
 
     def _loop(self) -> None:
-        tools = self.tools
+        """The outer loop: one turn after another until a stop. A turn is up to max_inner_requests model requests sent
+        back to back: while the model only runs Python (to look, compute, check its own output) the turn goes on, with
+        no note and no change of scheduler slot. The turn ends at the first request whose cells moved (``await
+        play(...)``), at a cap (max_inner_requests, or turn_yield_tokens of thinking since the last move), or at a stop;
+        then ``guardrails.end_turn`` hands the slot to the scheduler."""
+        cap = max(1, int(self.cfg.get("max_inner_requests", 12)))
         while True:
-            # 1) any reason to stop?
-            if guardrails.should_stop(self):
-                self.end_reason = guardrails.should_stop(self)
+            reason, requests = "request_cap", 0
+            while requests < cap:
+                # 1) any reason to stop?
+                stop = guardrails.should_stop(self)
+                if stop:
+                    self.end_reason, reason = stop, "stop"
+                    break
+                requests += 1
+                outcome = self._request()
+                if outcome in ("moved", "answered"):
+                    reason = outcome
+                    break
+                if guardrails.over_turn_budget(self):
+                    reason = "token_cap"
+                    break
+            guardrails.end_turn(self, reason, requests)
+            if self.end_reason:
                 return
 
-            # 2) Drain the old messages (no model call) when the context passes the trigger
-            tokens = self._context_tokens()
-            if self._wants_drain(tokens):
-                self._drain(tokens, "threshold")
-            pinned = None
-            if not self.append_only and self.memory_in_context:
-                # Old builder only: the memory block sent with each request, rebuilt when a new user message arrives.
-                newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
-                if self._pinned is None or self._pinned_for is not newest:
-                    self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
-                    self._pinned_for = newest
-                    self._pinned_chars = len(self._pinned["content"])
-                    self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
-                    self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
-                pinned = self._pinned
-            msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
-                                 reasoning_budget=self._reasoning_budget(), append_only=self.append_only,
-                                 old_images=self.old_images)
-            effort = self._effort()
+    def _request(self) -> str:
+        """One model request of a turn and its tool calls. Returns "moved" (a cell sent moves or the level changed),
+        "looked" (code ran without moving, or no tool call), "retry" (overflow or LLM failure: nothing was stored) or
+        "answered" (no tool call and the game is over). Called from _loop."""
+        tools = self.tools
+        # 2) Drain the old messages (no model call) when the context passes the trigger
+        tokens = self._context_tokens()
+        if self._wants_drain(tokens):
+            self._drain(tokens, "threshold")
+        pinned = None
+        if not self.append_only and self.memory_in_context:
+            # Old builder only: the memory block sent with each request, rebuilt when a new user message arrives.
+            newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
+            if self._pinned is None or self._pinned_for is not newest:
+                self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
+                self._pinned_for = newest
+                self._pinned_chars = len(self._pinned["content"])
+                self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
+                self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], self._pinned_chars)
+            pinned = self._pinned
+        msgs = context.build(self._system_prompt(), self.messages, pinned, vision=self.vision,
+                             reasoning_budget=self._reasoning_budget(), append_only=self.append_only,
+                             old_images=self.old_images)
+        effort = self._effort()
 
-            # 3) send the current message to LLM and handles a context overflow (drain, trim, reset), llm failures and time outs
-            try:
-                reply = self.llm.chat(msgs, tools=tools, max_tokens=self._max_tokens(),
-                                      timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())),
-                                      template_kwargs=effort)
-            except ContextOverflow as exc:
-                self._on_overflow(exc, tokens)
-                continue
-            except Exception as exc:  # noqa: BLE001
-                self.stats["llm_failures"] += 1
-                self._log_event({"event": "llm_error", "error": repr(exc)})
-                time.sleep(10)
-                continue
-            self._overflows = 0
-            self.stats["llm_failures"] = 0
-            self.stats["turns"] += 1
-            self.stats["output_tokens"] += reply.completion_tokens
-            self.stats["prompt_tokens_last"] = reply.prompt_tokens
-            self._turns_since_curate += 1
-            self._turn_tokens += reply.completion_tokens
-            if self.arc.game.state.levels_completed != self._stuck_level:   # a new level: its own token count
-                self._stuck_level, self._level_tokens, self._stuck_notes = self.arc.game.state.levels_completed, 0, 0
-            self._level_tokens += reply.completion_tokens
+        # 3) send the current message to LLM and handles a context overflow (drain, trim, reset), llm failures and time outs
+        try:
+            reply = self.llm.chat(msgs, tools=tools, max_tokens=self._max_tokens(),
+                                  timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time())),
+                                  template_kwargs=effort)
+        except ContextOverflow as exc:
+            self._on_overflow(exc, tokens)
+            return "retry"
+        except Exception as exc:  # noqa: BLE001
+            self.stats["llm_failures"] += 1
+            self._log_event({"event": "llm_error", "error": repr(exc)})
+            time.sleep(10)
+            return "retry"
+        self._overflows = 0
+        self.stats["llm_failures"] = 0
+        self.stats["turns"] += 1
+        self.stats["output_tokens"] += reply.completion_tokens
+        self.stats["prompt_tokens_last"] = reply.prompt_tokens
+        self._turns_since_curate += 1
+        self._turn_tokens += reply.completion_tokens
+        if self.arc.game.state.levels_completed != self._stuck_level:   # a new level: its own token count
+            self._stuck_level, self._level_tokens, self._stuck_notes = self.arc.game.state.levels_completed, 0, 0
+        self._level_tokens += reply.completion_tokens
 
-            # 4) Parse reply for tool calls
-            calls = guardrails.read_calls(self, reply)
-            assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
-            native = bool(calls and calls[0]["native"])
-            if native:
-                assistant["tool_calls"] = [c["raw"] for c in calls]
-            if reply.reasoning and (native or self.append_only) and self._keeps_reasoning(calls):
-                assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
-            estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
-                sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
-            if reply.prompt_tokens > 0 and estimate > 0:
-                self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
-            # For the trace: the request's digest (harness/trace.py rebuilds it from the transcript and checks it), the
-            # template's reasoning effort, and whether the thinking stays in the stored reply (it always does except
-            # in the old builder after a fenced-code reply).
-            trace = {"wire_sha": context.digest(msgs), "effort": (effort or {}).get("reasoning_effort"),
-                     "reasoning_unsent": bool(reply.reasoning) and "_reasoning" not in assistant} if self.tracing else {}
-            self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
-                         finish=reply.finish_reason, turn=self.stats["turns"], **trace)
-            if native:
-                self._hide_code()
-            # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
-            # while it is still sent (until the next user message), so completion_tokens would overcount.
-            self._usage_tokens = reply.prompt_tokens
-            self._usage_at = len(self.messages) - 1
+        # 4) Parse reply for tool calls
+        calls = guardrails.read_calls(self, reply)
+        assistant: dict[str, Any] = {"role": "assistant", "content": reply.content or ""}
+        native = bool(calls and calls[0]["native"])
+        if native:
+            assistant["tool_calls"] = [c["raw"] for c in calls]
+        if reply.reasoning and (native or self.append_only) and self._keeps_reasoning(calls):
+            assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
+        estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
+            sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
+        if reply.prompt_tokens > 0 and estimate > 0:
+            self._token_scale = min(4.0, max(0.5, reply.prompt_tokens / estimate))
+        # For the trace: the request's digest (harness/trace.py rebuilds it from the transcript and checks it), the
+        # template's reasoning effort, and whether the thinking stays in the stored reply (it always does except
+        # in the old builder after a fenced-code reply).
+        trace = {"wire_sha": context.digest(msgs), "effort": (effort or {}).get("reasoning_effort"),
+                 "reasoning_unsent": bool(reply.reasoning) and "_reasoning" not in assistant} if self.tracing else {}
+        self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
+                     finish=reply.finish_reason, turn=self.stats["turns"], **trace)
+        if native:
+            self._hide_code()
+        # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
+        # while it is still sent (until the next user message), so completion_tokens would overcount.
+        self._usage_tokens = reply.prompt_tokens
+        self._usage_at = len(self.messages) - 1
 
-            # 5) The tool calls (each ipython call saves the memory variables of the kernel)
-            if calls:
-                moves, level0 = self.stats["act_actions"], self.arc.game.state.levels_completed
-                self._surprised = False
-                for call in calls:
-                    self._run_call(call, reply)
-                if self.arc.game.state.levels_completed != level0 and not self.arc.finished:
-                    guardrails.level_start_note(self)
-                if self._pending_obs is not None:
-                    # The new state goes in right after this reply's tool results, before the next turn.
-                    self._push(self._with_picture(self._pending_obs))
-                    self._pending_obs = None
-                guardrails.after_tools(self, moved=self.stats["act_actions"] > moves)
-                self._reset_if_level_up()
-                self._maybe_curate()
-                continue
+        # 5) The tool calls (each ipython call saves the memory variables of the kernel). Code that only looks keeps
+        # the turn going: the model reads its output in the next request, right away.
+        if calls:
+            moves, level0 = self.stats["act_actions"], self.arc.game.state.levels_completed
+            self._surprised = False
+            for call in calls:
+                self._run_call(call, reply)
+            leveled = self.arc.game.state.levels_completed != level0
+            if leveled and not self.arc.finished:
+                guardrails.level_start_note(self)
+            if self._pending_obs is not None:
+                # The new state goes in right after this reply's tool results, before the next request.
+                self._push(self._with_picture(self._pending_obs))
+                self._pending_obs = None
+            self._reset_if_level_up()
+            return "moved" if self.stats["act_actions"] > moves or leveled else "looked"
 
-            # 6) the reply was cut off, or the turn's thinking budget is spent
-            if reply.finish_reason == "length" or guardrails.over_turn_budget(self):
-                guardrails.yield_turn(self, "call_tool_now")
-                continue
-            # 7) if No tool call: the model ended its turn.
-            if self.arc.finished:
-                self.end_reason = "answered"
-                return
-            self._maybe_curate()
-            self.stats["continuations"] += 1
-            self._push({"role": "user", "content": prompts.continuation(**self._left())})
+        # 6) the reply was cut off before it called a tool
+        if reply.finish_reason == "length":
+            guardrails.cut_off_note(self)
+            return "looked"
+        # 7) if No tool call: the model ended its reply.
+        if self.arc.finished:
+            self.end_reason = "answered"
+            return "answered"
+        self.stats["continuations"] += 1
+        self._push({"role": "user", "content": prompts.continuation(**self._left())})
+        return "looked"
+
 
     def _push(self, msg: dict[str, Any]) -> None:
         """Adds a new user message, with the memory just before it: in full now and then (memory_full_every), else only
-        the sections that changed. Called from _loop and the notes in guardrails.py."""
+        the sections that changed. Called from _request and the notes in guardrails.py."""
         if self.append_only and self.memory_in_context:
             self._states_since_full += 1
             every = int(self.cfg.get("memory_full_every") or 0)
@@ -353,7 +383,7 @@ class AgentSession:
         return text if len(text) <= 2000 else text[:1990] + " ..."
 
     def _keeps_reasoning(self, calls: list[dict[str, Any]]) -> bool:
-        """False when the reply wrote long code: then its thinking is not stored. Called from _loop step 4."""
+        """False when the reply wrote long code: then its thinking is not stored. Called from _request step 4."""
         cap = self.cfg.get("reasoning_max_code_words")
         if cap is None:
             return True
@@ -366,7 +396,7 @@ class AgentSession:
     def _hide_code(self) -> None:
         """Config hide_code: replaces the ipython code of every reply but the newest with a short note, so the model
         always sees its latest code next to its output. The note names only what is really in the kernel, so a cell
-        that crashed does not claim its names. Called from _loop step 4."""
+        that crashed does not claim its names. Called from _request step 4."""
         if not self.hide_code:
             return
         try:
@@ -409,7 +439,7 @@ class AgentSession:
         self._log_event({"event": "message", **msg})
 
     def _effort(self) -> dict[str, str] | None:
-        """The reasoning effort for the current level (config reasoning_effort). Called from _loop step 2."""
+        """The reasoning effort for the current level (config reasoning_effort). Called from _request step 2."""
         kwargs = effort_kwargs(self.cfg, self._level())
         value = (kwargs or {}).get("reasoning_effort")
         if value != self._effort_sent:
@@ -418,7 +448,7 @@ class AgentSession:
         return kwargs
 
     def _max_tokens(self) -> int:
-        """The most one reply may write (config max_tokens_per_turn). Called from _loop step 3."""
+        """The most one reply may write (config max_tokens_per_turn). Called from _request step 3."""
         cap = self.cfg["max_tokens_per_turn"]
         if isinstance(cap, dict):
             cap = cap.get("early") if self._level() <= prompts.EARLY_LEVELS else cap.get("later")
@@ -434,7 +464,7 @@ class AgentSession:
 
     # --- tool calls --------------------------------------------------------------------------------------
     def _run_call(self, call: dict[str, Any], reply: Any = None) -> None:
-        """Runs one tool call and stores its output as a tool message: ipython in the kernel (plus the new view after its moves), recall in memory. Called from _loop step 5."""
+        """Runs one tool call and stores its output as a tool message: ipython in the kernel (plus the new view after its moves), recall in memory. Called from _request step 5."""
         self.stats["tool_calls"] += 1
         counts = self.stats["tool_counts"]
         counts[call["name"]] = counts.get(call["name"], 0) + 1
@@ -581,7 +611,7 @@ class AgentSession:
 
     def _with_picture(self, msg: dict[str, Any]) -> dict[str, Any]:
         """Adds the picture to a view message, only for messages really sent: the briefing picture (the plain frame if
-        the briefing failed), always saved under frames/ for analysis. Called from _loop step 5 and _observation."""
+        the briefing failed), always saved under frames/ for analysis. Called from _request step 5 and _observation."""
         if not self.vision or isinstance(msg.get("content"), list):
             return msg
         rows = self._frame()
@@ -773,7 +803,7 @@ class AgentSession:
 
     # --- the hidden curator ------------------------------------------------------------------------------
     def _maybe_curate(self) -> None:
-        """Runs the curator every curator_every_turns turns. Called from _loop step 6."""
+        """Runs the curator once curator_every_turns requests have gone by. Called from guardrails.end_turn."""
         if self._turns_since_curate >= int((self.cfg.get("memory") or {}).get("curator_every_turns", 25)):
             self._curate("turn_interval", self._objects)
 
@@ -804,7 +834,7 @@ class AgentSession:
         return self._system
 
     def _context_tokens(self) -> int:
-        """Estimated prompt size: last measured prompt tokens plus an estimate of the newer messages. Called from _loop step 2."""
+        """Estimated prompt size: last measured prompt tokens plus an estimate of the newer messages. Called from _request step 2."""
         est = lambda ms: int(self._token_scale * sum(self._estimate(m) for m in ms))
         if self._usage_tokens is None:
             return est(self.messages) + int(self._token_scale * self._chain_reasoning_tokens(0))
@@ -812,13 +842,13 @@ class AgentSession:
             int(self._token_scale * self._chain_reasoning_tokens(self._usage_at))
 
     def _wants_drain(self, tokens: int) -> bool:
-        """True when the context is past the drain trigger. Called from _loop step 2."""
+        """True when the context is past the drain trigger. Called from _request step 2."""
         c = self.cfg["compaction"]
         return compaction.should_compact(tokens, int(self.cfg["context_window"]), int(c["reserve_tokens"]),
                                          c.get("trigger_tokens"))
 
     def _on_overflow(self, exc: Exception, tokens: int) -> None:
-        """The server said the prompt is too long: 1st time drain, 2nd trim, then reset. Called from _loop step 3."""
+        """The server said the prompt is too long: 1st time drain, 2nd trim, then reset. Called from _request step 3."""
         self._overflows += 1
         self.stats["context_overflows"] += 1
         self._log_event({"event": "context_overflow", "count": self._overflows, "tokens": tokens,
@@ -833,7 +863,7 @@ class AgentSession:
             self._reset_context("overflow", prompts.event_message("compacted", level=self._level(), **self._left()))
 
     def _reset_if_level_up(self) -> None:
-        """Config level_up_reset: after a level-up reply, starts the new level from a clean context. Called from _loop step 6."""
+        """Config level_up_reset: after a level-up reply, starts the new level from a clean context. Called from _request step 5."""
         if self._level_up_text is None:
             return
         text, self._level_up_text = self._level_up_text, None
@@ -856,7 +886,7 @@ class AgentSession:
                    for i in context.reasoning_sent(self.messages, self._reasoning_budget()) if i >= start)
 
     def _drain(self, tokens_before: int, reason: str) -> None:
-        """Shrinks the old messages in code (no model call) until the context is under drain_target_tokens; trims if that is not enough. Called from _loop step 2 and _on_overflow."""
+        """Shrinks the old messages in code (no model call) until the context is under drain_target_tokens; trims if that is not enough. Called from _request step 2 and _on_overflow."""
         target = int(self.cfg["compaction"].get("drain_target_tokens", 60000))
         mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status()) \
             if self.append_only and self.memory_in_context else None

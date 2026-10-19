@@ -83,7 +83,8 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
         llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
                            n_levels=game.number_of_levels,
                            should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
-                           actions_on_level=lambda: max(0, game.action_count - host._level_start))
+                           actions_on_level=lambda: max(0, game.action_count - host._level_start),
+                           turn_driven=True)
     task = prompts.task_message(game_id=game.game_id, win_levels=game.number_of_levels,
                                 max_actions=cfg["max_actions_per_game"],
                                 minutes=int(max(0, deadline - time.time()) // 60))

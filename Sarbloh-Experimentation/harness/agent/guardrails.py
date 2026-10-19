@@ -1,13 +1,14 @@
 """The guardrails of the agent loop: what refuses a move, the notes that push the model to act, the tool-call checks
 and the hard stops. Each one takes the running AgentSession ``s`` (harness/agent/agent.py).
 
-Where they are called from in ``AgentSession._loop``:
-1. stop?            ``should_stop``
+Where they are called from in ``AgentSession._loop`` and ``_request``:
+1. stop?            ``should_stop`` (before every request of a turn)
 4. store the reply  ``read_calls`` (unknown tool, broken JSON)
 5. run the tools    ``check_play`` and ``read_moves`` for each move ``play()`` sends, ``batch_stop`` after it;
-                    ``refuse_host`` for other requests
-6. after the tools  ``after_tools`` (turn budget notes), ``stuck_note``, ``level_start_note``
-No tool call:       ``over_turn_budget`` and ``yield_turn``
+                    ``refuse_host`` for other requests; ``level_start_note`` after a level-up
+Cut off, no tool:   ``cut_off_note``
+Turn caps:          ``over_turn_budget`` (thinking tokens since the last move)
+End of a turn:      ``end_turn`` (budget restart, ``stuck_note``, curator, the scheduler slot)
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ _ACTION_NAMES = {0: "RESET", 1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "FIRE
 
 # --- hard stops ---------------------------------------------------------------------------------------------------
 def should_stop(s: Any) -> str | None:
-    """Why the game must stop now (time, actions, turns, tokens, game over, LLM failures), or None. Called from _loop step 1."""
+    """Why the game must stop now (time, actions, turns, tokens, game over, LLM failures), or None. Called from _loop before each request."""
     if s.stop_event.is_set():
         return "stopped"
     if time.time() >= s.deadline:
@@ -50,7 +51,7 @@ def should_stop(s: Any) -> str | None:
 # --- tool-call checks ---------------------------------------------------------------------------------------------
 def read_calls(s: Any, reply: Any) -> list[dict[str, Any]]:
     """Reads the tool calls out of a reply (or ```python blocks as a fallback); an unknown tool or broken JSON becomes
-    the call's error, sent back to the model. Called from _loop step 4."""
+    the call's error, sent back to the model. Called from _request step 4."""
     calls = []
     names = [t["function"]["name"] for t in s.tools]
     for tc in reply.tool_calls:
@@ -203,38 +204,44 @@ def label(a: int, r: int | None, c: int | None) -> str:
 
 # --- notes that push the model to act -----------------------------------------------------------------------------
 def over_turn_budget(s: Any) -> bool:
-    """True when the replies since the last move used up the turn's thinking budget. Called from after_tools and _loop."""
+    """True when the replies since the last move used up the turn's thinking budget, a cap that ends the turn. Called
+    from _loop."""
     return bool(s._turn_budget) and s._turn_tokens >= s._turn_budget
 
 
-def yield_turn(s: Any, kind: str) -> None:
-    """Adds a "move now" note, restarts the turn budget and gives the GPU slot to another game. Called from after_tools
-    and _loop (no tool call)."""
-    s.stats["turn_yields"] += 1
-    s._log_event({"event": "turn_yield", "kind": kind, "tokens": s._turn_tokens})
+def cut_off_note(s: Any) -> None:
+    """The reply was cut at the length limit before it called a tool: the "call the tool now" note. The turn goes on and
+    the scheduler slot is kept. Called from _request."""
+    s.stats["cut_off_notes"] = s.stats.get("cut_off_notes", 0) + 1
+    s._log_event({"event": "cut_off_note", "tokens": s._turn_tokens})
+    s._push({"role": "user", "content": prompts.event_message("call_tool_now", **s._left())})
+
+
+def end_turn(s: Any, reason: str, requests: int) -> None:
+    """The end of one turn of the outer loop (``reason``: "moved", a cap, or the game stopped): restarts the thinking
+    budget (the short one after a surprise), adds the stuck note, runs the curator when it is due, and gives the GPU
+    slot to the best waiting game (this game queues again and may get it straight back). No note says to move: a turn
+    that ends at a cap just goes on in the next one. Called from _loop."""
+    s.stats["outer_turns"] += 1
+    s.stats["turn_requests_max"] = max(s.stats["turn_requests_max"], requests)
+    if reason.endswith("_cap"):   # the turn ended without a move
+        s.stats["turn_yields"] += 1
+    s._log_event({"event": "turn_end", "reason": reason, "requests": requests, "tokens": s._turn_tokens})
     s._turn_tokens, s._turn_budget = 0, s.turn_yield_tokens
-    s._push({"role": "user", "content": prompts.event_message(kind, **s._left())})
+    if reason == "moved" and s._surprised and s.surprise_yield_tokens:
+        s._turn_budget = s.surprise_yield_tokens
+        s.stats["surprise_turns"] += 1
+    if s.end_reason:
+        return
+    stuck_note(s)
+    s._maybe_curate()
     give = getattr(s.llm, "yield_turn", None)
     if callable(give):
         give()
 
 
-def after_tools(s: Any, moved: bool) -> None:
-    """After a reply's tool calls: a move restarts the turn budget (the short one after a surprise); no move past the
-    budget gets the "fix now" or "act now" note; then the stuck note. Called from _loop step 6."""
-    if moved:
-        s._turn_tokens = 0
-        s._turn_budget = s.turn_yield_tokens
-        if s._surprised and s.surprise_yield_tokens:
-            s._turn_budget = s.surprise_yield_tokens
-            s.stats["surprise_turns"] += 1
-    elif over_turn_budget(s):
-        yield_turn(s, "fix_now" if s._turn_budget != s.turn_yield_tokens else "act_now")
-    stuck_note(s)
-
-
 def stuck_note(s: Any) -> None:
-    """Every stuck_note_tokens spent on one level, adds a "question your goal" note. Called from after_tools."""
+    """Every stuck_note_tokens spent on one level, adds a "question your goal" note. Called from end_turn."""
     if not s.stuck_note_tokens or s.arc.finished:
         return
     if s._level_tokens < s.stuck_note_tokens * (s._stuck_notes + 1):
@@ -247,7 +254,7 @@ def stuck_note(s: Any) -> None:
 
 def level_start_note(s: Any) -> None:
     """After a level-up, names the functions and classes already in the kernel so the agent reuses them. Called from
-    _loop step 6."""
+    _request step 5."""
     names = s._kernel_names(full=False)
     if names:
         s._push({"role": "user", "content": prompts.event_message("reuse_code", names=names)})
