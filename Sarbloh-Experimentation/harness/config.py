@@ -53,8 +53,9 @@ DEFAULT: dict[str, Any] = {
         # turn ends at the first request whose cells moved (await play), or at a cap; then the slot is handed over.
         "max_inner_requests": 12,
         # The thinking cap of a turn: once the replies since the last move have written this many tokens without a
-        # move, the turn ends and the slot goes to a waiting game. No note is sent and a reply is never cut. 0 = off.
-        "turn_yield_tokens": 16384,
+        # move, the turn ends, a short "move now" note is added and the slot goes to a waiting game. A reply is never
+        # cut. 0 = off.
+        "turn_yield_tokens": 6000,
         # The thinking cap of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (never a
         # cut, like turn_yield_tokens). 0 = the normal cap.
         "surprise_yield_tokens": 0,
@@ -75,7 +76,7 @@ DEFAULT: dict[str, Any] = {
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
         # trigger_tokens sits 40k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
         # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
-        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 80000,
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 50000,
                        "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking stays, the newest picture goes last in every request (never stored, see perception

@@ -35,12 +35,20 @@ def _log(msg: str) -> None:
     print(f"[sglang {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True,
+         timeout: float | None = None) -> subprocess.CompletedProcess:
     _log("$ " + " ".join(map(str, cmd))[:400])
-    out = subprocess.run(list(map(str, cmd)), env=env, capture_output=True, text=True)
+    t = time.time()
+    out = subprocess.run(list(map(str, cmd)), env=env, capture_output=True, text=True, timeout=timeout)
+    _log(f"  done in {time.time() - t:.0f} s")
     if check and out.returncode != 0:
         raise RuntimeError(f"{cmd[0]} failed ({out.returncode}): {(out.stderr or out.stdout)[-3000:]}")
     return out
+
+
+# The venv install normally takes 70-85 s. One that hangs past this is killed and tried again from a clean venv.
+INSTALL_TIMEOUT_S = 300
+INSTALL_TRIES = 2
 
 
 def wheelhouse(root: Path) -> tuple[Path, Path]:
@@ -198,34 +206,45 @@ def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
     if py.exists() and stamp.is_file() and stamp.read_text(encoding="utf-8") == want:
         _log(f"install cached at {venv}")
         return py
-    shutil.rmtree(venv, ignore_errors=True)
     env = {**{k: v for k, v in os.environ.items() if k != "PYTHONPATH"}, "UV_OFFLINE": "1",
            "UV_PYTHON_DOWNLOADS": "never", "PYTHONNOUSERSITE": "1", "UV_CACHE_DIR": str(PREFIX / "uv-cache")}
     uv = str(uv_binary(wheels, PREFIX / "bin" / "uv"))
     links = relink(wheels, lock, PREFIX / "links")
     sgl_link = next(links.glob("sglang-*.whl"))  # the one sglang wheel checked above, its "+" restored
-    _run([uv, "venv", "--python", sys.executable, str(venv)], env=env)
-    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r", str(lock)],
-         env=env)
-    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
-          "--no-deps", str(sgl_link)], env=env)
-    stamp.write_text(want, encoding="utf-8")
-    return py
+    for attempt in range(1, INSTALL_TRIES + 1):
+        shutil.rmtree(venv, ignore_errors=True)
+        t = time.time()
+        try:
+            _run([uv, "venv", "--python", sys.executable, str(venv)], env=env, timeout=120)
+            _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r",
+                  str(lock)], env=env, timeout=INSTALL_TIMEOUT_S)
+            _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
+                  "--no-deps", str(sgl_link)], env=env, timeout=INSTALL_TIMEOUT_S)
+        except subprocess.TimeoutExpired as exc:
+            _log(f"install try {attempt} timed out after {time.time() - t:.0f} s: {exc.cmd[:3]}")
+            if attempt == INSTALL_TRIES:
+                raise
+            continue
+        _log(f"install done in {time.time() - t:.0f} s (try {attempt})")
+        stamp.write_text(want, encoding="utf-8")
+        return py
+    raise RuntimeError("unreachable")
 
 
 def runtime(dataset: str,
             precache_datasets: tuple[str, ...] = ()) -> Callable[[Path, Callable[[str], Path]], dict[str, Any]]:
     """A ``ModelSpec.runtimes`` entry: install the wheelhouse ``dataset`` and return the SGLang server runtime.
-    ``precache_datasets`` (the model weights) are read into the page cache in the background meanwhile."""
+    ``precache_datasets`` (the model weights) are then read into the page cache in the background."""
     def prepare(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
         t = time.time()
+        # The install first: a weight precache running beside it fights for the same slow /kaggle/input mount.
+        py = install(dataset, find_input)
         for ds in precache_datasets:
             try:
                 threading.Thread(target=precache, args=([find_input(ds)],), name=f"precache-{ds}",
                                  daemon=True).start()
             except Exception as exc:  # noqa: BLE001 - a missing optional input only loses the warm cache
                 _log(f"precache {ds} skipped: {exc!r}")
-        py = install(dataset, find_input)
         venv = py.parent.parent
         env = server_env(venv, cuda_home(venv))
         versions = ("import sglang, torch, flashinfer; print(sglang.__version__, torch.__version__, "

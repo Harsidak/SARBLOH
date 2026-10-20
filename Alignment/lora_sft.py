@@ -86,12 +86,17 @@ DEFAULTS: dict[str, Any] = {
     "eval_path": None,                # None = evaluate on the training examples (the smoke test's overfit check)
     "max_samples": None,              # conversations taken from data_path (in file order)
     "filter_cleared": False,          # Prime rows: keep level_cleared only
+    "exclude_games": [],              # Prime rows: drop rows whose game_id starts with one of these (held-out games)
     "select": "all",                  # all | best_run: per (game, level) keep only the rows of the run (input file)
                                       # that cleared it with the best rhae (ties: fewest actions)
     "images": "placeholder",          # placeholder | error
     "max_seq_len": 4096,
     "overlong": "left",               # left: a longer example loses context from the left (targets never cut);
                                       # drop: it is skipped and counted (no example is ever cut)
+                                      # window: cut into several examples, each = the row's opening (system prompt,
+                                      # tools, first message; up to window_head tokens) + a slice of the rest; the
+                                      # second half of each slice is trained, the first half is context only
+    "window_head": 8192,              # overlong window: tokens of the row's opening kept in every window
     "mask_mode": "auto",              # auto | whole | per_turn
     "turns": "all",                   # all | last (only the last assistant turn of each conversation is a target)
     "template_kwargs": {},            # passed to apply_chat_template, e.g. {"enable_thinking": true}
@@ -121,6 +126,7 @@ DEFAULTS: dict[str, Any] = {
     "save_every": None,               # steps between resumable checkpoints in output_dir/checkpoint (spot VMs)
     "resume": False,                  # continue from output_dir/checkpoint if it exists
     "max_train_hours": None,          # stop training cleanly (and save) after this many hours
+    "oom_skip_limit": 20,             # a step that runs out of GPU memory is skipped (logged); abort after this many
     "eval_max_examples": None,        # cap the eval set (each eval example is a full forward)
     "examples_cache": None,           # a .jsonl path: tokenised examples are written there once and reused while the
                                       # data files, tokenizer and data settings are unchanged (build on a CPU box, not
@@ -187,7 +193,7 @@ def make_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         raise ValueError(f"images {cfg['images']!r}")
     if cfg.get("select", "all") not in ("all", "best_run"):
         raise ValueError(f"select {cfg['select']!r}")
-    if cfg["overlong"] not in ("left", "drop"):
+    if cfg["overlong"] not in ("left", "drop", "window"):
         raise ValueError(f"overlong {cfg['overlong']!r}")
     if cfg["long_context"] not in ("auto", "on", "off"):
         raise ValueError(f"long_context {cfg['long_context']!r}")
@@ -369,6 +375,8 @@ def load_conversations(path: str | Path | list, cfg: dict[str, Any], stats: Stat
         rows = select_best_runs(rows, stats)
     if cfg["filter_cleared"]:
         rows = [r for r in rows if r.get("level_cleared", True)]
+    if cfg["exclude_games"]:
+        rows = [r for r in rows if not str(r.get("game_id", "")).startswith(tuple(cfg["exclude_games"]))]
     convs = []
     for i, row in enumerate(rows):
         if limit is not None and len(convs) >= limit:
@@ -459,6 +467,33 @@ def _fit(ids: list[int], labels: list[int], max_len: int, stats: Stats,
     return ids[-max_len:], labels[-max_len:]
 
 
+def _windows(ids: list[int], labels: list[int], max_len: int, head_cap: int,
+             stats: Stats) -> list[tuple[list[int], list[int]]]:
+    """overlong window: every window = the opening (up to head_cap tokens before the first target) + a body slice of
+    max_len - head tokens. Only the second half of each slice is trained, so every target token is trained once and
+    sees at least half a slice of the history right before it."""
+    if len(ids) <= max_len:
+        return [(ids, labels)]
+    first = next((t for t, l in enumerate(labels) if l != IGNORE), len(ids))
+    h = min(first, head_cap)
+    body = max_len - h
+    if body < 512:
+        stats.dropped_too_long += 1
+        return []
+    stride = body // 2
+    out = []
+    a = first
+    while a < len(ids):
+        b = min(a + stride, len(ids))
+        c = max(h, b - body)
+        lab = [IGNORE] * h + [l if t >= a else IGNORE for t, l in zip(range(c, b), labels[c:b])]
+        if any(l != IGNORE for l in lab):
+            out.append((ids[:h] + ids[c:b], lab))
+        a = b
+    stats.left_truncated += 1
+    return out
+
+
 def conv_cfg(conv: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     """cfg with the row's own template kwargs (e.g. its reasoning_effort) on top of the global ones."""
     if not conv.get("template_kwargs"):
@@ -500,23 +535,26 @@ def build_examples(tok, conv: dict[str, Any], cfg: dict[str, Any], stats: Stats)
             stats.per_turn_renders += 1
     out = []
     for ids, labels, src in raw:
-        fitted = _fit(ids, labels, cfg["max_seq_len"], stats, cfg.get("overlong", "left"))
-        if fitted is None:
-            continue
-        ids, labels = fitted
-        n = sum(1 for l in labels if l != IGNORE)
-        if n == 0:
-            stats.dropped_no_target += 1
-            continue
-        out.append(Example(ids, labels, src, n))
-        stats.examples += 1
-        stats.target_tokens += n
-        stats.total_tokens += len(ids)
-        stats.max_len = max(stats.max_len, len(ids))
+        if cfg.get("overlong") == "window":
+            pieces = _windows(ids, labels, cfg["max_seq_len"], cfg["window_head"], stats)
+        else:
+            fitted = _fit(ids, labels, cfg["max_seq_len"], stats, cfg.get("overlong", "left"))
+            pieces = [fitted] if fitted is not None else []
+        for w, (ids, labels) in enumerate(pieces):
+            n = sum(1 for l in labels if l != IGNORE)
+            if n == 0:
+                stats.dropped_no_target += 1
+                continue
+            out.append(Example(ids, labels, src if len(pieces) == 1 else f"{src}@w{w}", n))
+            stats.examples += 1
+            stats.target_tokens += n
+            stats.total_tokens += len(ids)
+            stats.max_len = max(stats.max_len, len(ids))
     return out
 
 
-_CACHE_KEYS = ("max_samples", "filter_cleared", "select", "images", "max_seq_len", "overlong",
+_CACHE_KEYS = ("max_samples", "filter_cleared", "exclude_games", "select", "images", "max_seq_len", "overlong",
+               "window_head",
                "mask_mode", "turns", "template_kwargs", "row_template_kwargs")
 
 
@@ -1168,7 +1206,7 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda(warmup, total))
     scaler = torch.amp.GradScaler("cuda") if dtype == torch.float16 and torch.cuda.is_available() else None
     rng = random.Random(cfg["seed"])
-    history, nonfinite, step, t0, tokens_seen = [], 0, 0, time.time(), 0
+    history, nonfinite, step, t0, tokens_seen, ooms = [], 0, 0, time.time(), 0, 0
     order: list[int] = []
     resumed_from, stopped_early, prior_s = None, False, 0.0
     if ckpt is not None and cfg["resume"]:
@@ -1176,6 +1214,7 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
         if state:
             step, order, history = state["step"], state["order"], state["history"]
             nonfinite, tokens_seen, prior_s = state["nonfinite"], state["tokens_seen"], state["seconds"]
+            ooms = state.get("ooms", 0)
             rng.setstate((state["rng"][0], tuple(state["rng"][1]), state["rng"][2]))
             resumed_from = step
             log(f"resumed from checkpoint at step {step}/{total}")
@@ -1185,7 +1224,7 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
             return
         st = rng.getstate()
         save_checkpoint(model, opt, sched, {"step": step, "order": order, "history": history, "nonfinite": nonfinite,
-                                            "tokens_seen": tokens_seen, "seconds": prior_s + time.time() - t0,
+                                            "tokens_seen": tokens_seen, "ooms": ooms, "seconds": prior_s + time.time() - t0,
                                             "rng": [st[0], list(st[1]), st[2]], "total": total}, ckpt)
         log(f"checkpoint saved at step {step}")
 
@@ -1206,16 +1245,33 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
             window.append(batch)
         n_window = sum(e.n_target for b in window for e in b)
         loss_sum = 0.0
-        ok = True
+        ok, oom = True, None
         for batch in window:
-            loss, n, _ = loss_fn(model, collate(batch, pad_id, device), autocast)
-            if not torch.isfinite(loss):
-                ok = False
+            try:
+                loss, n, _ = loss_fn(model, collate(batch, pad_id, device), autocast)
+                if not torch.isfinite(loss):
+                    ok = False
+                    break
+                scaled = loss / n_window
+                (scaler.scale(scaled) if scaler else scaled).backward()
+            except torch.cuda.OutOfMemoryError:
+                oom = batch
                 break
-            scaled = loss / n_window
-            (scaler.scale(scaled) if scaler else scaled).backward()
             loss_sum += float(loss.detach())
             tokens_seen += sum(len(e.input_ids) for e in batch)
+        if oom is not None:
+            loss = scaled = None
+            opt.zero_grad(set_to_none=True)
+            torch.cuda.empty_cache()
+            ooms += 1
+            log(f"step {step}: out of GPU memory on {[e.source for e in oom]} "
+                f"({max(len(e.input_ids) for e in oom)} tok), step skipped ({ooms}/{cfg['oom_skip_limit']})")
+            if ooms > cfg["oom_skip_limit"]:
+                snapshot()
+                raise RuntimeError(f"more than {cfg['oom_skip_limit']} out-of-memory steps: lower max_seq_len "
+                                   "or raise offload_expert_layers")
+            step += 1
+            continue
         if not ok:
             nonfinite += 1
             opt.zero_grad(set_to_none=True)
@@ -1248,7 +1304,7 @@ def train(model, examples: list[Example], cfg: dict[str, Any], pad_id: int, devi
         snapshot()
     secs = prior_s + time.time() - t0
     return {"steps": step, "planned_steps": total, "warmup_steps": warmup, "history": history,
-            "nonfinite_steps": nonfinite, "seconds": round(secs, 1), "resumed_from": resumed_from,
+            "nonfinite_steps": nonfinite, "oom_steps": ooms, "seconds": round(secs, 1), "resumed_from": resumed_from,
             "stopped_early": stopped_early, "tokens_per_s": round(tokens_seen / max(secs, 1e-9), 1)}
 
 
