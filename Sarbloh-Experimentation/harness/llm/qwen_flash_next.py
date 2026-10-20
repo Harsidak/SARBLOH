@@ -327,9 +327,11 @@ PROFILES.update({
     "sglang_flash_vision": _flash("flash_sglang", True),
     "sglang_flash": _flash("flash_sglang", False),
 })
-# Flash-Next with MTP + FR-Spec, then without FR-Spec, then without speculation, then text only; then the 27B NVFP4 chain.
+# Flash-Next with MTP + FR-Spec, then without FR-Spec, then without speculation, then text only; then the 27B FP8 on
+# vLLM as the last resort. The 27B NVFP4 profiles stay defined but out of the chain: banwait13/qwencoder is not
+# attached to the notebook, so each one only failed at once (2026-10-20).
 FLASH_CHAIN = ["sglang_flash_frspec_vision", "sglang_flash_mtp_vision", "sglang_flash_vision", "sglang_flash",
-               *SGLANG_CHAIN]
+               "qwen_fp8_vision", "qwen_fp8"]
 
 SPEC = ModelSpec(
     name="qwen_flash_next",

@@ -373,15 +373,44 @@ class LlmServer:
         self.event("oom_protect", pid=self.process.pid,
                    ok=sysmon.set_oom_score_adj(self.process.pid, sysmon.SERVER_OOM_SCORE_ADJ))
 
-    def wait_ready(self, timeout_s: float) -> bool:
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline and not self._stop.is_set():
+    def last_log_line(self, tail_bytes: int = 8192) -> str:
+        """The server's newest output line; a progress bar's newest update (bars redraw with ``\\r``)."""
+        try:
+            with self.log_path.open("rb") as fh:
+                fh.seek(max(0, fh.seek(0, 2) - tail_bytes))
+                text = fh.read().decode("utf-8", "replace")
+        except OSError:
+            return ""
+        parts = [p.strip() for p in re.split(r"[\r\n]+", text) if p.strip()]
+        return parts[-1][:200] if parts else ""
+
+    def wait_ready(self, timeout_s: float, stall_s: float | None = None) -> str:
+        """"" once the server answers, else why not: it exited, its log has not grown for ``stall_s`` (a hung start),
+        or ``timeout_s`` passed. A load that keeps writing progress is not cut short: on a slow /kaggle/input day
+        (2026-10-20) a fixed 1500 s killed four starts at 14-37 of 38 shards, each one still loading."""
+        t0 = time.monotonic()
+        size, moved_at, said_at = -1, t0, t0
+        while not self._stop.is_set():
             if self.process is None or self.process.poll() is not None:
-                return False
+                return "exited before ready"
             if self.healthy():
-                return True
+                return ""
+            now = time.monotonic()
+            try:
+                grown = self.log_path.stat().st_size
+            except OSError:
+                grown = size
+            if grown != size:
+                size, moved_at = grown, now
+            if stall_s and now - moved_at >= stall_s:
+                return f"stalled: no server output for {now - moved_at:.0f} s"
+            if now - t0 >= timeout_s:
+                return f"not ready after {now - t0:.0f} s"
+            if now - said_at >= 60:
+                said_at = now
+                log(f"loading {self.profile} {now - t0:.0f} s: {self.last_log_line()}")
             time.sleep(5)
-        return False
+        return "stopped"
 
     def kill(self, reason: str, dump: bool = False) -> None:
         """Gate down first (in-flight requests fail fast on the closed socket), optional SIGABRT stack dump, then
@@ -497,7 +526,8 @@ class LlmServer:
                                   "tool_mode": None, "error": f"prepare/launch: {exc!r}"[:500]})
             self.event("start_failed", seconds=round(time.time() - t), error=f"prepare/launch: {exc!r}"[:3000])
             return False
-        ok, err = self.wait_ready(self.cfg["startup_timeout_s"]), ""
+        err = self.wait_ready(self.cfg["startup_timeout_s"], self.cfg.get("startup_stall_s"))
+        ok = not err
         if ok and smoke:
             try:
                 self.tool_mode = self.smoke_test() if self.spec.has_tool_parser(profile) else "fenced"
@@ -505,8 +535,6 @@ class LlmServer:
                 err = repr(exc)
                 self.tool_mode = "fenced"
                 log(f"smoke test error on {profile}: {err[:800]}")
-        elif not ok:
-            err = "did not become ready"
         if ok and smoke and self.spec.has_vision(profile):
             try:  # a vision profile that cannot take an image fails; the chain moves on to a text-only profile
                 self.image_smoke()
