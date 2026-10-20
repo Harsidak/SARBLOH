@@ -46,9 +46,10 @@ def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True,
     return out
 
 
-# The venv install normally takes 70-85 s. One that hangs past this is killed and tried again from a clean venv.
+# The venv install normally takes 50-85 s. One that hangs past this is killed and tried again from a clean venv; the
+# last try has no limit, so a slow mount costs time but never the run.
 INSTALL_TIMEOUT_S = 300
-INSTALL_TRIES = 2
+INSTALL_TRIES = 3
 
 
 def wheelhouse(root: Path) -> tuple[Path, Path]:
@@ -213,17 +214,15 @@ def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
     sgl_link = next(links.glob("sglang-*.whl"))  # the one sglang wheel checked above, its "+" restored
     for attempt in range(1, INSTALL_TRIES + 1):
         shutil.rmtree(venv, ignore_errors=True)
-        t = time.time()
+        t, limit = time.time(), None if attempt == INSTALL_TRIES else INSTALL_TIMEOUT_S
         try:
-            _run([uv, "venv", "--python", sys.executable, str(venv)], env=env, timeout=120)
+            _run([uv, "venv", "--python", sys.executable, str(venv)], env=env, timeout=limit and 120)
             _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r",
-                  str(lock)], env=env, timeout=INSTALL_TIMEOUT_S)
+                  str(lock)], env=env, timeout=limit)
             _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
-                  "--no-deps", str(sgl_link)], env=env, timeout=INSTALL_TIMEOUT_S)
+                  "--no-deps", str(sgl_link)], env=env, timeout=limit)
         except subprocess.TimeoutExpired as exc:
             _log(f"install try {attempt} timed out after {time.time() - t:.0f} s: {exc.cmd[:3]}")
-            if attempt == INSTALL_TRIES:
-                raise
             continue
         _log(f"install done in {time.time() - t:.0f} s (try {attempt})")
         stamp.write_text(want, encoding="utf-8")

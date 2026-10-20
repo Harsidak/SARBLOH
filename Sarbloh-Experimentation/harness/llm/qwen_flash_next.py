@@ -217,8 +217,7 @@ def _sha256(path: Path) -> str:
 
 
 def _precache_once(find_input: Callable[[str], Path], *refs: str) -> None:
-    """Warm the page cache with the weights in the background, once per input. Three threads, as the reference: the
-    target plus the PLE table is ~180 GB against 176 GB of RAM, so this only helps the first shards load."""
+    """Warm the page cache with ``refs`` in the background, once per input, three threads as the reference."""
     for ref in refs:
         if ref in _PRECACHED:
             continue
@@ -233,9 +232,12 @@ def _precache_once(find_input: Callable[[str], Path], *refs: str) -> None:
 
 
 def flash_sglang_runtime(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
-    """The SGLang wheelhouse, plus a check that the target is the AutoRound INT4 checkpoint the flags expect."""
-    _precache_once(find_input, FLASH_SGL, FLASH_DRAFT)
+    """The SGLang wheelhouse, plus a check that the target is the AutoRound INT4 checkpoint the flags expect.
+    The install runs first, alone: it reads its wheels from the same /kaggle/input mount. Only the 4 GB drafter is
+    precached after it. The target (181 GB with the PLE table) is not: it does not fit beside the server's 105 GB in
+    176 GB of RAM, and reading it twice slowed the install (2.9 h) and the weight load (17-20 min instead of 4)."""
     rt = _sglang_wheels(working_dir, find_input)
+    _precache_once(find_input, FLASH_DRAFT)
     target = find_model_dir(find_input(FLASH_SGL))
     q = json.loads((target / "config.json").read_text(encoding="utf-8")).get("quantization_config", {})
     if q.get("quant_method") != "auto-round" or q.get("bits") != 4:
