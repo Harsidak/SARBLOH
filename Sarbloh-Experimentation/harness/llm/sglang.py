@@ -46,8 +46,8 @@ def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True,
     return out
 
 
-# The venv install normally takes 50-85 s. One that hangs past this is killed and tried again from a clean venv; the
-# last try has no limit, so a slow mount costs time but never the run.
+# The venv install normally takes 50-85 s. One that hangs past this is killed and tried again from a clean venv (the
+# tail of uv's -v log is printed); the last try has no limit, so a hang costs time but never the run.
 INSTALL_TIMEOUT_S = 300
 INSTALL_TRIES = 3
 
@@ -175,9 +175,17 @@ def server_env(venv: Path, home: Path) -> dict[str, str]:
     return env
 
 
-def relink(wheels: Path, lock: Path, dest: Path) -> Path:
+def _copy(src: Path, dst: Path, chunk: int = 64 << 20) -> int:
+    with src.open("rb") as fi, dst.open("wb") as fo:
+        shutil.copyfileobj(fi, fo, chunk)
+    return dst.stat().st_size
+
+
+def relink(wheels: Path, lock: Path, dest: Path, copy: bool = False) -> Path:
     """A find-links dir of symlinks to ``wheels`` with each local version's ``+`` restored. Kaggle drops ``+`` from
-    uploaded file names (``torch-2.13.0cu130-...whl``), so uv cannot match the lock's ``torch==2.13.0+cu130``."""
+    uploaded file names (``torch-2.13.0cu130-...whl``), so uv cannot match the lock's ``torch==2.13.0+cu130``.
+    With ``copy`` the wheels are copied there instead, in big sequential reads, so uv never reads /kaggle/input: uv
+    on the mount has hung for hours (two runs on 2026-10-20) while plain reads of the same mount ran at 300 MB/s."""
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True)
     names = {p.name: p for p in wheels.glob("*.whl")}
@@ -190,9 +198,21 @@ def relink(wheels: Path, lock: Path, dest: Path) -> Path:
         for name in [n for n in names if n.lower().startswith(stripped.lower())]:
             fixed = f"{name[:len(norm)]}-{ver}+{local}-{name[len(stripped):]}"
             names[fixed] = names.pop(name)
-    for name, src in names.items():
-        (dest / name).symlink_to(src)
+    if not copy:
+        for name, src in names.items():
+            (dest / name).symlink_to(src)
+        return dest
+    t = time.time()
+    with ThreadPoolExecutor(8) as pool:
+        total = sum(pool.map(lambda kv: _copy(kv[1], dest / kv[0]), names.items()))
+    _log(f"wheels copied to {dest}: {total / 1e9:.1f} GB in {time.time() - t:.0f} s")
     return dest
+
+
+def _tail(text: str | bytes | None, n: int = 15) -> str:
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    return "\n".join((text or "").splitlines()[-n:])
 
 
 def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
@@ -210,22 +230,33 @@ def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
     env = {**{k: v for k, v in os.environ.items() if k != "PYTHONPATH"}, "UV_OFFLINE": "1",
            "UV_PYTHON_DOWNLOADS": "never", "PYTHONNOUSERSITE": "1", "UV_CACHE_DIR": str(PREFIX / "uv-cache")}
     uv = str(uv_binary(wheels, PREFIX / "bin" / "uv"))
-    links = relink(wheels, lock, PREFIX / "links")
+    need = sum(p.stat().st_size for p in wheels.glob("*.whl"))
+    PREFIX.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(PREFIX).free
+    copy = free > 3 * need   # the copy, the uv cache and the venv all sit on this disk
+    _log(f"wheels {need / 1e9:.1f} GB, {free / 1e9:.0f} GB free under {PREFIX}: "
+         + ("copying them to local disk" if copy else "too little room, uv reads them from the mount"))
+    links = relink(wheels, lock, PREFIX / "links", copy=copy)
+    shutil.copyfile(lock, PREFIX / "requirements.lock")
+    lock = PREFIX / "requirements.lock"
     sgl_link = next(links.glob("sglang-*.whl"))  # the one sglang wheel checked above, its "+" restored
     for attempt in range(1, INSTALL_TRIES + 1):
         shutil.rmtree(venv, ignore_errors=True)
         t, limit = time.time(), None if attempt == INSTALL_TRIES else INSTALL_TIMEOUT_S
         try:
             _run([uv, "venv", "--python", sys.executable, str(venv)], env=env, timeout=limit and 120)
-            _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r",
+            _run([uv, "pip", "install", "-v", "--python", str(py), "--no-index", "--find-links", str(links), "-r",
                   str(lock)], env=env, timeout=limit)
             _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
                   "--no-deps", str(sgl_link)], env=env, timeout=limit)
         except subprocess.TimeoutExpired as exc:
-            _log(f"install try {attempt} timed out after {time.time() - t:.0f} s: {exc.cmd[:3]}")
+            _log(f"install try {attempt} timed out after {time.time() - t:.0f} s: {exc.cmd[:3]}\n"
+                 f"{_tail(exc.stderr)}")
             continue
         _log(f"install done in {time.time() - t:.0f} s (try {attempt})")
         stamp.write_text(want, encoding="utf-8")
+        if copy:
+            shutil.rmtree(links, ignore_errors=True)
         return py
     raise RuntimeError("unreachable")
 
