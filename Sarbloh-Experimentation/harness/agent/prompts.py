@@ -28,7 +28,7 @@ Style (owner rule, 2026-10-02, tightened 2026-10-14): short, simple sentences wr
 what to do, not how carefully to do it: no "do not rush", "take your time" or "investigate first", because every such
 line makes the model think longer before it moves. Exact tool and function names, no stories. The action meanings are
 the standard ARC-AGI-3 ones and are stated outright. The score formula is not shown to the agent on purpose (owner
-decision 2026-10-02).
+decision 2026-10-02); it is told only that every move counts against its score (owner decision 2026-10-21).
 
 Placeholders are filled with ``str.format``: a literal brace in a template is doubled.
 """
@@ -50,6 +50,8 @@ Working:
 Here is the thing, your goal is to win the game, to win the game you must take optimal actions(you send the moves with `play()`), to take optimal 
 actions you must understand the game from board(Read the board with `observe()`) and image provided and build or update the world model in python 
 simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
+Every move you send counts against your score, while thinking and code cost nothing, so send only the moves you need.
+Before you build a big model or a search for a goal, test that goal with one move. If the game does not react the way the goal says it should, the goal is wrong: change it before you write more code.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
@@ -64,7 +66,7 @@ LEGEND_LETTERS = ("W=white, w=light grey, g=grey, G=dark grey, c=charcoal, "
 GAME_FACTS = """Game:
 You are playing a game having board of 64x64 grid of colors. {legend}
 you have to understand the game related rules or goal while playing the game.
-Earlier levels provide introduce game mechanics later levels combine or use more of these mechanics. 
+Each level keeps what the earlier levels showed and can add something new.
 You would be able to win when you understand the game and taking optimal actions to achieve the goal from your understanding.
 
 Controls:
@@ -72,7 +74,7 @@ Controls:
 - "5" is the special action: it can select, use, rotate, attach or detach something, or carry out a step.
 - "6 r c" clicks the cell at row r and column c.
 - "7" is undo. It takes back your last move and is not counted as a move.
-- "reset" restarts the current level.
+{reset_control}
 you have to take the legal actions particular the game you are playing(in some games actions 7 might not work, or some games are click only). 
 
 What to watch for:
@@ -120,7 +122,7 @@ obs = observe() is a frozen copy of the state at the moment it is called. It doe
 
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
-- `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo, "reset", or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same). One move is a path of one: `await play(["5"])`.
+- `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo,{reset_in_path} or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same). One move is a path of one: `await play(["5"])`.
 - The whole path is sent unless one of these happens: the level is won, GAME_OVER, the game ends, or the same move twice in a row changes not one pixel (a wall). A timer or animation never stops a path.
 - Before any move is spent, a path is refused with a `RuntimeError` when it has more than {act_max} moves, or when its first move is illegal or unreadable. Catching or reading that error costs nothing. An illegal or unreadable move later in the path stops the path there: the moves before it are made, the rest are not sent.
 - After a level up, further `play()` calls in the same cell are refused, so the new level is seen before anything else is sent.
@@ -130,7 +132,7 @@ play():
 - A wrong prediction does not stop the path. The first one is recorded as the surprise and printed after the path ends: the move, the cells that differ (predicted and actual) and a small window of the board around them.
 - The call prints `play: 3 of 3 moves done` (with `; stopped: <reason>` when it stopped early) and one change line per move. A click is written `A6(r12,c40)` and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
 - It returns `r`: `r.done` (moves made), `r.stopped` ("level up", "GAME_OVER", "wall hit twice", ... or None when the whole path ran), `r.surprise` (None or a dict with `move`, `action` and `cells`), `r.lines` (the change lines), `r.level_up`, `r.state` and `r.obs` (the state after the last move).
-- "reset" is a move too: it restarts the level and loses its progress. "7" takes back the last move where the game allows it, and is not counted.
+- {reset_line}"7" takes back the last move where the game allows it, and is not counted.
 
 recall():
 `recall(query, scope)` searches the record of this game and the skills, prints what it finds and changes nothing in the game. It is free.
@@ -190,8 +192,8 @@ ENVIRONMENT = """Python packages: `collections`, `heapq`, `itertools`, `functool
 # 3. Situation messages (user turns or notes sent by the harness at a given moment)
 # =====================================================================================================================
 
-TASK_GAME = """So in this game the there are {levels} levels. You have at most {max_actions} moves for the whole game. 
-The first state is below. This is level 1, so nothing is known yet. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and send probe moves that test it. Use what changed to write your first model."""
+TASK_GAME = """{levels}You have at most {max_actions} moves for the whole game.
+The first state is below. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and test that goal with one move. Use what changed to write your model."""
 
 CONTINUE_GAME = "continue"
 
@@ -210,7 +212,16 @@ LEVEL_NOTE = "This is level {level}."
 
 EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
-GAME_OVER = """GAME_OVER: this level is lost. Find the step that caused it in the change lines, fix your model, refute the hypothesis that led there, and send `await play(["reset"])`. Your memory is kept."""
+GAME_OVER = """GAME_OVER: this level was lost, and the game has started it again from its first state. Continue"""
+
+# GAME_OVER when config reset_move is on: the agent sends the reset itself.
+GAME_OVER_RESET = """GAME_OVER: this level is lost. send `await play(["reset"])`. Your memory is kept."""
+
+# The reset wording of the system prompt: config reset_move off (the host restarts a lost level) or on.
+RESET_CONTROL = "- There is no reset move. When a level is lost (GAME_OVER), the game starts that level again by itself."
+RESET_CONTROL_MOVE = "- \"reset\" restarts the current level."
+RESET_LINE = "There is no reset move: after a GAME_OVER the level starts again by itself. "
+RESET_LINE_MOVE = "\"reset\" is a move too: it restarts the level and loses its progress. "
 
 WIN = "WIN: every level is done, and the game is complete."
 
@@ -230,7 +241,7 @@ FIX_NOW = ("A surprise needs a small fix, not a new model. Change the one rule i
 
 
 # The level has eaten another config stuck_note_tokens of thinking without being won:
-STUCK = ("You have been on this level for a long time. If it helps, use `recall()` to look back at what you tried and improve your model; otherwise continue.")
+STUCK = ("You have been on this level for a long time. Time is running out")
 
 # A level was won: the code already in the kernel.
 REUSE_CODE = ("Your code from the last level is still in the kernel: {names}.")
@@ -242,8 +253,9 @@ ACT_TOO_MANY = ("You sent {sent} moves, but one `play()` takes at most {act_max}
 
 ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent. The legal moves are {legal}")
 
-ACT_BAD_ARGS = (""" play() refused this path: {problem}. No move was made and no move was spent, and the game is where it was. A path is a list of 1 to {act_max} moves. A move is 1 to 5 or 7 (as text or an int), reset, or a click written '6 r c' or (6, r, c), where r is the row and c the column of the cell. For example await play(["1", "4", "6 12 40"]).
-""")
+ACT_BAD_ARGS = (""" play() refused this path: {problem}. No move was made and no move was spent""")
+
+ACT_NO_RESET = ("There is no reset move, so nothing was run and no move was spent. A lost level starts again by itself.")
 
 LOW_BUDGET = "Only {left} moves are left for this game."
 
@@ -269,15 +281,17 @@ SYSTEM_PLAN: list[str] = ["ROLE_OBJECTIVE_COMMUNICATION", "GAME_FACTS", "READING
 
 # The message per situation.
 EVENT_SNIPPETS: dict[str, str] = {
-    "start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER, "win": WIN,
+    "start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER,
+    "game_over_reset": GAME_OVER_RESET, "win": WIN,
     "act_now": ACT_NOW, "call_tool_now": CALL_TOOL_NOW, "compacted": COMPACTED, "act_too_many": ACT_TOO_MANY,
-    "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "low_budget": LOW_BUDGET, "low_time": LOW_TIME,
+    "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "act_no_reset": ACT_NO_RESET, "low_budget": LOW_BUDGET,
+    "low_time": LOW_TIME,
     "fix_now": FIX_NOW, "stuck": STUCK, "reuse_code": REUSE_CODE,
 }
 
 LEVEL_START_KINDS = ("start", "level_up")   # these get the level note when the level is known
 # these get the low-budget and low-time notes
-NOTE_KINDS = ("continue", "level_up", "game_over", "compacted", "act_now", "call_tool_now", "fix_now")
+NOTE_KINDS = ("continue", "level_up", "game_over", "game_over_reset", "compacted", "act_now", "call_tool_now", "fix_now")
 
 LOW_BUDGET_MOVES = 20     # add the low-budget note when this many moves or fewer are left
 LOW_TIME_MINUTES = 5      # add the low-time note when this many minutes or fewer are left
@@ -331,14 +345,15 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True, code_graph: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, thinking_dropped: bool = False,
-                **_: Any) -> str:
+                reset_move: bool = False, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
     lines and ``graph()`` (config ``code_graph``); ``board_text`` whether the messages carry the board as letters
     (config ``perception.ascii``); ``memory_shown`` whether a [memory] block is in the messages (config
     ``memory.in_context``); ``short_objects`` and ``observe_view`` say whether the state after moves lists the changed
-    objects and whether `observe()` also puts the full state in the messages (config ``perception``). Other arguments
+    objects and whether `observe()` also puts the full state in the messages (config ``perception``); ``reset_move``
+    whether "reset" is a move the agent may send (config ``reset_move``; off: a lost level restarts by itself). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
     help_text = _fill(PICTURE_HELP, {"picture_where": PICTURE_LAST if picture_last else ""})
     pictures = {"picture_after": ", and a picture of the whole board", "picture_start": ", and the picture",
@@ -357,8 +372,10 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
              "observe_full": ", after old messages are shortened, and in the output of a call that runs `observe()`" if observe_view else
              " and after old messages are shortened",
              "observe_code": "" if observe_view else " `observe()` gives the same state in your code only."}
+    resets = {"reset_control": RESET_CONTROL_MOVE, "reset_in_path": " \"reset\",", "reset_line": RESET_LINE_MOVE} \
+        if reset_move else {"reset_control": RESET_CONTROL, "reset_in_path": "", "reset_line": RESET_LINE}
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
-                           memory_where=memory, **pictures, **board, **views,
+                           memory_where=memory, **pictures, **board, **views, **resets,
                            earlier_kept="Your earlier code and tool outputs (and your thinking, when a reply wrote "
                                         "little or no code)" if thinking_dropped else
                                         "Your earlier thinking and tool outputs")

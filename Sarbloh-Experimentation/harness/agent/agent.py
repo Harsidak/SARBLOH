@@ -62,6 +62,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                vision=bool(cfg.get("vision")) and bool(p.get("image", True)),
                                picture_last=not bool(p.get("old_images", False)),
                                code_graph=bool(cfg.get("code_graph", True)),
+                               reset_move=bool(cfg.get("reset_move", False)),
                                thinking_dropped=cfg.get("reasoning_max_code_words") is not None,
                                board_text=bool(p.get("ascii", True)),
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
@@ -135,7 +136,7 @@ class AgentSession:
                       "graph_deltas": 0, "graph_snapshots": 0,
                       "memory_full": 0, "memory_updates": 0, "turn_yields": 0, "outer_turns": 0,
                       "turn_requests_max": 0,
-                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0}
+                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0, "auto_resets": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -150,6 +151,7 @@ class AgentSession:
         memory_root = Path(memory_root or (session_dir / "memory")).resolve()
         self.kernel = Kernel(session_dir / "work", self._host, env={
             "SARBLOH_MEMORY_DIR": str(memory_root), "SARBLOH_GAME": arc.game.game_id,
+            "SARBLOH_FILE_GUARD": "1" if cfg.get("file_guard", True) else "0",
             "SARBLOH_RECALL_TOKENS": str(int((cfg.get("memory") or {}).get("recall_tokens", 1000)))})
         self.tools = game_tools()
         # Config code_graph: the map of the agent's live functions (codegraph.snapshot) after its last cell, a change
@@ -769,12 +771,14 @@ class AgentSession:
             if arc.finished:
                 stop = "game finished"
                 break
+        done = len(steps)
+        lost = stop == "GAME_OVER"
+        restarted = lost and not self.cfg.get("reset_move", False) and self._auto_reset(turn, lines, steps)
         arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "after_cell": True}
         try:   # one line per step for obs.history in the kernel
             observation.append_history(self.kernel.session_dir, steps)
         except Exception as exc:  # noqa: BLE001 - the REPL view must never fail an act
             self._log_event({"event": "observation_write_error", "error": repr(exc)[:300]})
-        done = len(steps)
         self.stats["act_actions"] += done
         s = arc.game.state
         out = [f"act: {done} of {len(parsed)} actions done" + (f"; stopped: {stop}" if stop else ""), *lines]
@@ -784,15 +788,16 @@ class AgentSession:
             out.append(prompts.event_message("level_up", levels_done=s.levels_completed,
                                              win_levels=arc.game.number_of_levels, level=self._level(),
                                              new_skills=new_skills, loaded_skills=list(load), **self._left()))
-        if s.engine_state.name == "GAME_OVER":
-            out.append(prompts.event_message("game_over", **self._left()))
+        if lost:
+            out.append(prompts.event_message("game_over" if restarted else "game_over_reset", **self._left()))
         mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": mem.working.plan or None,
                         "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": mem.working.plan or None,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
                          "actions": [start, arc.game.action_count], "via": via, "predicted": predicted,
                          "play_id": play_id})
-        self._act_info = {"done": done, "stopped": stop, "level_up": level_up, "state": s.engine_state.name}
+        self._act_info = {"done": done, "stopped": stop, "level_up": level_up,
+                          "state": "GAME_OVER" if lost else s.engine_state.name}
         if load:
             self._act_info["load_skills"] = load
         if done == 0 and stop:
@@ -803,6 +808,28 @@ class AgentSession:
         if level_up:
             self._level_up_text = "\n".join(out)
         return "\n".join(out)
+
+    def _auto_reset(self, turn: int, lines: list[str], steps: list[dict[str, Any]]) -> bool:
+        """Config reset_move off: after a GAME_OVER the host restarts the level itself with one RESET, as the Duck
+        harness does, and adds its change line and step row. False when the reset was refused (budget or time spent).
+        Called from _tool_act."""
+        try:
+            self.arc.handle({"type": "arc.reset"}, source="auto")
+        except Exception as exc:  # noqa: BLE001 - out of moves or time: the game ends here
+            self._log_event({"event": "auto_reset_error", "turn": turn, "error": str(exc)[:300]})
+            return False
+        st = dict(self.arc.last_step or {})
+        self._objects, _ = self.tracker.observe(self._frame())
+        self._last_step = st.get("i")
+        change = "the level starts again from its first state"
+        lines.append(f"#{st.get('i')} RESET (automatic after GAME_OVER): {change}")
+        row = {"i": st.get("i"), "level": st.get("level"), "action": "RESET", "change": change,
+               "state": st.get("state"), "level_up": False, "repeat_of": st.get("repeat_of"), "turn": turn}
+        self.memory.record_step(row)
+        steps.append(row)
+        self.stats["auto_resets"] += 1
+        self._log_event({"event": "auto_reset", "turn": turn, "i": st.get("i")})
+        return True
 
     def _read_memory(self, cell: dict[str, Any]) -> None:
         """After an ipython cell: copies GOAL/PLAN/HYPOTHESES/FINDINGS from the kernel into memory. Called from _run_call."""

@@ -144,7 +144,8 @@ def check_cell_open(cell: dict[str, Any]) -> None:
 
 def read_moves(s: Any, args: dict[str, Any]) -> list[tuple[int, int | None, int | None]]:
     """The moves of one act as (action, row, column), all or nothing: refused whole if the list is empty or over
-    act_max_actions, an item cannot be read, or an action is not legal now. Called from AgentSession._tool_act."""
+    act_max_actions, an item cannot be read, it holds a reset while config reset_move is off, or an action is not legal
+    now. Called from AgentSession._tool_act."""
     raw = args.get("actions")
     if isinstance(raw, str):
         raw = json.loads(raw) if raw.strip().startswith("[") else [raw]
@@ -159,6 +160,8 @@ def read_moves(s: Any, args: dict[str, Any]) -> list[tuple[int, int | None, int 
         parsed = [parse_action(a) for a in raw]
     except ValueError as exc:
         raise ValueError(prompts.event_message("act_bad_args", problem=str(exc), act_max=int(s.cfg.get("act_max_actions", 5)))) from None
+    if not s.cfg.get("reset_move", False) and any(a == 0 for a, _, _ in parsed):
+        raise ValueError(prompts.event_message("act_no_reset"))
     legal = [a for a in s.arc.game.state.available_actions if a != 0]
     bad = [label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
     if bad:

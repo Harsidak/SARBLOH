@@ -59,6 +59,11 @@ PLAN = ""
 HYPOTHESES = []
 FINDINGS = []
 SKILLS = {}
+# Config agent.file_guard: from here on the agent's code may use files only in its own folder (fileguard.py).
+if os.environ.get("SARBLOH_FILE_GUARD") == "1":
+    import fileguard as _fileguard
+    _fileguard.install()
+    del _fileguard
 _BOOT_NAMES = set(globals()) | {"_BOOT_NAMES"}
 """
 

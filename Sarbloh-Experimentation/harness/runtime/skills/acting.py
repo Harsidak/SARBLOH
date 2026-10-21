@@ -12,7 +12,8 @@ twice; a wrong prediction is reported at the end and the path goes on.
     r.done, r.stopped, r.surprise, r.level_up, r.state
     r.obs          # the state after the last move
 
-A move is "1".."5", "7", "reset", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c).
+A move is "1".."5", "7", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c); "reset" only with
+config reset_move on (off: the host restarts a lost level itself).
 
 Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS), so the host saves them
 before the move runs; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in

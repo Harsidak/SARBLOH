@@ -53,15 +53,22 @@ DEFAULT: dict[str, Any] = {
         # turn ends at the first request whose cells moved (await play), or at a cap; then the slot is handed over.
         "max_inner_requests": 12,
         # The thinking cap of a turn: once the replies since the last move have written this many tokens without a
-        # move, the turn ends, a short "move now" note is added and the slot goes to a waiting game. A reply is never
-        # cut. 0 = off.
-        "turn_yield_tokens": 6000,
+        # move, the turn ends and the slot goes to a waiting game. No note is sent and a reply is never cut. 0 = off.
+        "turn_yield_tokens": 16384,
         # The thinking cap of the turn after play() stopped at a surprise: one rule was wrong, so a short fix (never a
         # cut, like turn_yield_tokens). 0 = the normal cap.
         "surprise_yield_tokens": 0,
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
         "stuck_note_tokens": 60000,
+        # On: "reset" is a move the agent may send in play(). Off: it is refused (nothing spent), and after a GAME_OVER
+        # the host restarts the level by itself, as the Duck harness does (the 9h run spent 81% of its tokens on levels
+        # with a voluntary reset).
+        "reset_move": False,
+        # On: the agent's kernel may open and list files only in its own game folder, the memory folder recall()
+        # reads, the temp folder and the Python libraries, and may not start other programs (runtime/skills/
+        # fileguard.py). Off: the whole file system is readable, including the game files.
+        "file_guard": True,
         # The Qwen3.8 chat template's reasoning effort: "xhigh" (its default, a "think carefully" line at the top of
         # the system prompt), "medium" (no line) or "low"; there is no "high". "early" is used on levels 1 and 2
         # (prompts.EARLY_LEVELS), "later" after. None sends nothing (the template's default).
@@ -74,9 +81,9 @@ DEFAULT: dict[str, Any] = {
         # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
         # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
         # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
-        # trigger_tokens sits 40k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
+        # trigger_tokens sits 30k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
         # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
-        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 50000,
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 90000,
                        "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking stays, the newest picture goes last in every request (never stored, see perception
