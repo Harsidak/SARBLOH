@@ -232,11 +232,16 @@ def _sha256(path: Path) -> str:
 # The target's shards are read at most this far ahead of the loader: the 4h run read all 181 GB beside the load on a
 # 177 GB machine, and from shard 13 on the load ran at 40-50 s a shard instead of 12 (1273 s in all).
 PRECACHE_AHEAD_GB = 60.0
+# Read threads per input. The reference's 3 read the target at 252-490 MB/s on good days but 59 MB/s on 2026-10-22
+# (3062 s, the loader 60-90 s a shard behind it, the pacing never reached), while the wheels copy kept its speed; 16
+# read the 75 GB Nemotron NVFP4 dataset in 79-108 s (a dataset, not the model mount). More streams is the bet (UNCONFIRMED on the model mount); the pacing
+# above keeps a faster read from evicting the shards the loader needs next.
+PRECACHE_THREADS = 16
 
 
 def _precache_once(find_input: Callable[[str], Path], *refs: str,
                    ahead: dict[str, Callable[[], int]] | None = None) -> None:
-    """Warm the page cache with ``refs`` in the background, once per input, three threads as the reference. A ref in
+    """Warm the page cache with ``refs`` in the background, once per input, PRECACHE_THREADS threads. A ref in
     ``ahead`` is read at most PRECACHE_AHEAD_GB ahead of the shards its callable says are loaded."""
     for ref in refs:
         if ref in _PRECACHED:
@@ -248,7 +253,7 @@ def _precache_once(find_input: Callable[[str], Path], *refs: str,
             continue
         _PRECACHED.add(ref)
         pace = (ahead or {}).get(ref)
-        kwargs = {"threads": 3, **({"ahead_gb": PRECACHE_AHEAD_GB, "loaded": pace} if pace else {})}
+        kwargs = {"threads": PRECACHE_THREADS, **({"ahead_gb": PRECACHE_AHEAD_GB, "loaded": pace} if pace else {})}
         threading.Thread(target=sglang.precache, args=([root],), kwargs=kwargs, name=f"precache-{ref}",
                          daemon=True).start()
 
