@@ -85,8 +85,8 @@ What to watch for:
 
 READING_THE_STATE = """What you see:
 1. Every `play()` prints one line per move in your `ipython` output, for example:
-   `#12 A1(up): obj 4 R 3x3 moved up 5 -> r10-12 c20-22; obj 17 Y shrank 40->38 cells (hud)`.
-   `#12` is the step number. `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
+   `#12 A1(up): 18 cells changed at r10-15 c20-22; the HUD changed (2 cells)`.
+   `#12` is the step number. The line only says how many cells changed and where. `no change` means the move did nothing, and `no change on the board (only the HUD changed, ...)` means only the counter or bar at the edge changed. To see what moved, look at the board or compare two `observe()` calls in your code. `[repeat: same state and action as #k]` means you already made this exact move from this exact board.
 2. After a call that made moves, the end of the same output has the new state: a status line, the last step{short_objects}{board_after}.
 3. At the start of each level{observe_full}, you get the full state: the status line{briefing}{object_list}{board_start}{picture_start}.{observe_code}
 {board_note} {picture_help}

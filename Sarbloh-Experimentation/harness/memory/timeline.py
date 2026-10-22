@@ -38,7 +38,8 @@ class Timeline:
         return dest
 
     def search(self, query: str, limit: int = 40) -> list[dict[str, Any]]:
-        """``#12`` one step, ``12-20`` a range, ``level 1`` a level, anything else: all words must appear."""
+        """``#12`` one step, ``12-20`` a range, ``level 1`` a level (counted from 1, as the status line counts),
+        anything else: all words must appear."""
         q = (query or "").strip().lower()
         steps = self.steps()
         m = re.fullmatch(r"#?(\d+)\s*(?:-|\.\.|to)\s*#?(\d+)", q)
@@ -51,13 +52,19 @@ class Timeline:
             return [r for r in self.rows if r.get("i") == i or i in (r.get("steps") or [])][:limit]
         m = re.fullmatch(r"level\s+(\d+)", q)
         if m:
-            lvl = int(m.group(1))
+            lvl = int(m.group(1)) - 1   # rows store levels_completed (0 on the first level)
             return [r for r in steps if r.get("level") == lvl][-limit:]
         words = [w for w in re.split(r"\s+", q) if w]
         if not words:
             return self.rows[-limit:]
         hits = [r for r in self.rows if all(w in render_row(r).lower() for w in words)]
         return hits[-limit:]
+
+
+def _level(r: dict[str, Any]) -> Any:
+    """The level of a step or act row counted from 1, as the status line counts (rows store levels_completed)."""
+    lvl = r.get("level")
+    return lvl + 1 if isinstance(lvl, int) else lvl
 
 
 def render_row(r: dict[str, Any]) -> str:
@@ -67,10 +74,10 @@ def render_row(r: dict[str, Any]) -> str:
             tail.append("LEVEL UP")
         if r.get("state") == "GAME_OVER":
             tail.append("GAME_OVER")
-        return (f"#{r.get('i')} L{r.get('level')} {r.get('action')}: {r.get('change')}"
+        return (f"#{r.get('i')} L{_level(r)} {r.get('action')}: {r.get('change')}"
                 + (f" [{', '.join(tail)}]" if tail else "") + (" [repeat]" if r.get("repeat_of") is not None else ""))
     if r.get("kind") == "act":
-        return f"act turn {r.get('turn')} L{r.get('level')} steps {r.get('steps')}: plan: {r.get('plan')}"
+        return f"act turn {r.get('turn')} L{_level(r)} steps {r.get('steps')}: plan: {r.get('plan')}"
     if r.get("kind") == "level_up":
         return f"LEVEL {r.get('level')} WON at step #{r.get('i')}, goal was: {r.get('goal')}"
     return str({k: v for k, v in r.items() if k != "t"})

@@ -44,16 +44,11 @@ def is_competition_rerun() -> bool:
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
     """Scale the drain settings to the served window. From 128k up they stay as configured (drain above the trigger or
-    window - reserve, whichever is lower, down to drain_target_tokens; never past cap_tokens); smaller windows keep at
-    most a quarter word for word and drain to at most 3/5 of the trigger, and a turn's output never exceeds the
-    reserve."""
+    window - reserve, whichever is lower, down to drain_target_tokens; never past cap_tokens); smaller windows drain
+    to at most 3/5 of the trigger, and a turn's output never exceeds the reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]
     comp["reserve_tokens"] = min(comp["reserve_tokens"], window // 4)
-    comp["keep_recent_tokens"] = min(comp["keep_recent_tokens"], window // 4)
-    if comp.get("trigger_tokens") and comp["trigger_tokens"] < 2 * comp["keep_recent_tokens"]:
-        raise ValueError(f"compaction.trigger_tokens {comp['trigger_tokens']} < 2x keep_recent_tokens "
-                         f"{comp['keep_recent_tokens']}: every drain would leave the context near the trigger")
     # No request is sent above the trigger (a drain runs first), so a request plus its reply stays under the cap.
     cap = min(int(comp.get("cap_tokens") or window), window)
     trigger = min(int(comp.get("trigger_tokens") or window), window - comp["reserve_tokens"])
@@ -415,7 +410,7 @@ def local() -> None:
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"max_tokens_per_turn": a.max_tokens, "vision": a.vision,
-                  "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000}},
+                  "compaction": {"reserve_tokens": 4608}},
     })
     cfg["agent"]["context_window"] = a.ctx
     os.environ["ONLY_RESET_LEVELS"] = "true"

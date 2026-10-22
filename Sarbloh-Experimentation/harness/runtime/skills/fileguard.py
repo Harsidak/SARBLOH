@@ -8,9 +8,12 @@ up to 113 requests reading them. Installed once by ``BOOT_CODE`` (``runtime/kern
 Allowed roots: the kernel's working folder (its game folder), ``RLM_SESSION_DIR``, ``SARBLOH_MEMORY_DIR``, the temp
 folder, ``sys.prefix`` / ``sys.base_prefix`` / ``sys.exec_prefix`` and every ``sys.path`` folder at install time (so
 imports work), plus ``/dev``, ``/proc`` and ``/sys`` on POSIX. Denied roots, which win over allowed ones: every folder in
-``SARBLOH_GAME_FILES`` (the environments folder, set by ``games.make_arcade``). An allowed root that is the file system
-root, the home folder, or holds a denied root is dropped. ``os.walk`` swallows the error and yields nothing; ``open``
-and ``os.listdir`` raise ``PermissionError``.
+``SARBLOH_GAME_FILES`` (the environments folder, set by ``games.make_arcade``), and the agent's own code folder (the one
+that holds ``harness/``, on ``sys.path`` so the kernel can import it): only the import system may read that one. The
+4-hour run spent 56 requests reading the harness code (play(), the game wrapper, this guard) from the code dataset.
+An allowed root that is the file system root, the home folder, or holds a denied root is dropped. ``os.walk`` swallows
+the error and yields nothing; ``open`` and ``os.listdir`` raise ``PermissionError``; ``inspect.getsource`` of a harness
+function fails, and a traceback shows no source line for harness frames.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ _PROGRAM_PREFIXES = ("subprocess.Popen", "os.system", "os.exec", "os.posix_spawn
                      "pty.spawn")
 
 _installed = False
+CODE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 def _norm(path: Any) -> str | None:
@@ -45,10 +49,21 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def roots() -> tuple[list[str], list[str]]:
-    """(allowed, denied) roots, normalised."""
+def _importing() -> bool:
+    """True when the import system is the caller (it reads and lists the code folder to import a module)."""
+    f = sys._getframe(2)
+    while f is not None:
+        if f.f_code.co_filename.startswith("<frozen importlib"):
+            return True
+        f = f.f_back
+    return False
+
+
+def roots() -> tuple[list[str], list[str], list[str]]:
+    """(allowed, denied, code) roots, normalised. The code roots are denied too, except to the import system."""
     denied = [n for d in os.environ.get("SARBLOH_GAME_FILES", "").split(os.pathsep) if d.strip()
               if (n := _norm(d.strip()))]
+    code = [n for n in (_norm(CODE_ROOT),) if n]
     candidates = [os.getcwd(), os.environ.get("RLM_SESSION_DIR"), os.environ.get("SARBLOH_MEMORY_DIR"),
                   tempfile.gettempdir(), sys.prefix, sys.base_prefix, sys.exec_prefix,
                   *[p or os.getcwd() for p in sys.path]]
@@ -61,7 +76,7 @@ def roots() -> tuple[list[str], list[str]]:
         if not n or n in too_wide or n in allowed or any(_under(d, n) for d in denied):
             continue
         allowed.append(n)
-    return allowed, denied
+    return allowed, denied, code
 
 
 def install() -> None:
@@ -69,11 +84,13 @@ def install() -> None:
     global _installed
     if _installed:
         return
-    allowed, denied = roots()
+    allowed, denied, code = roots()
     busy = [False]
 
     def allowed_path(n: str) -> bool:
-        return any(_under(n, a) for a in allowed) and not any(_under(n, d) for d in denied)
+        if not any(_under(n, a) for a in allowed) or any(_under(n, d) for d in denied):
+            return False
+        return not any(_under(n, c) for c in code) or _importing()
 
     def hook(event: str, args: tuple) -> None:
         if busy[0]:

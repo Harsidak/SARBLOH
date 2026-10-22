@@ -250,19 +250,8 @@ def _renumber(objs: list[Obj], mapping: dict[int, int]) -> None:
     objs.sort(key=lambda o: o.id)
 
 
-def _direction(dr: int, dc: int) -> str:
-    parts = []
-    if dr:
-        parts.append(f"{'up' if dr < 0 else 'down'} {abs(dr)}")
-    if dc:
-        parts.append(f"{'left' if dc < 0 else 'right'} {abs(dc)}")
-    return ", ".join(parts)
-
-
 class Tracker:
-    """Keeps object ids stable across the steps of a level, and describes each transition by object."""
-
-    MAX_ITEMS = 8
+    """Keeps object ids stable across the steps of a level, and describes each transition in changed cells."""
 
     def __init__(self) -> None:
         self.reset()
@@ -286,11 +275,10 @@ class Tracker:
         return objs, text
 
     def _match(self, old: list[Obj], new: list[Obj], prev_rows: list[list[int]], rows: list[list[int]]) -> str:
-        changed = sum(1 for r in range(len(rows)) for c in range(len(rows[0])) if rows[r][c] != prev_rows[r][c])
+        """Gives each new object the id of the old one it matches, and returns the change line (``change_line``)."""
         mapping: dict[int, int] = {}
         left_old = {o.id: o for o in old}
         left_new = {o.id: o for o in new}
-        events: list[tuple[bool, str]] = []   # (hud, text)
 
         def pair(n: Obj, o: Obj) -> None:
             mapping[n.id] = o.id
@@ -307,41 +295,63 @@ class Tracker:
         for n in sorted(left_new.values(), key=lambda o: -o.size):   # 2. moved: same colour and shape
             cand = [o for o in left_old.values() if o.colour == n.colour and o.hash == n.hash]
             if cand:
-                o = min(cand, key=lambda o: abs(o.bbox[0] - n.bbox[0]) + abs(o.bbox[1] - n.bbox[1]))
-                pair(n, o)
-                events.append((n.hud, f"obj {o.id} {n.label()} moved {_direction(n.bbox[0] - o.bbox[0], n.bbox[1] - o.bbox[1])}"
-                                      f" -> {n.at()}"))
+                pair(n, min(cand, key=lambda o: abs(o.bbox[0] - n.bbox[0]) + abs(o.bbox[1] - n.bbox[1])))
         for n in list(left_new.values()):                # 3. recoloured: same shape and place
             cand = [o for o in left_old.values() if o.hash == n.hash and o.bbox == n.bbox]
             if cand:
-                o = cand[0]
-                pair(n, o)
-                events.append((n.hud, f"obj {o.id} {o.label()} at {o.at()} recoloured "
-                                      f"{letter(o.colour)}->{letter(n.colour)}"))
+                pair(n, cand[0])
         for n in sorted(left_new.values(), key=lambda o: -o.size):   # 4. reshaped: same colour, overlapping cells
             cand = [(len(o.cells & n.cells), o) for o in left_old.values() if o.colour == n.colour]
             cand = [x for x in cand if x[0] > 0]
             if cand:
-                _, o = max(cand, key=lambda x: x[0])
-                pair(n, o)
-                verb = "grew" if n.size > o.size else "shrank" if n.size < o.size else "changed shape"
-                events.append((n.hud, f"obj {o.id} {letter(n.colour)} {verb} {o.size}->{n.size} cells, now {n.at()}"))
-        for o in sorted(left_old.values(), key=lambda o: o.id):   # 5. vanished
-            events.append((o.hud, f"obj {o.id} {o.label()} vanished from {o.at()}"))
-        for n in sorted(left_new.values(), key=lambda o: (o.bbox[0], o.bbox[1])):   # 6. appeared
+                pair(n, max(cand, key=lambda x: x[0])[1])
+        for n in sorted(left_new.values(), key=lambda o: (o.bbox[0], o.bbox[1])):   # 5. appeared
             mapping[n.id] = self.next_id
             self.next_id += 1
-            events.append((n.hud, f"obj {mapping[n.id]} {n.label()} appeared at {n.at()}"))
         _renumber(new, mapping)
-        if not changed:
-            return "no change"
-        events.sort(key=lambda e: e[0])   # the play area first, HUD after
-        texts = [t + (" (hud)" if hud else "") for hud, t in events]
-        more = len(texts) - self.MAX_ITEMS
-        body = "; ".join(texts[:self.MAX_ITEMS]) + (f"; +{more} more" if more > 0 else "")
-        if changed > len(rows) * len(rows[0]) * 3 // 5:
-            body = f"most of the screen changed ({len(texts)} object changes)"
-        return (body or "pixels changed with no object change") + f" ({changed} cells changed)"
+        return change_line(prev_rows, rows, {cell for o in old + new if o.hud for cell in o.cells})
+
+
+MAX_CHANGE_AREAS = 4    # areas listed in one change line (the rest are counted)
+
+
+def change_line(prev_rows: list[list[int]], rows: list[list[int]], hud: set[tuple[int, int]]) -> str:
+    """What one move changed, in cells, like the Duck harness's NO-OP / effect lines: "no change", "no change on the
+    board (only the HUD changed)", "most of the screen changed (N cells)", or "N cells changed at r10-12 c20-22, ...".
+    ``hud`` holds the cells of the counters and bars at the screen edge, counted apart from the board."""
+    cells = [(r, c) for r in range(len(rows)) for c in range(len(rows[0])) if rows[r][c] != prev_rows[r][c]]
+    if not cells:
+        return "no change"
+    board = [p for p in cells if p not in hud]
+    hud_note = f"; the HUD changed ({len(cells) - len(board)} cells)" if len(board) < len(cells) else ""
+    if not board:
+        return f"no change on the board (only the HUD changed, {len(cells)} cells)"
+    if len(cells) > len(rows) * len(rows[0]) * 3 // 5:
+        return f"most of the screen changed ({len(cells)} cells)"
+    boxes = _cell_boxes(board)
+    span = lambda a, b: f"{a}" if a == b else f"{a}-{b}"
+    where = ", ".join(f"r{span(r0, r1)} c{span(c0, c1)}" for r0, c0, r1, c1 in boxes[:MAX_CHANGE_AREAS])
+    more = f" and {len(boxes) - MAX_CHANGE_AREAS} more areas" if len(boxes) > MAX_CHANGE_AREAS else ""
+    return f"{len(board)} cells changed at {where}{more}{hud_note}"
+
+
+def _cell_boxes(cells: list[tuple[int, int]]) -> list[Box]:
+    """Boxes around groups of changed cells (cells one apart join), largest first."""
+    boxes: list[Box] = [(r, c, r, c) for r, c in cells]
+    merged = True
+    while merged:
+        merged = False
+        out: list[Box] = []
+        for bx in boxes:
+            for i, ob in enumerate(out):
+                if bx[0] <= ob[2] + 2 and ob[0] <= bx[2] + 2 and bx[1] <= ob[3] + 2 and ob[1] <= bx[3] + 2:
+                    out[i] = (min(bx[0], ob[0]), min(bx[1], ob[1]), max(bx[2], ob[2]), max(bx[3], ob[3]))
+                    merged = True
+                    break
+            else:
+                out.append(bx)
+        boxes = out
+    return sorted(boxes, key=lambda bx: -(bx[2] - bx[0] + 1) * (bx[3] - bx[1] + 1))
 
 
 def change_boxes(prev: Any, grid: Any, margin: int = 3) -> list[Box]:
@@ -1448,7 +1458,7 @@ class Scene:
     step: int | None
     rows: list[list[int]]
     objects: list[Obj]
-    change: str | None = None                 # the newest change line: "#12 A1(up): obj 4 R 3x3 moved up 5 -> ..."
+    change: str | None = None                 # the newest change line: "#12 A1(up): 18 cells changed at r10-15 c20-22"
     prev: list[list[int]] | None = None
     status: str = ""                          # "game ls20 | level 1 of 7 (0 done) | ..." from the host
     briefing: Briefing | None = None

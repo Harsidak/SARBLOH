@@ -340,6 +340,16 @@ def drain(messages: list[dict[str, Any]], keep_from: int | None = None,
     return images(out, True)
 
 
+def drop_turns(messages: list[dict[str, Any]], keep_from: int) -> list[dict[str, Any]]:
+    """A smaller history with no model call, as the Duck harness makes it: the first message (the task, or the note of
+    the last reset) and every message from ``keep_from`` on, word for word; the turns in between are dropped whole.
+    The memory and code-graph messages go (the caller puts a full one of each back), and every picture but the newest
+    becomes a stub."""
+    head = messages[:1] if keep_from > 0 else []
+    out = [m for m in head + messages[max(keep_from, 0):] if not is_memory(m) and m.get("_kind") != GRAPH_KIND]
+    return images(out, True)
+
+
 def _text_of(m: dict[str, Any]) -> str:
     c = m.get("content") or ""
     return c if isinstance(c, str) else "".join(p.get("text", "") for p in c if isinstance(p, dict))

@@ -60,7 +60,7 @@ DEFAULT: dict[str, Any] = {
         "surprise_yield_tokens": 0,
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
-        "stuck_note_tokens": 60000,
+        "stuck_note_tokens": 0,
         # On: "reset" is a move the agent may send in play(). Off: it is refused (nothing spent), and after a GAME_OVER
         # the host restarts the level by itself, as the Duck harness does (the 9h run spent 81% of its tokens on levels
         # with a voluntary reset).
@@ -77,25 +77,22 @@ DEFAULT: dict[str, Any] = {
         "cell_timeout_s": 300.0,
         "tool_output_chars": 8000,     # about 2000 tokens (upstream: 65536 per stream)
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
-        # No summary: the context is kept under cap_tokens by draining old messages in code (no model call). Above
-        # trigger_tokens (or window - reserve, if lower) a drain keeps the newest keep_recent_tokens word for word and
-        # shrinks everything before them; if that leaves more than drain_target_tokens, the word-for-word tail is
-        # halved step by step (down to 2000 tokens), then the history is trimmed back to the newest full state.
-        # trigger_tokens sits 30k below cap_tokens: one turn (12k reply, cell output, new board, picture) fits in that.
-        # A deeper drain (to 20k, not 60k) is rarer per token of play, and the cache keeps more of each cycle.
-        "compaction": {"reserve_tokens": 12288, "cap_tokens": 120000, "trigger_tokens": 90000,
-                       "keep_recent_tokens": 12000, "drain_target_tokens": 20000},
+        # No summary: the context is kept under cap_tokens by dropping old messages in code (no model call), as the
+        # Duck harness does. Above trigger_tokens (or window - reserve, if lower) a drain drops the oldest whole turns
+        # until the context is under drain_target_tokens; everything kept stays word for word (thinking, boards,
+        # outputs), and the first message (the task, or the note of the last reset) is never dropped. If the newest
+        # turn alone is over the target, the history is then trimmed back to the newest full state.
+        # The counts include the system prompt, the tools and the code graph. trigger_tokens + reserve_tokens (one
+        # 12k reply) must fit under cap_tokens.
+        "compaction": {"reserve_tokens": 12288, "cap_tokens": 131072, "trigger_tokens": 118000,
+                       "drain_target_tokens": 55000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking stays, the newest picture goes last in every request (never stored, see perception
         # old_images), and the memory is a stored message, in full after a rewrite and every memory_full_every
-        # states, else only its changed sections. A drain masks what is before the word-for-word tail: the code and
-        # every error traceback stay, every board (shown or printed) becomes a one-line stub, the rest of an ipython
-        # output is cut to drain_output_chars, every act result becomes a short move log (one cut line per step), and
-        # the thinking, the code-graph change lines and the memory messages go (a full memory and the whole code
-        # graph go back).
+        # states, else only its changed sections. A drain drops whole old turns and the memory and code-graph
+        # messages (a full memory and the whole code graph go back).
         "append_only": True,
         "memory_full_every": 10,
-        "drain_output_chars": 400,
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 2000,

@@ -8,7 +8,7 @@ twice; a wrong prediction is reported at the end and the path goes on.
 
     r = await play(["4", "4", "1"])                 # moves, no check
     r = await play(path, predict=step)              # reports the first move step() got wrong
-    r.lines        # one change line per move: "#12 A4(right): obj 4 R 3x3 moved right 3 -> ..."
+    r.lines        # one change line per move: "#12 A4(right): 6 cells changed at r10-12 c20-25"
     r.done, r.stopped, r.surprise, r.level_up, r.state
     r.obs          # the state after the last move
 

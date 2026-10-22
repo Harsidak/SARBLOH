@@ -5,7 +5,7 @@ model requests (``_request``) sent back to back; it ends at the first request wh
 (max_inner_requests, turn_yield_tokens) or at a stop, and ``guardrails.end_turn`` then gives the scheduler slot back.
 One request:
 1. stop?            ``guardrails.should_stop`` (time, actions, turns, tokens, game over)
-2. room?            ``_drain`` shrinks old messages when the context is past the trigger
+2. room?            ``_drain`` drops the oldest whole turns when the context is past the trigger
 3. ask the model    ``self.llm.chat``; an overflow goes to ``_on_overflow`` (drain, then trim, then reset)
 4. store the reply  its tool calls are read by ``guardrails.read_calls``
 5. run the tools    ``_run_call``: ipython runs in the kernel; each move of ``await play(...)`` comes back to
@@ -46,7 +46,6 @@ from harness.runtime.skills import codegraph, observation, recalling
 
 # The append-only estimate of one picture: the 640-pixel map plus its panel at 32 pixels per token (patch 16, merge 2).
 IMAGE_TOKENS = 500
-DRAIN_MIN_KEEP = 2000   # the smallest tail a drain keeps word for word (tokens)
 
 
 def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -971,29 +970,30 @@ class AgentSession:
                    for i in context.reasoning_sent(self.messages, self._reasoning_budget()) if i >= start)
 
     def _drain(self, tokens_before: int, reason: str) -> None:
-        """Shrinks the old messages in code (no model call) until the context is under drain_target_tokens; trims if that is not enough. Called from _request step 2 and _on_overflow."""
-        target = int(self.cfg["compaction"].get("drain_target_tokens", 60000))
-        mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status()) \
-            if self.append_only and self.memory_in_context else None
+        """Drops the oldest whole turns in code (no model call), as the Duck harness does, until the context is under
+        drain_target_tokens; what is kept stays word for word. Trims if the newest turn alone is over the target.
+        Called from _request step 2 and _on_overflow."""
+        target = int(self.cfg["compaction"].get("drain_target_tokens", 55000))
+        mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status())             if self.append_only and self.memory_in_context else None
         graph = context.graph_message(codegraph.render(self._graph)) if self.code_graph and self._graph else None
+        size = lambda m: self._estimate(m) + context.reasoning_tokens(m)
         fixed = (len(self._system_prompt()) + (len(mem["content"]) if mem else 0) +
                  (len(graph["content"]) if graph else 0) + 3) // 4
-        # The tail sizes to try, mildest first: keep_recent_tokens, halved down to DRAIN_MIN_KEEP, then the smallest
-        # tail with shorter tool outputs.
-        keep0 = int(self.cfg["compaction"]["keep_recent_tokens"])
-        chars0 = int(self.cfg.get("drain_output_chars", 400))
-        steps = [(keep0, chars0)]
-        while steps[-1][0] // 2 >= DRAIN_MIN_KEEP:
-            steps.append((steps[-1][0] // 2, chars0))
-        steps.append((min(keep0, DRAIN_MIN_KEEP), max(chars0 // 4, 80)))
-        drained, after, keep, chars = self.messages, tokens_before, 0, 0
-        for keep, chars in steps:
-            cut_at = compaction.find_cut_point(self.messages, 0, int(keep / self._token_scale))[0]
-            drained = context.drain(self.messages, cut_at, chars)
-            est = fixed + sum(self._estimate(m) for m in drained) + sum(context.reasoning_tokens(m) for m in drained)
-            after = int(self._token_scale * est)
-            if after <= target:
+        # The tail kept word for word: the target less the system prompt, the memory, the code graph and the first message.
+        keep = max(int(target / self._token_scale) - fixed - (size(self.messages[0]) if self.messages else 0), 0)
+        # The oldest user or assistant message from which the rest fits in keep (never a tool result: it belongs to
+        # the reply before it); at least the newest turn stays.
+        turns = [i for i in range(1, len(self.messages)) if self.messages[i]["role"] in ("user", "assistant")]
+        cut_at, acc = (turns[-1] if turns else len(self.messages)), 0
+        for i in range(len(self.messages) - 1, 0, -1):
+            acc += size(self.messages[i])
+            if acc > keep:
                 break
+            if self.messages[i]["role"] in ("user", "assistant"):
+                cut_at = i
+        drained = context.drop_turns(self.messages, cut_at)
+        after = int(self._token_scale * (fixed + sum(size(m) for m in drained)))
+        dropped = len(self.messages) - len(drained)
         self.messages = drained
         if self.append_only:
             self._insert_memory()
@@ -1001,7 +1001,7 @@ class AgentSession:
         self._after_rewrite("drain")
         self.stats["drains"] += 1
         self._log_event({"event": "drain", "reason": reason, "tokens_before": tokens_before, "tokens_after_est": after,
-                         "keep_tokens": keep, "output_chars": chars, "messages": len(self.messages),
+                         "keep_tokens": keep, "messages_dropped": dropped, "messages": len(self.messages),
                          "action_count": self.arc.game.action_count})
         if after > target:
             self._trim_context()
