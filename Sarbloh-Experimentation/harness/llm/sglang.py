@@ -62,33 +62,15 @@ def wheelhouse(root: Path) -> tuple[Path, Path]:
     raise FileNotFoundError(f"no wheels/ + requirements.lock (or flat *.whl + requirements.lock) under {root}")
 
 
-_SHARDS_DONE = re.compile(r"Loading safetensors checkpoint shards:\s+\d+% Completed \| (\d+)/(\d+)")
-
-
-def loaded_shards(log_path: Path) -> int:
-    """How many weight shards the server says it has loaded (the newest progress line of its log), 0 before any."""
-    try:
-        with log_path.open("rb") as fh:
-            fh.seek(max(0, log_path.stat().st_size - (256 << 10)))
-            tail = fh.read().decode("utf-8", errors="replace")
-    except OSError:
-        return 0
-    found = _SHARDS_DONE.findall(tail)
-    return int(found[-1][0]) if found else 0
-
-
-def precache(paths: list[Path], threads: int = 16, chunk: int = 32 << 20, ahead_gb: float | None = None,
-             loaded: Callable[[], int] | None = None, stall_s: float = 900.0) -> dict[str, Any]:
+def precache(paths: list[Path], threads: int = 16, chunk: int = 32 << 20) -> dict[str, Any]:
     """Read every file under ``paths`` once so the page cache holds it: /kaggle/input is a slow network mount and the
-    weight load (and the venv install from the wheels) is otherwise bound by it. Run in a background thread.
-    With ``ahead_gb`` and ``loaded`` (the shards the server has loaded so far), the .safetensors files are read in
-    order and at most ``ahead_gb`` ahead of the loader: reading more than the page cache can hold pushes out the
-    shards the loader needs next. After ``stall_s`` with no loader progress it reads on without the limit."""
-    t, files = time.time(), []
+    weight load (and the venv install from the wheels) is otherwise bound by it. Run in a background thread."""
+    t, jobs = time.time(), []
     for root in paths:
-        files += [root] if root.is_file() else [f for f in sorted(root.rglob("*")) if f.is_file()]
-    shards = [f for f in files if f.suffix == ".safetensors"] if ahead_gb else []
-    files = [f for f in files if f not in shards] + shards   # the small files first, then the shards in load order
+        files = [root] if root.is_file() else [f for f in sorted(root.rglob("*")) if f.is_file()]
+        for f in files:
+            size = f.stat().st_size
+            jobs += [(f, off, min(chunk, size - off)) for off in range(0, max(size, 1), chunk)]
 
     def read(job: tuple[Path, int, int]) -> int:
         f, off, n = job
@@ -99,34 +81,9 @@ def precache(paths: list[Path], threads: int = 16, chunk: int = 32 << 20, ahead_
         except OSError:
             return 0
 
-    def wait_for_loader(i: int) -> None:
-        """Before shard i: wait until the shards read but not yet loaded, plus this one, fit in ahead_gb."""
-        limit, last, since = ahead_gb * 1e9, -1, time.time()
-        while True:
-            done = loaded() if loaded else 0
-            if sum(f.stat().st_size for f in shards[done:i + 1]) <= limit or done >= i:
-                return
-            if done != last:
-                last, since = done, time.time()
-            elif time.time() - since > stall_s:
-                _log(f"precache: no load progress for {stall_s:.0f} s at shard {done}, reading on")
-                shards.clear()
-                return
-            time.sleep(2.0)
-
-    total, waits = 0, 0.0
     with ThreadPoolExecutor(threads) as pool:
-        for f in files:
-            if f in shards:
-                w = time.time()
-                wait_for_loader(shards.index(f))
-                waits += time.time() - w
-                if f in shards and loaded is not None and loaded() > shards.index(f):
-                    continue   # the loader already has it
-            size = f.stat().st_size
-            total += sum(pool.map(read, [(f, off, min(chunk, size - off)) for off in range(0, max(size, 1), chunk)]))
-    info = {"gb": round(total / 1e9, 1), "seconds": round(time.time() - t), "files": len(files),
-            "waited_s": round(waits)}
+        total = sum(pool.map(read, jobs))
+    info = {"gb": round(total / 1e9, 1), "seconds": round(time.time() - t), "files": len({j[0] for j in jobs})}
     _log(f"precache done: {info}")
     return info
 

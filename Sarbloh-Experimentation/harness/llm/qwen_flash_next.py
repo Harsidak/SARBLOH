@@ -229,20 +229,8 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-# The target's shards are read at most this far ahead of the loader: the 4h run read all 181 GB beside the load on a
-# 177 GB machine, and from shard 13 on the load ran at 40-50 s a shard instead of 12 (1273 s in all).
-PRECACHE_AHEAD_GB = 60.0
-# Read threads per input. The reference's 3 read the target at 252-490 MB/s on good days but 59 MB/s on 2026-10-22
-# (3062 s, the loader 60-90 s a shard behind it, the pacing never reached), while the wheels copy kept its speed; 16
-# read the 75 GB Nemotron NVFP4 dataset in 79-108 s (a dataset, not the model mount). More streams is the bet (UNCONFIRMED on the model mount); the pacing
-# above keeps a faster read from evicting the shards the loader needs next.
-PRECACHE_THREADS = 16
-
-
-def _precache_once(find_input: Callable[[str], Path], *refs: str,
-                   ahead: dict[str, Callable[[], int]] | None = None) -> None:
-    """Warm the page cache with ``refs`` in the background, once per input, PRECACHE_THREADS threads. A ref in
-    ``ahead`` is read at most PRECACHE_AHEAD_GB ahead of the shards its callable says are loaded."""
+def _precache_once(find_input: Callable[[str], Path], *refs: str) -> None:
+    """Warm the page cache with ``refs`` in the background, once per input, three threads as the reference."""
     for ref in refs:
         if ref in _PRECACHED:
             continue
@@ -252,19 +240,15 @@ def _precache_once(find_input: Callable[[str], Path], *refs: str,
             sglang._log(f"precache {ref} skipped: {exc!r}")
             continue
         _PRECACHED.add(ref)
-        pace = (ahead or {}).get(ref)
-        kwargs = {"threads": PRECACHE_THREADS, **({"ahead_gb": PRECACHE_AHEAD_GB, "loaded": pace} if pace else {})}
-        threading.Thread(target=sglang.precache, args=([root],), kwargs=kwargs, name=f"precache-{ref}",
+        threading.Thread(target=sglang.precache, args=([root],), kwargs={"threads": 3}, name=f"precache-{ref}",
                          daemon=True).start()
 
 
 def flash_sglang_runtime(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
     """The SGLang wheelhouse, plus a check that the target is the AutoRound INT4 checkpoint the flags expect.
     The target and the drafter are precached from the start, beside the install: the fast starts (weights loaded in
-    about 4 min) had this warm page cache. The target is read only PRECACHE_AHEAD_GB ahead of the loader (its progress
-    in llm-server.log). The install copies its wheels to local disk, so uv does not read the mount."""
-    log = working_dir / "llm-server.log"
-    _precache_once(find_input, FLASH_SGL, FLASH_DRAFT, ahead={FLASH_SGL: lambda: sglang.loaded_shards(log)})
+    about 4 min) had this warm page cache. The install copies its wheels to local disk, so uv does not read the mount."""
+    _precache_once(find_input, FLASH_SGL, FLASH_DRAFT)
     rt = _sglang_wheels(working_dir, find_input)
     target = find_model_dir(find_input(FLASH_SGL))
     q = json.loads((target / "config.json").read_text(encoding="utf-8")).get("quantization_config", {})
