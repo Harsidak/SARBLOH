@@ -19,8 +19,7 @@ class ModelSpec:
     name: str
     served_model_name: str
     # Profiles are tried in order until one starts and passes the tool-call smoke test. Each is
-    # {"model_dataset": "<owner/slug>", "flags": {"--flag": "value" | None}, "env": {...}, "runtime": "<name>"?,
-    # "config_overrides": {...}?} (merged into a symlinked copy of the weights' config.json, server.patched_model_dir).
+    # {"model_dataset": "<owner/slug>", "flags": {"--flag": "value" | None}, "env": {...}, "runtime": "<name>"?}.
     # "{model_dir}" in a flag value becomes the resolved weights directory.
     profiles: dict[str, dict[str, Any]]
     profile_chain: list[str]
