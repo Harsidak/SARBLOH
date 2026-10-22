@@ -27,8 +27,11 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
+import struct
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -177,6 +180,16 @@ TOKEN_MAP_SHA = "becfa41d394b86c26c632bea8f3c6ea64bbb76d7b238d8673c06afae21269f2
 TOKENIZER_SHA = "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
 EXPERT_TARGET = r"re:^mtp\.layers\.0\.mlp\.experts\.[0-9]+\.(gate_proj|up_proj|down_proj)$"
 DENSE_IGNORE = r"re:^(?!mtp\.layers\.0\.mlp\.experts(?:\.|$)).*"
+# The LoRA SFT adapter (r 16, alpha 32) merged into the 156 attention projections the training touched: q/k/v/o of the
+# 12 full-attention layers and in_proj_qkv, in_proj_z and out_proj of the 36 linear-attention layers. It was merged
+# into RadixArk's NVFP4 checkpoint, whose projections are bf16 like Intel's, under the same names (both indexes
+# checked 2026-10-22; shapes on two of them, and all again at start). Attached, it is served; not attached, the base
+# model is.
+LORA = "banwait13/loraadapter"
+LORA_TARGETS = re.compile(r"^model\.language_model\.layers\.\d+\."
+                          r"(self_attn\.[qkvo]_proj|linear_attn\.(in_proj_qkv|in_proj_z|out_proj))\.weight$")
+LORA_FILE = "model-lora-attention.safetensors"  # sorts after model-000NN-of-00017.safetensors
+FLASH_LORA_VIEW = sglang.PREFIX / "flash-lora-view"
 
 SGL_FLASH = {
     "--load-format": "safetensors", "--model-loader-extra-config": '{"enable_multithread_load":false}',
@@ -240,7 +253,90 @@ def flash_sglang_runtime(working_dir: Path, find_input: Callable[[str], Path]) -
     q = json.loads((target / "config.json").read_text(encoding="utf-8")).get("quantization_config", {})
     if q.get("quant_method") != "auto-round" or q.get("bits") != 4:
         raise RuntimeError(f"{FLASH_SGL} is not the AutoRound INT4 checkpoint: {q.get('quant_method')} {q.get('bits')}")
-    return {**rt, "info": {**rt["info"], "target": str(target)}}
+    info = {**rt["info"], "target": str(target)}
+    try:
+        adapter = find_input(LORA)
+    except FileNotFoundError:
+        sglang._log(f"{LORA} not attached: serving the base model")
+        return {**rt, "info": info}
+    view = prepare_lora_view(target, adapter, FLASH_LORA_VIEW)
+    return {**rt, "model_dir": str(view), "info": {**info, "lora_view": str(view)}}
+
+
+def _safetensors_header(path: Path) -> tuple[dict[str, Any], int]:
+    """A safetensors file's header and the offset its tensor data starts at."""
+    with path.open("rb") as f:
+        (n,) = struct.unpack("<Q", f.read(8))
+        return json.loads(f.read(n)), 8 + n
+
+
+def prepare_lora_view(target: Path, adapter_root: Path, view: Path) -> Path:
+    """The target with the LoRA SFT merged in, without copying its shards: the adapter's merged attention
+    projections (bf16, the same names and shapes as the target's, which keeps them unquantized) are copied into one
+    extra file, LORA_FILE, and the target's index points those names at it; every other file is a symlink. The old
+    copies stay in the target's shards, so SGLang loads both; it loads the files in sorted order and a later copy of a
+    weight overwrites the earlier one, and LORA_FILE sorts last (read in SGLang's loader source; UNCONFIRMED until a
+    run)."""
+    t0 = time.time()
+    index = json.loads((target / "model.safetensors.index.json").read_text(encoding="utf-8"))
+    wanted = sorted(k for k in index["weight_map"] if LORA_TARGETS.match(k))
+    if not wanted:
+        raise RuntimeError(f"no LoRA target projections in {target}'s index")
+    found: dict[str, tuple[Path, int, int, str, list[int]]] = {}
+    for shard in sorted(adapter_root.rglob("*.safetensors")):
+        header, base = _safetensors_header(shard)
+        for name in set(header) & set(wanted):
+            meta = header[name]
+            found[name] = (shard, base + meta["data_offsets"][0], base + meta["data_offsets"][1], meta["dtype"],
+                           meta["shape"])
+    missing = [n for n in wanted if n not in found]
+    if missing:
+        raise RuntimeError(f"{len(missing)} of {len(wanted)} target projections not in {adapter_root}: {missing[:3]}")
+    report = next(adapter_root.rglob("merge_report.json"), None)
+    if report is not None and json.loads(report.read_text(encoding="utf-8")).get("merged") != len(wanted):
+        raise RuntimeError(f"{report} merged a different number of projections than the {len(wanted)} in the target")
+    headers: dict[str, dict[str, Any]] = {}
+    for name in wanted:
+        shard = index["weight_map"][name]
+        if shard not in headers:
+            headers[shard] = _safetensors_header(target / shard)[0]
+        meta = headers[shard][name]
+        if [meta["dtype"], meta["shape"]] != list(found[name][3:]):
+            raise RuntimeError(f"{name}: adapter {found[name][3:]} vs target {meta['dtype']} {meta['shape']}")
+    out_header: dict[str, Any] = {"__metadata__": {"format": "pt"}}
+    size = 0
+    for name in wanted:
+        shard, start, end, dtype, shape = found[name]
+        out_header[name] = {"dtype": dtype, "shape": shape, "data_offsets": [size, size + end - start]}
+        size += end - start
+    shutil.rmtree(view, ignore_errors=True)
+    view.mkdir(parents=True)
+    free = shutil.disk_usage(view).free
+    if free < size + (1 << 30):
+        raise RuntimeError(f"{view} has {free / 1e9:.1f} GB free, the LoRA file needs {size / 1e9:.1f} GB")
+    blob = json.dumps(out_header, separators=(",", ":")).encode("utf-8")
+    blob += b" " * (-len(blob) % 8)
+    with (view / LORA_FILE).open("wb") as out:
+        out.write(struct.pack("<Q", len(blob)) + blob)
+        for name in wanted:
+            shard, start, end = found[name][:3]
+            with shard.open("rb") as src:
+                src.seek(start)
+                left = end - start
+                while left:
+                    block = src.read(min(left, 64 << 20))
+                    if not block:
+                        raise RuntimeError(f"{shard} ends inside {name}")
+                    out.write(block)
+                    left -= len(block)
+    for item in target.iterdir():
+        if item.name != "model.safetensors.index.json":
+            (view / item.name).symlink_to(item.resolve(), target_is_directory=item.is_dir())
+    index["weight_map"].update({name: LORA_FILE for name in wanted})
+    (view / "model.safetensors.index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    sglang._log(f"lora view {view}: {len(wanted)} projections, {size / 1e9:.2f} GB from {adapter_root} "
+                f"in {time.time() - t0:.0f} s")
+    return view
 
 
 def prepare_draft_view(target: Path, source_root: Path, view: Path) -> Path:
