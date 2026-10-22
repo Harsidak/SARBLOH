@@ -230,7 +230,8 @@ def _sha256(path: Path) -> str:
 
 
 def _precache_once(find_input: Callable[[str], Path], *refs: str) -> None:
-    """Warm the page cache with ``refs`` in the background, once per input, three threads as the reference."""
+    """Warm the page cache with the weights in the background, once per input. Three threads, as the reference: the
+    target plus the PLE table is ~180 GB against 176 GB of RAM, so this only helps the first shards load."""
     for ref in refs:
         if ref in _PRECACHED:
             continue
@@ -245,9 +246,7 @@ def _precache_once(find_input: Callable[[str], Path], *refs: str) -> None:
 
 
 def flash_sglang_runtime(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
-    """The SGLang wheelhouse, plus a check that the target is the AutoRound INT4 checkpoint the flags expect.
-    The target and the drafter are precached from the start, beside the install: the fast starts (weights loaded in
-    about 4 min) had this warm page cache. The install copies its wheels to local disk, so uv does not read the mount."""
+    """The SGLang wheelhouse, plus a check that the target is the AutoRound INT4 checkpoint the flags expect."""
     _precache_once(find_input, FLASH_SGL, FLASH_DRAFT)
     rt = _sglang_wheels(working_dir, find_input)
     target = find_model_dir(find_input(FLASH_SGL))

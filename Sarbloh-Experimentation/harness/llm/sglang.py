@@ -35,21 +35,12 @@ def _log(msg: str) -> None:
     print(f"[sglang {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True,
-         timeout: float | None = None) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
     _log("$ " + " ".join(map(str, cmd))[:400])
-    t = time.time()
-    out = subprocess.run(list(map(str, cmd)), env=env, capture_output=True, text=True, timeout=timeout)
-    _log(f"  done in {time.time() - t:.0f} s")
+    out = subprocess.run(list(map(str, cmd)), env=env, capture_output=True, text=True)
     if check and out.returncode != 0:
         raise RuntimeError(f"{cmd[0]} failed ({out.returncode}): {(out.stderr or out.stdout)[-3000:]}")
     return out
-
-
-# The venv install normally takes 50-85 s. One that hangs past this is killed and tried again from a clean venv (the
-# tail of uv's -v log is printed); the last try has no limit, so a hang costs time but never the run.
-INSTALL_TIMEOUT_S = 300
-INSTALL_TRIES = 3
 
 
 def wheelhouse(root: Path) -> tuple[Path, Path]:
@@ -175,17 +166,9 @@ def server_env(venv: Path, home: Path) -> dict[str, str]:
     return env
 
 
-def _copy(src: Path, dst: Path, chunk: int = 64 << 20) -> int:
-    with src.open("rb") as fi, dst.open("wb") as fo:
-        shutil.copyfileobj(fi, fo, chunk)
-    return dst.stat().st_size
-
-
-def relink(wheels: Path, lock: Path, dest: Path, copy: bool = False) -> Path:
+def relink(wheels: Path, lock: Path, dest: Path) -> Path:
     """A find-links dir of symlinks to ``wheels`` with each local version's ``+`` restored. Kaggle drops ``+`` from
-    uploaded file names (``torch-2.13.0cu130-...whl``), so uv cannot match the lock's ``torch==2.13.0+cu130``.
-    With ``copy`` the wheels are copied there instead, in big sequential reads, so uv never reads /kaggle/input: uv
-    on the mount has hung for hours (two runs on 2026-10-20) while plain reads of the same mount ran at 300 MB/s."""
+    uploaded file names (``torch-2.13.0cu130-...whl``), so uv cannot match the lock's ``torch==2.13.0+cu130``."""
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True)
     names = {p.name: p for p in wheels.glob("*.whl")}
@@ -198,21 +181,9 @@ def relink(wheels: Path, lock: Path, dest: Path, copy: bool = False) -> Path:
         for name in [n for n in names if n.lower().startswith(stripped.lower())]:
             fixed = f"{name[:len(norm)]}-{ver}+{local}-{name[len(stripped):]}"
             names[fixed] = names.pop(name)
-    if not copy:
-        for name, src in names.items():
-            (dest / name).symlink_to(src)
-        return dest
-    t = time.time()
-    with ThreadPoolExecutor(8) as pool:
-        total = sum(pool.map(lambda kv: _copy(kv[1], dest / kv[0]), names.items()))
-    _log(f"wheels copied to {dest}: {total / 1e9:.1f} GB in {time.time() - t:.0f} s")
+    for name, src in names.items():
+        (dest / name).symlink_to(src)
     return dest
-
-
-def _tail(text: str | bytes | None, n: int = 15) -> str:
-    if isinstance(text, bytes):
-        text = text.decode("utf-8", "replace")
-    return "\n".join((text or "").splitlines()[-n:])
 
 
 def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
@@ -227,54 +198,34 @@ def install(dataset: str, find_input: Callable[[str], Path]) -> Path:
     if py.exists() and stamp.is_file() and stamp.read_text(encoding="utf-8") == want:
         _log(f"install cached at {venv}")
         return py
+    shutil.rmtree(venv, ignore_errors=True)
     env = {**{k: v for k, v in os.environ.items() if k != "PYTHONPATH"}, "UV_OFFLINE": "1",
            "UV_PYTHON_DOWNLOADS": "never", "PYTHONNOUSERSITE": "1", "UV_CACHE_DIR": str(PREFIX / "uv-cache")}
     uv = str(uv_binary(wheels, PREFIX / "bin" / "uv"))
-    need = sum(p.stat().st_size for p in wheels.glob("*.whl"))
-    PREFIX.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(PREFIX).free
-    copy = free > 3 * need   # the copy, the uv cache and the venv all sit on this disk
-    _log(f"wheels {need / 1e9:.1f} GB, {free / 1e9:.0f} GB free under {PREFIX}: "
-         + ("copying them to local disk" if copy else "too little room, uv reads them from the mount"))
-    links = relink(wheels, lock, PREFIX / "links", copy=copy)
-    shutil.copyfile(lock, PREFIX / "requirements.lock")
-    lock = PREFIX / "requirements.lock"
+    links = relink(wheels, lock, PREFIX / "links")
     sgl_link = next(links.glob("sglang-*.whl"))  # the one sglang wheel checked above, its "+" restored
-    for attempt in range(1, INSTALL_TRIES + 1):
-        shutil.rmtree(venv, ignore_errors=True)
-        t, limit = time.time(), None if attempt == INSTALL_TRIES else INSTALL_TIMEOUT_S
-        try:
-            _run([uv, "venv", "--python", sys.executable, str(venv)], env=env, timeout=limit and 120)
-            _run([uv, "pip", "install", "-v", "--python", str(py), "--no-index", "--find-links", str(links), "-r",
-                  str(lock)], env=env, timeout=limit)
-            _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
-                  "--no-deps", str(sgl_link)], env=env, timeout=limit)
-        except subprocess.TimeoutExpired as exc:
-            _log(f"install try {attempt} timed out after {time.time() - t:.0f} s: {exc.cmd[:3]}\n"
-                 f"{_tail(exc.stderr)}")
-            continue
-        _log(f"install done in {time.time() - t:.0f} s (try {attempt})")
-        stamp.write_text(want, encoding="utf-8")
-        if copy:
-            shutil.rmtree(links, ignore_errors=True)
-        return py
-    raise RuntimeError("unreachable")
+    _run([uv, "venv", "--python", sys.executable, str(venv)], env=env)
+    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "-r", str(lock)],
+         env=env)
+    _run([uv, "pip", "install", "--python", str(py), "--no-index", "--find-links", str(links), "--reinstall",
+          "--no-deps", str(sgl_link)], env=env)
+    stamp.write_text(want, encoding="utf-8")
+    return py
 
 
 def runtime(dataset: str,
             precache_datasets: tuple[str, ...] = ()) -> Callable[[Path, Callable[[str], Path]], dict[str, Any]]:
     """A ``ModelSpec.runtimes`` entry: install the wheelhouse ``dataset`` and return the SGLang server runtime.
-    ``precache_datasets`` (the model weights) are then read into the page cache in the background."""
+    ``precache_datasets`` (the model weights) are read into the page cache in the background meanwhile."""
     def prepare(working_dir: Path, find_input: Callable[[str], Path]) -> dict[str, Any]:
         t = time.time()
-        # The install first: a weight precache running beside it fights for the same slow /kaggle/input mount.
-        py = install(dataset, find_input)
         for ds in precache_datasets:
             try:
                 threading.Thread(target=precache, args=([find_input(ds)],), name=f"precache-{ds}",
                                  daemon=True).start()
             except Exception as exc:  # noqa: BLE001 - a missing optional input only loses the warm cache
                 _log(f"precache {ds} skipped: {exc!r}")
+        py = install(dataset, find_input)
         venv = py.parent.parent
         env = server_env(venv, cuda_home(venv))
         versions = ("import sglang, torch, flashinfer; print(sglang.__version__, torch.__version__, "
