@@ -326,8 +326,10 @@ class LlmServer:
 
     # --- process -----------------------------------------------------------------------------------------
     def launch(self, profile: str) -> None:
-        model_dir = find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
         rt = self.runtime(profile) or {}
+        # a runtime may serve its own view of the weights (Flash-Next with the LoRA merged in)
+        model_dir = Path(rt["model_dir"]) if rt.get("model_dir") else \
+            find_model_dir(find_kaggle_input(self.spec.profiles[profile]["model_dataset"]))
         python = rt.get("python") or sys.executable
         serve = rt.get("serve", DEFAULT_SERVE)
         self.backend = rt.get("backend") or "vllm"

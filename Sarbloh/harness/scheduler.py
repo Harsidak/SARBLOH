@@ -2,27 +2,33 @@
 
 A game must hold a slot to call the LLM. ``ScheduledLLM`` wraps the shared client for one game: its first ``chat``
 waits for a slot, the game keeps the slot for ``quantum_calls`` LLM calls (its tool runs in between take
-milliseconds), then gives it back and competes again. A level-up also sends it back to compete at once, and so does a
-rewrite of the game's prompt (a drain, compaction or reset, ``mark_cold``) once it has used its slot: the next request
-is prefilled in full anyway, so the slot is handed over when it costs nothing, not in the middle of a warm prefix the
-server would have to prefill again later. When a slot is free, the waiting game with the highest priority gets it;
+milliseconds), then gives it back and competes again. A turn-driven game (the agent) never loses it inside a turn:
+it gives it back at the first turn end (``yield_turn``, after a move or a cap) once it has made ``quantum_calls``
+calls since it got the slot. A game that waits for a slot loses its prefix in the server's cache (the other games
+evict it), so every hand-over costs one request prefilled in full: handing over at every turn end (about two requests)
+kept 10% of the prompt cached in the Qwen run of 2026-10-19. A level-up also sends it back to
+compete at once, and so does a rewrite of the game's prompt (a drain, compaction or reset, ``mark_cold``) once it has
+used its slot, unless the game is turn-driven: the next request is prefilled in full anyway, so the slot is handed over
+when it costs nothing, not in the middle of a warm prefix the server would have to prefill again later. When a slot is free, the waiting game with the highest priority gets it;
 ties go to the one that has waited longest.
 
-Priority of a game playing level L+1 of n (L levels won), ``t`` output tokens spent on that level:
+Priority of a game playing level L+1 of n (L levels won), ``t`` output tokens and ``a`` actions spent on that level:
 
-    gain x hope,   gain = (L + 1) / (n (n + 1) / 2),   hope = 0.5 ** ((t / token_scale) ** 2)
+    (current_gain + tail_gain) x hope
+    current_gain = ((L + 1) / (n (n + 1) / 2)) x (human_actions / (human_actions + a)) ** 2
+    tail_gain    = (tail(n - (L + 1)) / 55) x tail_fraction
+    hope         = 0.5 ** ((t / token_scale) ** 2 + (a / action_scale) ** 2)
 
-``gain`` is the weight the next level has in the game's RHAE (levels are weighted by index). ``hope`` falls with the
-tokens a level has eaten without a win: with token_scale 80k (from the 2026-10-01 run: 6 of 9 level-1 wins came
-before 52k tokens, the 8 games that never won burned ~150k) it is 0.76 at 50k and 0.09 at 150k. A game that just won a
-level is deeper and fresh again, so it goes to the top; a game stuck for long sinks below the games not yet helped.
+``current_gain`` is the RHAE weight of the current level discounted by expected quadratic action efficiency
+(``human_actions = 25``). ``tail_gain`` is the continuation value of the remaining levels unlocked after completing
+this level (``8/55`` when >=3 levels remain, ``7/55`` when 2 remain, ``5/55`` when 1 remains, ``0`` on the final
+level), preventing short 6-level games from starving deeper 8- to 10-level games on early levels, and fading linearly
+over the final ``tail_fade_fraction`` of the run budget when there is no time left for future levels. ``hope`` falls
+with both tokens and actions spent on the current level without a win.
 
-A game that has never held a slot goes before every game that has, so each game gets at least one quantum early. The
-2026-10-01 local smoke (1 slot) showed why: tr87 (6 levels, 1/21) outranked ls20 (7 levels, 1/28) until it had
-spent ~43k tokens on level 1, so ls20 never played in 8 minutes.
+A game that has never held a slot goes before every game that has, so each game gets at least one quantum early.
 
-Standard library only. Our design, from the idea in the milestone-2 reference notebook (kaggle/reference/; its code is
-not used).
+Standard library only.
 """
 
 from __future__ import annotations
@@ -35,13 +41,33 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+# Continuation value (on a 10-level / 55-weight reference scale) by levels remaining after the current level:
+# >=3 remaining -> 8.0, 2 -> 7.0, 1 -> 5.0, 0 -> 0.0.
+_TAIL_BY_REMAINING = (0.0, 5.0, 7.0, 8.0)
+_REFERENCE_WEIGHT_SUM = 55.0
 
-def priority(levels_won: int, n_levels: int | None, tokens_on_level: float, token_scale: float) -> float:
+
+def priority(levels_won: int, n_levels: int | None, tokens_on_level: float, token_scale: float,
+             actions_on_level: float = 0.0, action_scale: float = 115.0, human_actions: float = 25.0,
+             tail_fraction: float = 1.0) -> float:
     n = max(1, int(n_levels or 8))
     level = min(max(0, int(levels_won)), n - 1)
-    gain = (level + 1) / (n * (n + 1) / 2)
-    hope = 0.5 ** ((max(0.0, tokens_on_level) / max(1.0, token_scale)) ** 2)
-    return gain * hope
+    actions = max(0.0, float(actions_on_level))
+    tokens = max(0.0, float(tokens_on_level))
+    h = max(1.0, float(human_actions))
+    efficiency = (h / (h + actions)) ** 2
+    current_gain = ((level + 1) / (n * (n + 1) / 2)) * efficiency
+    remaining = max(0, n - (level + 1))
+    tail_raw = _TAIL_BY_REMAINING[min(remaining, 3)]
+    tail_gain = (tail_raw / _REFERENCE_WEIGHT_SUM) * min(1.0, max(0.0, float(tail_fraction)))
+    hope = 0.5 ** ((tokens / max(1.0, float(token_scale))) ** 2 + (actions / max(1.0, float(action_scale))) ** 2)
+    return (current_gain + tail_gain) * hope
+
+
+def _unpack_snapshot(snap: tuple[Any, ...]) -> tuple[int, int | None, float, float]:
+    if len(snap) >= 4:
+        return int(snap[0]), snap[1], float(snap[2]), float(snap[3])
+    return int(snap[0]), snap[1], float(snap[2]), 0.0
 
 
 class SchedulerStopped(RuntimeError):
@@ -50,7 +76,7 @@ class SchedulerStopped(RuntimeError):
 
 @dataclass
 class _Game:
-    snapshot: Callable[[], tuple[int, int | None, float]]   # (levels won, number of levels, tokens on this level)
+    snapshot: Callable[[], tuple[Any, ...]]   # (levels won, number of levels, tokens on level[, actions on level])
     grants: int = 0
     wait_s: float = 0.0
     held_s: float = 0.0
@@ -62,10 +88,15 @@ class _Game:
 
 class PriorityScheduler:
     def __init__(self, slots: int, quantum_calls: int = 4, token_scale: float = 80000.0,
-                 log_path: Path | None = None, clock: Callable[[], float] = time.monotonic) -> None:
+                 log_path: Path | None = None, clock: Callable[[], float] = time.monotonic,
+                 action_scale: float = 115.0, human_actions: float = 25.0,
+                 run_budget_s: float | None = None, tail_fade_fraction: float = 0.2) -> None:
         if slots < 1:
             raise ValueError("slots must be >= 1")
         self.slots, self.quantum_calls, self.token_scale = int(slots), max(1, int(quantum_calls)), float(token_scale)
+        self.action_scale, self.human_actions = float(action_scale), float(human_actions)
+        self.run_budget_s = None if run_budget_s is None else max(0.0, float(run_budget_s))
+        self.tail_fade_fraction = max(0.0, min(1.0, float(tail_fade_fraction)))
         self.log_path, self.clock = log_path, clock
         self._cond = threading.Condition()
         self._games: dict[str, _Game] = {}
@@ -75,13 +106,22 @@ class PriorityScheduler:
         self._closed = False
 
     # --- bookkeeping ---------------------------------------------------------------------------------------
-    def register(self, key: str, snapshot: Callable[[], tuple[int, int | None, float]]) -> None:
+    def register(self, key: str, snapshot: Callable[[], tuple[Any, ...]]) -> None:
         with self._cond:
             self._games[key] = _Game(snapshot=snapshot)
 
+    def _tail_fraction(self) -> float:
+        if self.run_budget_s is None or self.run_budget_s <= 0.0 or self.tail_fade_fraction <= 0.0:
+            return 1.0
+        window = self.tail_fade_fraction * self.run_budget_s
+        remaining = max(0.0, self.run_budget_s - (self.clock() - self._t0))
+        return min(1.0, remaining / window) if window > 0.0 else 1.0
+
     def priority_of(self, key: str) -> float:
-        won, n, tokens = self._games[key].snapshot()
-        return priority(won, n, tokens, self.token_scale)
+        won, n, tokens, actions = _unpack_snapshot(self._games[key].snapshot())
+        return priority(won, n, tokens, self.token_scale, actions_on_level=actions,
+                        action_scale=self.action_scale, human_actions=self.human_actions,
+                        tail_fraction=self._tail_fraction())
 
     def _log(self, row: dict[str, Any]) -> None:
         if self.log_path is None:
@@ -116,9 +156,10 @@ class PriorityScheduler:
         if g.first_grant_s is None:
             g.first_grant_s = now - self._t0
         self._holders.add(key)
-        won, n, tokens = g.snapshot()
+        won, n, tokens, actions = _unpack_snapshot(g.snapshot())
         self._log({"event": "grant", "game": key, "priority": round(self.priority_of(key), 5),
                    "waited_s": round(waited, 1), "levels": won, "of": n, "tokens_on_level": int(tokens),
+                   "actions_on_level": int(actions),
                    "holders": sorted(self._holders), "waiting": self._waiting_count()})
 
     def _pump(self) -> None:
@@ -192,6 +233,8 @@ class PriorityScheduler:
                 per[k] = {"grants": g.grants, "held_s": round(held, 1), "wait_s": round(g.wait_s, 1),
                           "first_grant_s": None if g.first_grant_s is None else round(g.first_grant_s, 1)}
             return {"slots": self.slots, "quantum_calls": self.quantum_calls, "token_scale": self.token_scale,
+                    "action_scale": self.action_scale, "human_actions": self.human_actions,
+                    "tail_fade_fraction": self.tail_fade_fraction,
                     "never_granted": sorted(k for k, v in per.items() if v["grants"] == 0), "per_game": per}
 
 
@@ -200,14 +243,26 @@ class ScheduledLLM:
     (``usage``, ``model``, ``cfg``, ``gate`` ...) is the shared client's."""
 
     def __init__(self, llm: Any, scheduler: PriorityScheduler, key: str, levels_won: Callable[[], int],
-                 n_levels: int | None, should_stop: Callable[[], bool]) -> None:
+                 n_levels: int | None, should_stop: Callable[[], bool],
+                 actions_on_level: Callable[[], int] = lambda: 0, turn_driven: bool = False) -> None:
         self._llm, self._sched, self._key = llm, scheduler, key
+        # turn_driven: the agent ends its own turns (``yield_turn`` after a move or a cap), so a turn is never cut by
+        # ``quantum_calls`` or by a cold prompt in the middle; the level-up hand-over stays.
+        self.turn_driven = bool(turn_driven)
         self._levels_won, self._should_stop = levels_won, should_stop
+        self._n_levels = n_levels
+        self._actions_on_level = actions_on_level
         self._level = levels_won()
         self.tokens_on_level = 0
         self._calls_in_quantum = 0
         self._cold = False
-        scheduler.register(key, lambda: (self._levels_won(), n_levels, self.tokens_on_level))
+        scheduler.register(key, self._snapshot)
+
+    def _snapshot(self) -> tuple[int, int | None, float, float]:
+        level = self._levels_won()
+        if level != self._level:
+            return (level, self._n_levels, 0.0, 0.0)
+        return (level, self._n_levels, float(self.tokens_on_level), float(self._actions_on_level()))
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._llm, name)
@@ -218,7 +273,7 @@ class ScheduledLLM:
             self._level, self.tokens_on_level = level, 0
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "level_up")
-        elif self._cold and self._calls_in_quantum > 0:   # its prompt was rewritten: hand over while it is cold
+        elif self._cold and self._calls_in_quantum > 0 and not self.turn_driven:   # rewritten: hand over while cold
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "cold")
         self._cold = False
@@ -229,13 +284,16 @@ class ScheduledLLM:
             return reply
         finally:
             self._calls_in_quantum += 1
-            if self._calls_in_quantum >= self._sched.quantum_calls:
+            if not self.turn_driven and self._calls_in_quantum >= self._sched.quantum_calls:
                 self._calls_in_quantum = 0
                 self._sched.handover(self._key, "quantum")
 
     def yield_turn(self) -> None:
-        """The game spent its turn's thinking budget without a move: the slot goes to the best waiting game now (this
-        game queues again and may get it straight back)."""
+        """The game's turn ended (a move, or a cap without one): the slot goes to the best waiting game now (this game
+        queues again and may get it straight back). A turn-driven game does so only once it has made ``quantum_calls``
+        calls since it got the slot; before that it keeps the slot for its next turn."""
+        if self.turn_driven and self._calls_in_quantum < self._sched.quantum_calls:
+            return
         if self._calls_in_quantum > 0:
             self._calls_in_quantum = 0
             self._sched.handover(self._key, "yield")

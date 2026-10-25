@@ -1,8 +1,8 @@
 """``observe()``: the game state in the REPL, read-only. Pre-imported by the kernel.
 
 The host writes ``$RLM_SESSION_DIR/.prime/observation.json`` after every act and appends one line per step to
-``history.jsonl``. ``observe()`` reads them, and it tells the host (a display event of type ``MIME``) to send the
-full state (briefing, objects, board and picture) as the next message. The host sends it at most once per state.
+``history.jsonl``. ``observe()`` reads them, and it tells the host (a display event of type ``MIME``) to add the
+full state (briefing, objects and board) to the cell's own output. The host shows it at most once per state.
 
     obs = observe()
     obs.board[r][c]            # the colour letter at row r, column c
@@ -10,7 +10,7 @@ full state (briefing, objects, board and picture) as the next message. The host 
                                #   parent, children, adjacent, hud, cells [(r, c), ...] (None above 256 cells)
     obs.change                 # the newest step's change line
     obs.briefing               # every briefing line (the message shows at most 30)
-    obs.history                # the last 20 steps: {"i", "level", "action", "change", "state"}
+    obs.history                # the last 20 steps, newest first: {"i", "level", "action", "change", "state"}
     print(obs.ascii(r0, c0, r1, c1))   # a window of the board with row and column labels
     obs.step, obs.status, obs.background, obs.legend, obs.text
 """
@@ -69,13 +69,23 @@ class Observation:
         return f"Observation(step {self.step}, {len(self.objects)} objects, board {size})"
 
 
+def _read() -> dict[str, Any]:
+    try:
+        return json.loads((_dir() / "observation.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def snapshot() -> Observation:
+    """The current state, like ``observe()``, but the host is not asked to send it as a message (``play()`` reads
+    the board after every move with it)."""
+    return Observation(_read(), history(HISTORY))
+
+
 def observe() -> Observation:
     """The current state. Free. The full state (briefing, objects, board and picture) is sent to you as the next
     message, once per state; the returned snapshot is for your code."""
-    try:
-        data = json.loads((_dir() / "observation.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = _read()
     try:
         from rlm import emit
         emit({MIME: {"step": data.get("step")}})
@@ -85,7 +95,7 @@ def observe() -> Observation:
 
 
 def history(n: int = HISTORY) -> list[dict[str, Any]]:
-    """The last ``n`` steps of the game, oldest first."""
+    """The last ``n`` steps of the game, newest first."""
     try:
         lines = (_dir() / "history.jsonl").read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -96,7 +106,7 @@ def history(n: int = HISTORY) -> list[dict[str, Any]]:
             out.append(json.loads(line))
         except ValueError:   # a line the host is still writing
             continue
-    return out
+    return out[::-1]
 
 
 # --- host side ---------------------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import arc_agi
@@ -298,6 +299,9 @@ def make_arcade(mode: str, *, environments_dir: str = "", base_url: str = "",
             logger=_ARCADE_LOGGER,
         )
     if mode == "offline":
+        # The agent's kernel may not read the game files (runtime/skills/fileguard.py reads this when it starts).
+        if environments_dir:
+            os.environ["SARBLOH_GAME_FILES"] = str(Path(environments_dir).resolve())
         return arc_agi.Arcade(
             operation_mode=arc_agi.OperationMode.OFFLINE,
             environments_dir=environments_dir,

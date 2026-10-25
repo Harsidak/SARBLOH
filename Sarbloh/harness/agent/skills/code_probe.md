@@ -5,7 +5,7 @@ How it looks:
 s = state_of(observe())
 pred_a = step_a(s, "1")   # idea A: move 1 slides until a wall
 pred_b = step_b(s, "1")   # idea B: move 1 goes one cell
-await act(["1"])
-now = state_of(observe())
+r = await play(["1"])
+now = state_of(r.obs)
 print("A" if now == pred_a else "B" if now == pred_b else "neither")
 ```

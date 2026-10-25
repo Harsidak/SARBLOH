@@ -44,16 +44,11 @@ def is_competition_rerun() -> bool:
 
 def fit_context(agent: dict[str, Any], window: int) -> None:
     """Scale the drain settings to the served window. From 128k up they stay as configured (drain above the trigger or
-    window - reserve, whichever is lower, down to drain_target_tokens; never past cap_tokens); smaller windows keep at
-    most a quarter word for word and drain to at most 3/5 of the trigger, and a turn's output never exceeds the
-    reserve."""
+    window - reserve, whichever is lower, down to drain_target_tokens; never past cap_tokens); smaller windows drain
+    to at most 3/5 of the trigger, and a turn's output never exceeds the reserve."""
     agent["context_window"] = window
     comp = agent["compaction"]
     comp["reserve_tokens"] = min(comp["reserve_tokens"], window // 4)
-    comp["keep_recent_tokens"] = min(comp["keep_recent_tokens"], window // 4)
-    if comp.get("trigger_tokens") and comp["trigger_tokens"] < 2 * comp["keep_recent_tokens"]:
-        raise ValueError(f"compaction.trigger_tokens {comp['trigger_tokens']} < 2x keep_recent_tokens "
-                         f"{comp['keep_recent_tokens']}: every drain would leave the context near the trigger")
     # No request is sent above the trigger (a drain runs first), so a request plus its reply stays under the cap.
     cap = min(int(comp.get("cap_tokens") or window), window)
     trigger = min(int(comp.get("trigger_tokens") or window), window - comp["reserve_tokens"])
@@ -73,16 +68,18 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
 
     game_dir = run_dir / "games" / game.game_id
     deadline = min(soft_end, time.time() + cfg["game_wall_s"])
+    session_ref: dict[str, Any] = {}
+    host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
+                   tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
+                   stop_after_levels=cfg.get("stop_after_levels"))
     if scheduler is not None:  # this game's LLM calls run only while it holds a scheduler slot
         from harness.scheduler import ScheduledLLM
 
         llm = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: game.state.levels_completed,
                            n_levels=game.number_of_levels,
-                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline)
-    session_ref: dict[str, Any] = {}
-    host = ArcHost(game, cfg["max_actions_per_game"], should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
-                   tokens_spent=lambda: session_ref["s"].tokens_spent() if "s" in session_ref else 0,
-                   stop_after_levels=cfg.get("stop_after_levels"))
+                           should_stop=lambda: stop_event.is_set() or time.time() >= deadline,
+                           actions_on_level=lambda: max(0, game.action_count - host._level_start),
+                           turn_driven=True)
     task = prompts.task_message(game_id=game.game_id, win_levels=game.number_of_levels,
                                 max_actions=cfg["max_actions_per_game"],
                                 minutes=int(max(0, deadline - time.time()) // 60))
@@ -139,7 +136,11 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
 
         scheduler = PriorityScheduler(int(sched_cfg.get("slots", 6)), int(sched_cfg.get("quantum_calls", 4)),
                                       float(sched_cfg.get("token_scale", 80000.0)),
-                                      log_path=run_dir / "scheduler.jsonl")
+                                      log_path=run_dir / "scheduler.jsonl",
+                                      action_scale=float(sched_cfg.get("action_scale", 115.0)),
+                                      human_actions=float(sched_cfg.get("human_actions", 25.0)),
+                                      run_budget_s=max(0.0, soft_end - time.time()),
+                                      tail_fade_fraction=float(sched_cfg.get("tail_fade_fraction", 0.2)))
         workers = max(1, len(started))
     print(f"[runner] started {len(started)}/{len(games)} games, concurrency={workers}"
           + (f", scheduler slots={scheduler.slots}" if scheduler else ""), flush=True)
@@ -270,16 +271,13 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
 
     from harness.llm import bench
     from harness.llm.client import LLM
-    from harness.llm.spec import get_spec
-    from harness.llm.server import LlmServer
     from harness.game.games import build_games, make_arcade
 
-    spec = get_spec(cfg["model"])
     soft_end = start + cfg["notebook_budget_s"] - cfg["teardown_reserve_s"]
-    server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
     summary: dict[str, Any] = {}
+    server = None
     try:
-        server.start()
+        cfg, spec, server = _start_server(cfg, overrides, working_dir, soft_end, rerun)
         cfg["llm"]["base_url"] = server.base_url
         cfg["llm"]["model"] = spec.served_model_name
         if server.tool_mode != "native":
@@ -318,7 +316,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
                         "throughput": server.bench})
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     finally:
-        server.stop()
+        if server is not None:
+            server.stop()
         if not rerun:
             import pandas as pd  # Save & Run is not scored but must leave a valid submission file
 
@@ -330,6 +329,36 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
         "mean_score", "levels_completed", "levels_total", "actions", "turns", "tool_calls", "native_calls",
         "fenced_calls", "wall_s")}), flush=True)
     return summary
+
+
+def _start_server(cfg: dict[str, Any], overrides: dict[str, Any] | None, working_dir: Path, soft_end: float,
+                  rerun: bool) -> tuple[dict[str, Any], Any, Any]:
+    """The model server for ``cfg["model"]``; when every profile of its chain fails, the next model of
+    ``cfg["model_fallback"]`` (its config rebuilt with that model's spec defaults). Returns (config, spec, server)."""
+    from harness.llm.server import LlmServer
+    from harness.llm.spec import get_spec
+
+    tries = [(cfg["model"], None)] + [(f["model"], f.get("profile_chain")) for f in cfg.get("model_fallback") or []]
+    for n, (name, chain) in enumerate(tries):
+        if n:
+            over = dict(overrides or {})
+            over["model"] = name
+            over["server"] = {**(over.get("server") or {}), "profile_chain": chain}
+            cfg = build_config(over)
+            if rerun:
+                cfg["tracing"] = False
+            print(f"[server] every profile of {tries[n - 1][0]!r} failed; falling back to {name!r}", flush=True)
+        spec = get_spec(name)
+        server = LlmServer(spec, cfg["server"], working_dir, deadline=soft_end)
+        try:
+            server.start()
+            return cfg, spec, server
+        except RuntimeError as exc:
+            server.stop()
+            if n == len(tries) - 1:
+                raise
+            print(f"[server] {name!r} did not start: {str(exc)[:1500]}", flush=True)
+    raise RuntimeError("no model to start")   # unreachable: tries is never empty
 
 
 def _wait_for_gateway(base_url: str, timeout_s: float = 600.0) -> None:
@@ -381,7 +410,7 @@ def local() -> None:
         "llm": {"base_url": a.base_url, "model": a.model, "top_k": None,
                 "chat_template_kwargs": {"enable_thinking": not a.no_thinking}},
         "agent": {"max_tokens_per_turn": a.max_tokens, "vision": a.vision,
-                  "compaction": {"reserve_tokens": 4608, "keep_recent_tokens": 4000}},
+                  "compaction": {"reserve_tokens": 4608}},
     })
     cfg["agent"]["context_window"] = a.ctx
     os.environ["ONLY_RESET_LEVELS"] = "true"
