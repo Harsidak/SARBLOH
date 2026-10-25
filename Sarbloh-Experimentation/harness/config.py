@@ -166,10 +166,8 @@ DEFAULT: dict[str, Any] = {
         "wheelhouse_dataset": "banwait13/sarbloh-vllm-wheelhouse",  # kaggle/wheels.ipynb, vLLM 0.19.0
         "port": 8000,
         "profile_chain": None,         # None = the model spec's chain
-        # A start fails when the server log stops growing for startup_stall_s, or at startup_timeout_s at the latest.
-        # A load still printing shard progress is never cut short (the slowest shard seen took 110 s).
+        # A start fails when the server process exits, or when it is not healthy by startup_timeout_s.
         "startup_timeout_s": 5400.0,   # Kaggle model loads reached 40-60+ min in the 10-22..10-25 cache incident
-        "startup_stall_s": 600.0,
         "max_inflight": 32,            # requests admitted at once; ramps 2 -> 32 after a watchdog restart
         "bench": True,
         "watchdog": True,
