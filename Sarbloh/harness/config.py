@@ -104,7 +104,7 @@ DEFAULT: dict[str, Any] = {
         # Off: a stored reply keeps its code and text but not its thinking, so no old thinking is sent back; the model
         # keeps what it works out in GOAL, PLAN, HYPOTHESES and FINDINGS. Each reply still thinks freely, and the
         # transcript keeps the thinking (trace, SFT export). On: every thinking stays in the messages.
-        "keep_reasoning": False,
+        "keep_reasoning": True,
         # The code graph (harness/runtime/skills/codegraph.py): after every ipython call the host reads the agent's
         # live functions and classes and what each calls, and ends the output with one line of what changed (added,
         # changed, removed, calls a missing name); after a drain, trim or reset the whole map goes back in once.
@@ -127,7 +127,9 @@ DEFAULT: dict[str, Any] = {
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": False,     # object list with ids, hashes, containment, adjacency
-            "briefing": False,         # briefing: MEASURED facts and GUESSES, in the full view
+            # briefing: MEASURED facts and GUESSES, in the full view. It also draws the picture: on, the labelled map
+            # (terrain, panels, tile grid, HUD panel); off, the plain frame (one colour per cell). Off from 10-19 to 10-25.
+            "briefing": True,
             "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)
