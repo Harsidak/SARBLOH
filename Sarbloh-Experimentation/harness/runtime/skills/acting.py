@@ -16,8 +16,8 @@ A move is "1".."5", "7", "6 r c" (a click at row r, column c), an int 1..7, or a
 config reset_move on (off: the host restarts a lost level itself).
 
 Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS), so the host saves them
-before the move runs; after a level up PLAN, HYPOTHESES and FINDINGS are emptied here, as the host empties them in
-memory, and the skills the curator picked at that level-up are loaded into SKILLS.
+before the move runs; after a level up nothing is emptied: GOAL is replaced by the host's copy, where the kept goals of
+the level just won are marked "won", and the skills the curator picked at that level-up are loaded into SKILLS.
 """
 
 from __future__ import annotations
@@ -79,8 +79,9 @@ async def _act(actions: list[Any], **extra: Any) -> ActResult:
     if reply.get("status") != "ok":
         raise RuntimeError(str(reply.get("error") or "act failed"))
     res = ActResult(reply.get("result") or {})
-    if res.level_up:
-        sys.modules["__main__"].__dict__.update(PLAN="", HYPOTHESES=[], FINDINGS=[])
+    goal = (reply.get("result") or {}).get("goal")
+    if res.level_up and isinstance(goal, dict):
+        sys.modules["__main__"].__dict__["GOAL"] = goal
     skills = (reply.get("result") or {}).get("load_skills")
     if isinstance(skills, dict) and skills:   # the skills the curator wrote and picked at this level-up
         from recalling import load_skills   # the kernel puts the skills folder on the path

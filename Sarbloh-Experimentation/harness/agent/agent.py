@@ -62,7 +62,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                picture_last=not bool(p.get("old_images", False)),
                                code_graph=bool(cfg.get("code_graph", True)),
                                reset_move=bool(cfg.get("reset_move", False)),
-                               thinking_dropped=cfg.get("reasoning_max_code_words") is not None,
+                               code_kept=bool(cfg.get("keep_code", False)),
                                board_text=bool(p.get("ascii", True)),
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
                                segmentation=bool(p.get("segmentation", True)),
@@ -157,6 +157,7 @@ class AgentSession:
         # line at the end of each ipython output, and the whole map back in the context after a rewrite.
         self.code_graph = bool(cfg.get("code_graph", True))
         self._graph: dict[str, Any] = {}
+        self._call_graphs: dict[str, str] = {}   # call id -> graph lines of what that call defined (_store_reply)
         self._act_info: dict[str, Any] | None = None
         self._cell: dict[str, Any] | None = None   # the ipython cell running now: its call, and the acts it made
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
@@ -320,8 +321,18 @@ class AgentSession:
         native = bool(calls and calls[0]["native"])
         if native:
             assistant["tool_calls"] = [c["raw"] for c in calls]
-        if reply.reasoning and (native or self.append_only) and self._keeps_reasoning(calls):
+        if reply.reasoning and (native or self.append_only):
             assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
+        # Config keep_code off: the reply is stored without its code; once its cells ran, the code-graph lines of what
+        # each cell defined take the code's place (step 5). The transcript keeps the code as written (``code_full``)
+        # for the trace and the SFT export.
+        full = None
+        self._call_graphs = {}
+        if calls and not self.cfg.get("keep_code", False):
+            full = {k: assistant[k] for k in ("content", "tool_calls") if k in assistant}
+            assistant = context.without_code(assistant)
+            if assistant == {**assistant, **full}:
+                full = None
         estimate = (len(msgs[0]["content"]) + self._pinned_chars + 3) // 4 + \
             sum(self._estimate(m) for m in self.messages) + self._chain_reasoning_tokens(0)
         if reply.prompt_tokens > 0 and estimate > 0:
@@ -332,11 +343,11 @@ class AgentSession:
         trace = {"wire_sha": context.digest(msgs), "effort": (effort or {}).get("reasoning_effort"),
                  "reasoning_unsent": bool(reply.reasoning) and "_reasoning" not in assistant} if self.tracing else {}
         self._append(assistant, reasoning=reply.reasoning, usage=(reply.prompt_tokens, reply.completion_tokens),
-                     finish=reply.finish_reason, turn=self.stats["turns"], **trace)
+                     finish=reply.finish_reason, turn=self.stats["turns"], code_full=full, **trace)
         # Anchor on the prompt and estimate the stored reply like any newer message: its thinking counts only
         # while it is still sent (until the next user message), so completion_tokens would overcount.
         self._usage_tokens = reply.prompt_tokens
-        self._usage_at = len(self.messages) - 1
+        self._usage_at = reply_at = len(self.messages) - 1
 
         # 5) The tool calls (each ipython call saves the memory variables of the kernel). Code that only looks keeps
         # the turn going: the model reads its output in the next request, right away.
@@ -345,6 +356,8 @@ class AgentSession:
             self._surprised = False
             for call in calls:
                 self._run_call(call, reply)
+            if full is not None:
+                self._store_reply(reply_at, full)
             leveled = self.arc.game.state.levels_completed != level0
             if leveled and not self.arc.finished:
                 guardrails.level_start_note(self)
@@ -406,21 +419,11 @@ class AgentSession:
             "; ".join(parts)
         return text if len(text) <= 2000 else text[:1990] + " ..."
 
-    def _keeps_reasoning(self, calls: list[dict[str, Any]]) -> bool:
-        """False when the reply wrote long code: then its thinking is not stored. Called from _request step 4."""
-        cap = self.cfg.get("reasoning_max_code_words")
-        if cap is None:
-            return True
-        words = sum(len((c.get("code") or "").split()) for c in calls if c["name"] == "ipython")
-        if words >= int(cap):
-            self.stats["reasoning_dropped"] = self.stats.get("reasoning_dropped", 0) + 1
-            return False
-        return True
-
-    def _graph_delta(self) -> str:
+    def _graph_delta(self, call_id: str = "") -> str:
         """After an ipython cell: the new code graph of the kernel and the one line of what changed since the last
         cell ("" when nothing did, or config code_graph is off). Diffed on the live namespace, so a deleted or
-        rebound function shows as removed. Called from _run_call."""
+        rebound function shows as removed. The graph lines of what the cell defined are kept for the stored reply
+        (``_call_graphs``, see _store_reply). Called from _run_call."""
         if not self.code_graph:
             return ""
         try:
@@ -431,11 +434,24 @@ class AgentSession:
         if nodes is None:
             return ""
         line = codegraph.delta(self._graph, nodes)
+        self._call_graphs[call_id] = codegraph.cell_map(self._graph, nodes)
         self._graph = nodes
         if line:
             self.stats["graph_deltas"] += 1
             self._log_event({"event": "code_graph", "turn": self.stats["turns"], "delta": line, "nodes": len(nodes)})
         return line
+
+    def _store_reply(self, at: int, full: dict[str, Any]) -> None:
+        """After a reply's cells ran (config keep_code off): the stored reply at ``at`` gets, in place of each call's
+        code, the code-graph lines of what that call defined. Decided once, before the next request, so the stored
+        messages stay a prefix. Logged as a ``reply_stored`` event (trace.sft_wire applies it). Called from _request
+        step 5."""
+        stored = context.without_code({**self.messages[at], **full}, self._call_graphs)
+        if stored == self.messages[at]:
+            return
+        self.messages[at] = stored
+        self._log_event({"event": "reply_stored", "turn": self.stats["turns"],
+                         **{k: stored[k] for k in ("content", "tool_calls") if k in stored}})
 
     def _insert_graph(self) -> None:
         """After a drain, trim or reset: the whole code graph once, before the newest user message (the change lines
@@ -539,10 +555,10 @@ class AgentSession:
             if saved:
                 receipt.append(f"[memory saved: {', '.join(saved)}]")
             if errors:
-                receipt.append(f"[memory not saved: {'; '.join(errors)}. The old value is kept.]")
-            pieces += [("memory", "\n".join(receipt)), ("graph", self._graph_delta())]
-        pieces.append(("status", f"[game: {self.arc.status_line()} | {self._left()['minutes_left']} min left]"))
+                receipt.append(f"[memory not saved: {'; '.join(errors)}. That variable is back to its saved value.]")
+            pieces += [("memory", "\n".join(receipt)), ("graph", self._graph_delta(call_id))]
         text, spans = context.cell_output(pieces)
+        text = text or "(no output)"
         if cell is not None:
             self._log_event({"event": "cell", "turn": turn, "call": call_id, "status": res.status,
                              "duration_s": round(res.duration_s, 2), "output_chars": len(text),
@@ -789,9 +805,9 @@ class AgentSession:
                                              new_skills=new_skills, loaded_skills=list(load), **self._left()))
         if lost:
             out.append(prompts.event_message("game_over" if restarted else "game_over_reset", **self._left()))
-        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": mem.working.plan or None,
-                        "stop": stop})
-        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": mem.working.plan or None,
+        plan = mem.working.plan_for(level0) or None
+        mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": plan, "stop": stop})
+        self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": plan,
                          "requested": len(parsed), "done": done, "stop": stop, "steps": steps,
                          "actions": [start, arc.game.action_count], "via": via, "predicted": predicted,
                          "play_id": play_id})
@@ -799,6 +815,8 @@ class AgentSession:
                           "state": "GAME_OVER" if lost else s.engine_state.name}
         if load:
             self._act_info["load_skills"] = load
+        if level_up:   # the won goals, marked "won" in GOAL in the kernel by play()
+            self._act_info["goal"] = mem.working.kernel_values()["GOAL"]
         if done == 0 and stop:
             raise RuntimeError(stop)
         if lines:
@@ -839,15 +857,17 @@ class AgentSession:
             self._log_event({"event": "memory_read_error", "error": repr(exc)[:300]})
         if values is None:
             return
-        self._sync_memory(values, cell)
-        lost = {k: v for k, v in self.memory.working.kernel_values().items() if k not in values}
+        wrote = self._sync_memory(values, cell)
+        # A deleted variable and one that was not saved (wrong shape) get the saved value back.
+        lost = {k: v for k, v in self.memory.working.kernel_values().items()
+                if k not in values or k in wrote["rejected"]}
         if lost:
             self.kernel.set_memory(lost)
             self._log_event({"event": "memory_restored", "names": sorted(lost)})
 
-    def _sync_memory(self, values: Any, cell: dict[str, Any]) -> None:
-        """Saves the memory variables, logs what changed and notes it for the cell's receipt. Called from _read_memory and
-        _host (the memory sent with a move)."""
+    def _sync_memory(self, values: Any, cell: dict[str, Any]) -> dict[str, Any]:
+        """Saves the memory variables, logs what changed and notes it for the cell's receipt; returns what
+        ``GameMemory.sync`` wrote. Called from _read_memory and _host (the memory sent with a move)."""
         call_id, turn = cell["call_id"], cell["turn"]
         wrote = self.memory.sync(values if isinstance(values, dict) else {}, turn=turn,
                                  level=self.arc.game.state.levels_completed)
@@ -859,12 +879,14 @@ class AgentSession:
         for f in wrote["findings"]:
             self._log_event({"event": "finding", "turn": turn, "call": call_id, "level": level,
                              "action_count": acount, "text": f["text"], "evidence": f["evidence"]})
-        if wrote["goal"]:
-            self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": level, "action_count": acount,
-                             "goal": wrote["goal"]})
-        saved = [k for k in ("plan", "goal") if wrote[k] is not None]
+        for g in wrote["goal"]:
+            self._log_event({"event": "goal", "turn": turn, "call": call_id, "level": g["level"],
+                             "action_count": acount, "goal": g["goal"], "status": g["status"],
+                             "prev_status": g["prev_status"]})
+        saved = [f"plan {k}" for k in wrote["plan"]]
+        saved += [f"goal {g['status']}" for g in wrote["goal"]]
         for h in wrote["hypotheses"]:
-            saved.append(f"{h['id']} new")
+            saved.append(f"{h['id']} {'new' if h['prev_status'] is None else h['status']}")
         if wrote["findings"]:
             saved.append(f"{len(wrote['findings'])} finding{'s' if len(wrote['findings']) > 1 else ''} added")
         if wrote["removed"]:
@@ -873,6 +895,7 @@ class AgentSession:
         if wrote["errors"]:
             self._log_event({"event": "memory_error", "turn": turn, "call": call_id, "errors": wrote["errors"]})
         cell["memory"].append((saved, wrote["errors"]))
+        return wrote
 
     # --- the hidden curator ------------------------------------------------------------------------------
     def _maybe_curate(self) -> None:

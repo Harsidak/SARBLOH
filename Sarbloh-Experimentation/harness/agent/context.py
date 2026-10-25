@@ -47,16 +47,20 @@ STUB_KIND = "board_stub"           # an old board after a drain: one line, no pi
 ACT_LINE_CHARS = 200               # an old act result's change line after a drain
 ERROR_CHARS = 1500                 # an old error traceback after a drain keeps this many characters (its end)
 BOARD_RUN = 4                      # this many board-like lines in a row are a printed board
+# What a stored reply holds in place of its code (config keep_code off) until its cells ran; then the code graph of
+# what the code defined (code_note).
+CODE_STUB = "# code not kept in the messages"
+_FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)   # = guardrails._FENCED
 REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
 ORDER = ("goal", "plan", "skills", "hypotheses", "findings")
 TITLES = {
-    "goal": "Goal (GOAL; kept across levels)",
-    "plan": "Plan (PLAN)",
+    "goal": "Goals by level (GOAL)",
+    "plan": "Plans by level (PLAN)",
     "skills": "Skills you loaded (SKILLS; print(SKILLS[name]) shows one)",
-    "hypotheses": "Hypotheses (HYPOTHESES)",
-    "findings": "Findings this level (FINDINGS)",
+    "hypotheses": "Hypotheses by level (HYPOTHESES)",
+    "findings": "Findings by level (FINDINGS)",
 }
-EMPTY = {"goal": "(none yet: write a Goal: line as soon as you have a guess)",
+EMPTY = {"goal": "(none yet: write one in GOAL as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
 
 
@@ -262,7 +266,7 @@ def cell_output(pieces: list[tuple[str, str]]) -> tuple[str, list[list[Any]]]:
     """The text of an ipython output from its pieces (kind, text), joined by newlines, and where each piece is in it:
     [[kind, start, end], ...]. The kinds: "out" (what the code printed), "error" (its traceback), "observe" (the full
     state an `observe()` call shows), "state" (the state after its moves), "memory" (the memory receipt), "graph" (the
-    code-graph change line), "status" (the game status line). A drain masks each kind its own way."""
+    code-graph change line). A drain masks each kind its own way."""
     text, spans = "", []
     for kind, piece in pieces:
         if not piece:
@@ -373,6 +377,44 @@ def build(system: str, messages: list[dict[str, Any]], pinned: dict[str, Any] | 
         at = max(chain_start(msgs) - 1, 0)
         msgs = msgs[:at] + [pinned] + msgs[at:]
     return merge_users([{"role": "system", "content": system}] + msgs)
+
+
+def code_note(graph: str | None) -> str:
+    """What a stored reply holds in place of one call's code: the code-graph lines of what that code defined, changed
+    or removed (``codegraph.cell_map``), or ``CODE_STUB`` when the graph is not known (the call did not run, or config
+    code_graph is off)."""
+    if graph is None:
+        return CODE_STUB
+    if not graph:
+        return "# code not kept in the messages; it defined no functions or classes"
+    return "# code not kept in the messages; the code graph of what it defined:\n" + \
+        "\n".join(f"# {line}" for line in graph.splitlines())
+
+
+def without_code(msg: dict[str, Any], graphs: dict[str, str] | None = None) -> dict[str, Any]:
+    """A reply as it is stored with config keep_code off: the code of each ipython call (and the ```python blocks of a
+    fenced reply, which run as one call) becomes ``code_note`` of that call's entry in ``graphs`` (call id -> graph
+    lines); the thinking, the text and the call ids stay."""
+    graphs = graphs or {}
+    out = dict(msg)
+    calls = []
+    for tc in msg.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        if fn.get("name") == "ipython":
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except (ValueError, TypeError):
+                args = {}
+            args = {**(args if isinstance(args, dict) else {}), "code": code_note(graphs.get(tc.get("id")))}
+            tc = {**tc, "function": {**fn, "arguments": json.dumps(args)}}
+        calls.append(tc)
+    if calls:
+        out["tool_calls"] = calls
+    elif isinstance(msg.get("content"), str) and _FENCED.search(msg["content"]):
+        note = code_note(next(iter(graphs.values()), None))
+        blocks = iter(range(10 ** 6))   # the first block holds the note, the others go
+        out["content"] = _FENCED.sub(lambda m: f"```python\n{note}\n```" if next(blocks) == 0 else "", msg["content"])
+    return out
 
 
 def loggable(msg: dict[str, Any]) -> dict[str, Any]:

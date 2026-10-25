@@ -146,9 +146,10 @@ def render_actions(rows: list[dict[str, Any]], levels_before: int | None) -> str
 
 
 def _tool_calls(ev: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
-    """(call id, tool name, parsed args) for an assistant message event."""
+    """(call id, tool name, parsed args) for an assistant message event, with the code as written (``code_full``, when
+    the stored reply did not keep it)."""
     out = []
-    for tc in ev.get("tool_calls") or []:
+    for tc in (ev.get("code_full") or {}).get("tool_calls") or ev.get("tool_calls") or []:
         fn = tc.get("function") or {}
         try:
             args = json.loads(fn.get("arguments") or "{}")
@@ -247,7 +248,8 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
             calls = _tool_calls(ev)
             for cid, name, args in calls:
                 turn_of_call[cid], tool_of_call[cid], args_of_call[cid] = ev.get("turn"), name, args
-            blocks = [] if calls else [b for b in _FENCED.findall(ev.get("content") or "") if b.strip()]
+            written = (ev.get("code_full") or {}).get("content", ev.get("content"))
+            blocks = [] if calls else [b for b in _FENCED.findall(written or "") if b.strip()]
             fenced = f"fenced-t{ev.get('turn')}" if blocks else None   # the agent's call id for fenced cells
             if fenced:
                 turn_of_call[fenced], tool_of_call[fenced] = ev.get("turn"), "ipython"
@@ -567,7 +569,7 @@ def game_map(game_dir: Path, rows: list[dict[str, Any]], run: dict[str, Any], se
 
 
 # --- SFT export --------------------------------------------------------------------------------------------
-_EVENT_KEYS = {"t", "event", "reasoning", "usage", "finish", "turn", "wire_sha", "effort", "reasoning_unsent"}
+_EVENT_KEYS = {"t", "event", "reasoning", "usage", "finish", "turn", "wire_sha", "effort", "reasoning_unsent", "code_full"}
 BAD_FLAGS = ("cut_off", "tool_error", "cell_error", "repeat", "game_over")
 
 
@@ -676,6 +678,12 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
             tail = _stored(ev, prefix)
         elif kind == "step":
             level = max(level, ev.get("level_after") or 0)
+        elif kind == "reply_stored":   # after its cells ran, the last reply holds the code graph in place of its code
+            at = next((i for i in range(len(state) - 1, -1, -1) if state[i].get("role") == "assistant"), None)
+            if at is not None:
+                state[at] = {**state[at], **{k: ev[k] for k in ("content", "tool_calls") if k in ev}}
+                if group is not None:
+                    group["reply"] = _as_sent(state[at])
         elif kind == "message":
             m = _stored(ev, prefix)
             if ev.get("role") == "assistant":
@@ -687,7 +695,8 @@ def sft_wire(events: list[dict[str, Any]], run: dict[str, Any], context: dict[st
                 history = agent_context.build(system, state, **kw) if tail is not None else request
                 verified = agent_context.digest(request) == ev.get("wire_sha")
                 counts["verified"] += verified
-                target = {k: v for k, v in _as_sent(m).items() if k != "reasoning"}
+                # The target is the reply as written (its code too); the history holds it as stored.
+                target = {k: v for k, v in _as_sent({**m, **(ev.get("code_full") or {})}).items() if k != "reasoning"}
                 if ev.get("reasoning"):
                     target["reasoning_content"] = ev["reasoning"]   # what it generated, sent back or not
                 pictured = tail is not None and request != history

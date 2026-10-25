@@ -21,7 +21,7 @@ The system prompt is the API contract only. ``TOOLS_DETAILED`` (one snippet for 
 functions ``observe()``, ``play()``, ``recall()`` and ``graph()``) gives every argument, limit, refusal and return
 format, taken from ``tools.py``, ``agent.py`` (``_tool_act``), ``runtime/skills/observation.py``, ``acting.py``,
 ``recalling.py``, ``codegraph.py`` and ``agent/perception.py``. If those change, change these. The agent's memory is
-five variables in its kernel (GOAL, PLAN, HYPOTHESES, FINDINGS and SKILLS; the host saves them,
+five variables in its kernel (GOAL, PLAN, HYPOTHESES and FINDINGS, dicts keyed by level, and SKILLS; the host saves them,
 ``AgentSession._read_memory``), shown in a [memory] block only with config ``memory.in_context``.
 
 Style (owner rule, 2026-10-02, tightened 2026-10-14): short, simple sentences written as instructions to a human. Say
@@ -67,6 +67,7 @@ GAME_FACTS = """Game:
 You are playing a game having board of 64x64 grid of colors. {legend}
 you have to understand the game related rules or goal while playing the game.
 Each level keeps what the earlier levels showed and can add something new.
+All the games are solvable.
 You would be able to win when you understand the game and taking optimal actions to achieve the goal from your understanding.
 
 Controls:
@@ -164,17 +165,18 @@ Skills you can load with `recall()`:
 
 MEMORY = """Your memory:
 {earlier_kept} stay in the messages. {memory_where}
-Your memory is five variables in your `ipython` kernel. Change the first four in your code when they change, and they are saved:
-- `GOAL`: text, what you think wins the level.
-- `PLAN`: text, your next steps and why, in one or two sentences.
-- `HYPOTHESES`: a list of the rules you think the game follows, each written concretely (objects, directions, counts). For example `HYPOTHESES.append("1 moves obj 4 up by 5 cells")`. Write any hypothesis you like and remove one when you stop believing it. You do not mark them true or false.
-- `FINDINGS`: a list of facts about this level, one short text each.
-- `SKILLS`: a dict of skill name to text, the skills you loaded with `recall()` and the ones picked for you when you win a level. It is kept across levels.
-Only assign or append to GOAL, PLAN, HYPOTHESES and FINDINGS at the top level of a cell, for example `PLAN = "push the block right"` or `FINDINGS.append("the bar loses one block per move")`. Do not rename them, do not copy them into other variables, and do not use them inside your functions or your search: they are notes for you, not inputs to your code. A plain assignment inside a function only makes a local copy and is not saved.
-When you win a level, PLAN, HYPOTHESES and FINDINGS are emptied; GOAL and SKILLS are kept.
+Your memory is five variables in your `ipython` kernel. The first four are dicts with one entry per level: "L1" for level 1, "L2" for level 2, and so on. Change them in your code when they change, and they are saved:
+- `GOAL`: for each level, the goals you think win it, each marked "kept" or "refuted". For example `GOAL["L2"] = {{"push the block onto the flag": "kept"}}`. Write a goal as what wins the level. When a test shows a goal does not win, mark it refuted with `GOAL["L2"]["push the block onto the flag"] = "refuted"` and add the next goal to test. When you win a level, its kept goals are marked "won".
+- `PLAN`: for each level, your next steps and why, in one or two sentences. For example `PLAN["L2"] = "push the block right"`.
+- `HYPOTHESES`: for each level, the rules you think the game follows, each written concretely (objects, directions, counts) and marked "kept" or "refuted". For example `HYPOTHESES.setdefault("L2", {{}})["1 moves obj 4 up by 5 cells"] = "kept"`. Mark one "refuted" when a move shows it is wrong.
+- `FINDINGS`: for each level, a list of facts you saw, one short text each. For example `FINDINGS.setdefault("L2", []).append("the bar loses one block per move")`.
+- `SKILLS`: a dict of skill name to text, the skills you loaded with `recall()` and the ones picked for you when you win a level.
+Only change GOAL, PLAN, HYPOTHESES and FINDINGS at the top level of a cell, as in the examples above. Do not rename them, do not copy them into other variables, and do not use them inside your functions or your search: they are notes for you, not inputs to your code. A plain assignment inside a function only makes a local copy and is not saved.
+Nothing is emptied when you win a level: the entries of every earlier level stay. On a new level, read them and carry over the goals, plans and hypotheses that still fit.
 """
 
-MEMORY_HIDDEN = "Your memory is not repeated in the messages: print a variable when you need it."
+MEMORY_HIDDEN = ("Your memory is not shown in the messages. Print GOAL, PLAN, HYPOTHESES or FINDINGS whenever you "
+                 "want to read them, for example `print(GOAL)`.")
 MEMORY_SHOWN = ("A [memory] block shows your goal, plan, hypotheses, findings and the names of your SKILLS, and a "
                 "[memory update] shows the parts that changed.")
 
@@ -198,7 +200,7 @@ The first state is below. In your first `ipython` call, read `observe()`, find w
 CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
-Your goal and SKILLS are kept, and your plan, hypotheses and findings are empty.
+Your GOAL, PLAN, HYPOTHESES, FINDINGS and SKILLS are all kept. The kept goals of the level you won are now marked "won".
 Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel.
 If in case you encounter new objects or a changed layout update your code accordingly.
 """
@@ -208,7 +210,7 @@ NEW_SKILLS = "New skills from the level you just won: {names}."
 LOADED_SKILLS = "These skills are now in SKILLS: {names}. `print(SKILLS[\"name\"])` shows one."
 
 # The note for the level the agent is on, added to the messages that start a level.
-LEVEL_NOTE = "This is level {level}."
+LEVEL_NOTE = "This is level {level}. Write its notes under \"L{level}\" in your memory."
 
 EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
@@ -344,7 +346,7 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 
 def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True, code_graph: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
-                observe_view: bool = True, segmentation: bool = True, briefing: bool = True, thinking_dropped: bool = False,
+                observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
                 reset_move: bool = False, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
@@ -376,9 +378,9 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
         if reset_move else {"reset_control": RESET_CONTROL, "reset_in_path": "", "reset_line": RESET_LINE}
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
                            memory_where=memory, **pictures, **board, **views, **resets,
-                           earlier_kept="Your earlier code and tool outputs (and your thinking, when a reply wrote "
-                                        "little or no code)" if thinking_dropped else
-                                        "Your earlier thinking and tool outputs")
+                           earlier_kept="Your earlier thinking, code and tool outputs" if code_kept else
+                                        "Your earlier thinking and tool outputs (not your code: in its place you see "
+                                        "the code graph of the functions and classes it defined)")
 
 
 def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:

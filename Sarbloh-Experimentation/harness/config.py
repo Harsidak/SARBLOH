@@ -96,10 +96,10 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 2000,
-        # A stored reply keeps its thinking only when its code is shorter than this many words (no code at all
-        # included): a reply that wrote real code is sent back as the code alone. Decided once, when the reply is
-        # stored, so the prompt stays a prefix of the next one. None: every reply keeps its thinking.
-        "reasoning_max_code_words": 200,
+        # Off: a stored reply keeps its thinking but not its code (each ipython call's code becomes a one-line stub;
+        # the code graph maps what the code defined, show_source(name) prints it). Decided once, when the reply is
+        # stored, so the prompt stays a prefix of the next one. The transcript keeps the code as written.
+        "keep_code": False,
         # The code graph (harness/runtime/skills/codegraph.py): after every ipython call the host reads the agent's
         # live functions and classes and what each calls, and ends the output with one line of what changed (added,
         # changed, removed, calls a missing name); after a drain, trim or reset the whole map goes back in once.

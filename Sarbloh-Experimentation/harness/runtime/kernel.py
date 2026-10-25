@@ -54,10 +54,11 @@ from recalling import recall      # search the timeline and the skills; found sk
 from recalling import load_skills as _load_skills
 from acting import memory_values as _memory_values
 # The agent's memory: it changes these in its code; the host copies them after every call and before every move.
-GOAL = ""
-PLAN = ""
-HYPOTHESES = []
-FINDINGS = []
+# Each is a dict keyed by level ("L1", "L2", ...) and nothing is emptied at a level-up.
+GOAL = {}
+PLAN = {}
+HYPOTHESES = {}
+FINDINGS = {}
 SKILLS = {}
 # Config agent.file_guard: from here on the agent's code may use files only in its own folder (fileguard.py).
 if os.environ.get("SARBLOH_FILE_GUARD") == "1":

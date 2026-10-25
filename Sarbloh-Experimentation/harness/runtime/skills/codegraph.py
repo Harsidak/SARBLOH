@@ -183,21 +183,28 @@ def _head(n: dict[str, Any]) -> str:
     return head + (f" -> {', '.join(n['calls'])}" if n["calls"] else "")
 
 
+def _changes(before: dict[str, dict[str, Any]], now: dict[str, dict[str, Any]]) -> tuple[list[str], list[str],
+                                                                                         list[str]]:
+    """The names added, changed (its code, signature or edges) and removed between two snapshots."""
+    gone = [k for k in before if k not in now]
+
+    def changed(k: str) -> bool:   # its own code changed, or it calls something new (a removed callee is a "!")
+        a, b = before[k], now[k]
+        return any(a.get(f) != b.get(f) for f in ("hash", "sig", "methods")) or \
+            set(b["calls"]) != set(a["calls"]) - set(gone)
+
+    return [k for k in now if k not in before], [k for k in now if k in before and changed(k)], gone
+
+
 def delta(before: dict[str, dict[str, Any]] | None, now: dict[str, dict[str, Any]],
           limit: int = DELTA_CHARS) -> str:
     """One line of what changed between two snapshots, or "" when nothing did: ``+`` added, ``~`` changed (its code,
     signature or edges), ``-`` removed, ``!`` a node that now calls a missing name."""
     before = before or {}
-    gone = {k for k in before if k not in now}
-
-    def changed(k: str) -> bool:   # its own code changed, or it calls something new (a removed callee is a "!")
-        a, b = before[k], now[k]
-        return any(a.get(f) != b.get(f) for f in ("hash", "sig", "methods")) or \
-            set(b["calls"]) != set(a["calls"]) - gone
-
-    parts = [f"+{_head(now[k])}" for k in now if k not in before]
-    parts += [f"~{_head(now[k])}" for k in now if k in before and changed(k)]
-    parts += [f"-{k}" for k in before if k not in now]
+    added, changed, gone = _changes(before, now)
+    parts = [f"+{_head(now[k])}" for k in added]
+    parts += [f"~{_head(now[k])}" for k in changed]
+    parts += [f"-{k}" for k in gone]
     for k, n in now.items():
         new = [m for m in n["missing"] if m not in (before.get(k) or {}).get("missing", [])]
         if new:
@@ -211,6 +218,25 @@ def delta(before: dict[str, dict[str, Any]] | None, now: dict[str, dict[str, Any
         line, shown = (f"{line} | {p}" if line else p), shown + 1
     more = f" | ... {len(parts) - shown} more: graph() shows all" if shown < len(parts) else ""
     return f"[code graph: {line}{more}]"
+
+
+def cell_map(before: dict[str, dict[str, Any]] | None, now: dict[str, dict[str, Any]],
+             limit: int = RENDER_CHARS) -> str:
+    """What one cell defined, changed or removed, one line per function or class as it is now (its signature, what it
+    calls and its docstring), or "" when it touched none. The stored reply holds this in place of the cell's code."""
+    before = before or {}
+    added, changed, gone = _changes(before, now)
+    out = []
+    for k in added + changed:
+        doc = f"  # {now[k]['doc']}" if now[k].get("doc") else ""
+        out.append(_head(now[k]) + doc)
+        if now[k]["missing"]:
+            out.append(f"! {k} calls missing {', '.join(now[k]['missing'])}")
+    out += [f"removed {k}" for k in gone]
+    text = "\n".join(out)
+    if len(text) > limit:
+        text = text[:limit].rsplit("\n", 1)[0] + "\n... (cut: graph() shows all)"
+    return text
 
 
 def render(nodes: dict[str, dict[str, Any]], limit: int = RENDER_CHARS) -> str:

@@ -1,13 +1,13 @@
 """``GameMemory``: all memories of one game, and what happens to them at a level-up and at a new game.
 
 Files: ``<root>/<game>/timeline.jsonl`` (#1), ``<root>/<game>/working.json`` (the five kernel variables GOAL, PLAN,
-HYPOTHESES, FINDINGS and SKILLS), ``<root>/<game>/levels.jsonl`` (what each level-up erased), and, shared by all
+HYPOTHESES, FINDINGS and SKILLS), ``<root>/<game>/levels.jsonl`` (what each won level held), and, shared by all
 games, ``<root>/lessons.json`` (#8) and ``<root>/skills.json``.
 
-Level-up: the findings become ``rule`` nodes of the lessons graph and the goal a ``goal`` node, each linked to the
-shapes it names as "obj N" (the curator judges the hypotheses); the goal gets "confirmed: won level N"; then plan,
-hypotheses and findings are erased (SKILLS is kept). New game: the timeline is archived and everything except the
-lessons graph and the skills is erased.
+Level-up: the kept goals of the level are marked "won" and confirmed ("confirmed: won level N"); the level's findings
+become ``rule`` nodes of the lessons graph and its won goals ``goal`` nodes, each linked to the shapes it names as
+"obj N" (the curator judges the hypotheses). Nothing is erased: every level's goals, plan, hypotheses and findings stay.
+New game: the timeline is archived and everything except the lessons graph and the skills is erased.
 
 The agent reads two of them with ``recall()`` in its kernel (``recall_text``): the timeline and the skills. The lessons
 graph is read only by the curator.
@@ -62,16 +62,16 @@ class GameMemory:
 
     def on_level_up(self, *, level_won: int, step: int | None, objects: list[Any]) -> dict[str, Any]:
         """``level_won`` = levels completed after the step; ``objects`` = the level's objects before the new layout,
-        so "obj N" in the agent's text resolves to the ids it saw."""
+        so "obj N" in the agent's text resolves to the ids it saw. Nothing is erased."""
         w = self.working
-        line = w.confirm_goal(level_won)
+        level = level_won - 1
+        line, won = w.win_level(level)
         promoted: list[dict[str, Any]] = []
         if self.lessons is not None:
             shapes = _shapes(objects)
             # Hypotheses are not promoted here: the curator's level-up pass judges which ones the level proved.
-            items = [("rule", f["text"]) for f in w.findings]
-            if w.goal:
-                items.append(("goal", f"won a level with goal: {w.goal}"))
+            items = [("rule", f["text"]) for f in w.findings if f["level"] == level]
+            items += [("goal", f"won a level with goal: {g}") for g in won]
             for kind, text in items:
                 nid = self.lessons.add_node(kind, text, game=self.game, level=level_won - 1, source="level_up")
                 linked = []
@@ -84,38 +84,20 @@ class GameMemory:
                         linked.append(sid)
                 promoted.append({"node": nid, "type": kind, "text": clip(text, 60), "shapes": linked})
             self.promoted += len(promoted)
-        gone = w.clear_level()
-        append_jsonl(self.dir / "levels.jsonl", {"level": level_won - 1, "step": step, "goal": w.goal,
-                                                 "confirmation": line, **gone})
-        self.timeline.append({"kind": "level_up", "level": level_won, "i": step, "goal": w.goal})
+        mine = lambda items: sum(1 for x in items if x["level"] == level)
+        held = {"goals": mine(w.goals), "plan": bool(w.plan_for(level)), "hypotheses": mine(w.hypotheses),
+                "findings": mine(w.findings)}
+        append_jsonl(self.dir / "levels.jsonl", {"level": level, "step": step, "won_goals": won,
+                                                 "confirmation": line, **held})
+        self.timeline.append({"kind": "level_up", "level": level_won, "i": step, "goal": "; ".join(won)})
         self.save()
-        return {"confirmation": line, "promoted": promoted, "erased": {k: len(v) if isinstance(v, list) else bool(v)
-                                                                      for k, v in gone.items()}}
+        return {"confirmation": line, "promoted": promoted, "won_goals": won, "kept": held}
 
     # --- writes ---------------------------------------------------------------------------------
-    def write_act(self, args: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
-        """plan, hypotheses, findings, goal, all optional. Validates everything before writing anything. A missing plan
-        keeps the old one; the returned ``plan`` is the one written in this call, or None."""
-        plan = str(args.get("plan") or "").strip() or None
-        w = self.working
-        snapshot = (w.plan, [dict(h, history=list(h["history"])) for h in w.hypotheses], list(w.findings), w.goal,
-                    w.next_h)
-        try:
-            hyp = w.update_hypotheses(args.get("hypotheses"), turn=turn, level=level)
-            found = w.add_findings(args.get("findings"), turn=turn, level=level)
-        except Exception:
-            w.plan, w.hypotheses, w.findings, w.goal, w.next_h = snapshot
-            raise
-        if plan:
-            w.set_plan(plan)
-        goal_changed = w.set_goal(args.get("goal") or "")
-        w.save()
-        return {"plan": plan, "hypotheses": hyp, "findings": found, "goal": w.goal if goal_changed else None}
-
     def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
         """The kernel's memory variables (see ``WorkingMemory.sync``), saved when anything changed. Never raises."""
         out = self.working.sync(values, turn=turn, level=level)
-        if any(out[k] for k in ("hypotheses", "findings", "removed")) or out["plan"] is not None or                 out["goal"] is not None:
+        if any(out[k] for k in ("plan", "goal", "hypotheses", "findings", "removed")) or out["skills"] is not None:
             self.working.save()
         return out
 
