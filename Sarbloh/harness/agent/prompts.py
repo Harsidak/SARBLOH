@@ -172,8 +172,14 @@ Your memory is five variables in your `ipython` kernel. The first four are dicts
 - `FINDINGS`: for each level, a list of facts you saw, one short text each. For example `FINDINGS.setdefault("L2", []).append("the bar loses one block per move")`.
 - `SKILLS`: a dict of skill name to text, the skills you loaded with `recall()` and the ones picked for you when you win a level.
 Only change GOAL, PLAN, HYPOTHESES and FINDINGS at the top level of a cell, as in the examples above. Do not rename them, do not copy them into other variables, and do not use them inside your functions or your search: they are notes for you, not inputs to your code. A plain assignment inside a function only makes a local copy and is not saved.
-Nothing is emptied when you win a level: the entries of every earlier level stay. On a new level, read them and carry over the goals, plans and hypotheses that still fit.
+Nothing is emptied when you win a level: the entries of every earlier level stay. On a new level, read them and carry over the goals, plans and hypotheses that still fit.{thinking_note}
 """
+
+# Config keep_reasoning off: the thinking of a reply is not kept in the messages.
+THINKING_NOT_KEPT = ("\nYour thinking is not kept. Once a reply ends, only its code, its text and the tool outputs stay in "
+                     "the messages, so the next reply cannot read what you thought. Whatever you work out and will need "
+                     "later, such as a goal, the plan, a rule or a fact you saw, write it into GOAL, PLAN, HYPOTHESES or "
+                     "FINDINGS in the same cell.")
 
 MEMORY_HIDDEN = ("Your memory is not shown in the messages. Print GOAL, PLAN, HYPOTHESES or FINDINGS whenever you "
                  "want to read them, for example `print(GOAL)`.")
@@ -347,7 +353,7 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True, code_graph: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
-                reset_move: bool = False, **_: Any) -> str:
+                reasoning_kept: bool = True, reset_move: bool = False, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
@@ -355,7 +361,9 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     (config ``perception.ascii``); ``memory_shown`` whether a [memory] block is in the messages (config
     ``memory.in_context``); ``short_objects`` and ``observe_view`` say whether the state after moves lists the changed
     objects and whether `observe()` also puts the full state in the messages (config ``perception``); ``reset_move``
-    whether "reset" is a move the agent may send (config ``reset_move``; off: a lost level restarts by itself). Other arguments
+    whether "reset" is a move the agent may send (config ``reset_move``; off: a lost level restarts by itself);
+    ``code_kept`` and ``reasoning_kept`` whether stored replies keep their code and their thinking (config ``keep_code``,
+    ``keep_reasoning``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
     help_text = _fill(PICTURE_HELP, {"picture_where": PICTURE_LAST if picture_last else ""})
     pictures = {"picture_after": ", and a picture of the whole board", "picture_start": ", and the picture",
@@ -376,11 +384,13 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
              "observe_code": "" if observe_view else " `observe()` gives the same state in your code only."}
     resets = {"reset_control": RESET_CONTROL_MOVE, "reset_in_path": " \"reset\",", "reset_line": RESET_LINE_MOVE} \
         if reset_move else {"reset_control": RESET_CONTROL, "reset_in_path": "", "reset_line": RESET_LINE}
+    thinking = "thinking, " if reasoning_kept else ""
+    earlier = f"Your earlier {thinking}code and tool outputs" if code_kept else \
+        (f"Your earlier {thinking}tool outputs (not your code: in its place you see the code graph of the functions and "
+         "classes it defined)")
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
-                           memory_where=memory, **pictures, **board, **views, **resets,
-                           earlier_kept="Your earlier thinking, code and tool outputs" if code_kept else
-                                        "Your earlier thinking and tool outputs (not your code: in its place you see "
-                                        "the code graph of the functions and classes it defined)")
+                           memory_where=memory, **pictures, **board, **views, **resets, earlier_kept=earlier,
+                           thinking_note="" if reasoning_kept else THINKING_NOT_KEPT)
 
 
 def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:

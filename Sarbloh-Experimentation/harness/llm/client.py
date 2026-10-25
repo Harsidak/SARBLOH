@@ -151,12 +151,12 @@ class LLM:
             body["tool_choice"] = "auto"
         if cfg.get("chat_template_kwargs"):
             body["chat_template_kwargs"] = dict(cfg["chat_template_kwargs"])
+        if thinking is not None:  # through the spec too: a template may call the switch something else
+            template_kwargs = {**(template_kwargs or {}), "enable_thinking": thinking}
         if template_kwargs and self.spec is not None:
             template_kwargs = self.spec.template_kwargs(template_kwargs)
         if template_kwargs:
             body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), **template_kwargs}
-        if thinking is not None:
-            body["chat_template_kwargs"] = {**body.get("chat_template_kwargs", {}), "enable_thinking": thinking}
         deadline = time.monotonic() + float(timeout_s or cfg.get("request_timeout_s", 900))
         retries = int(cfg.get("retries", 4))
         attempts, last = 0, None

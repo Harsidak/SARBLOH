@@ -1,0 +1,7 @@
+- Visualizing the Board: Treat the board as a picture with objects, obstacles, and targets.
+- Objects: Puzzle pieces are usually groups of blocks (like 2x2 or 3x3 shapes) or single blocks.
+- No Player Character: Do not assume you control a specific "player." The puzzle might be controlled by a cursor, or by changing the whole board at once.
+- Backgrounds: Backgrounds are usually large, stable areas. Do not assume the background is a specific color; figure it out by looking at what takes up the most space and doesn't move.
+- Timers and HUDs (Important): If you see a strip of blocks on the edge of the screen that changes on every move, it is likely a timer or a "moves-remaining" bar. **Do not treat these as puzzle pieces.** Do not click on them unless you are absolutely sure they are part of the puzzle.
+- Clicks and Goals: A click needs an exact row and column. The row counts down from the top, and the column counts across from the left. Describe your goals with objects (for example, "move the red block onto the green one"), not with coordinates, because positions change from level to level.
+- Game Progress: If the number of finished levels goes up, or the whole board changes at once, you probably finished a level. Stop and look at the new board carefully before you use an old plan. `WIN` means you have beaten the entire game.

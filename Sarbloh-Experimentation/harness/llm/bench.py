@@ -4,7 +4,8 @@
 - ``cold_prefill``: N fresh ~24k-token prompts at once, 1 output token each: prefill throughput, and the
   pattern (the third freeze came on ten cold 40k-token prefills right after a restart).
 - ``agent_like``: N sessions x T turns of an append-only conversation (shared system prompt, per-session grid
-  text, a grid delta per turn): time per turn, prefix-cache hit rate, spec-decode acceptance.
+  text, a grid delta per turn): time per turn, prefix-cache hit rate, spec-decode acceptance. ``agent_like_tools``
+  is the agent's own shape: the ipython tool on every request, thinking on and sent back, tool results per turn.
 - ``tool_check``: the dedicated-tool schema shape (enum string, list of strings); records whether the raw parser
   output needed ``spec.fix_tool_arguments``.
 - ``stress``: agent-like load through the real client and gate while the engine is frozen on purpose (SIGSTOP on
@@ -53,6 +54,20 @@ def _ratio(a: float | None, b: float | None) -> float | None:
     return None if a is None or not b else round(a / b, 3)
 
 
+def _ctk(server: LlmServer, thinking: bool) -> dict[str, Any]:
+    """The thinking switch in the model's own template terms (DeepSeek-V4 calls it ``thinking``)."""
+    return server.spec.template_kwargs({"enable_thinking": thinking})
+
+
+def _cached(out: dict[str, Any]) -> tuple[int, int]:
+    """(prompt tokens, of them served from the prefix cache) from a reply's usage (SGLang --enable-cache-report,
+    vLLM prompt_tokens_details); the cached count is -1 when the server does not report it."""
+    usage = out.get("usage") or {}
+    details = usage.get("prompt_tokens_details") or {}
+    cached = details.get("cached_tokens")
+    return int(usage.get("prompt_tokens") or 0), -1 if cached is None else int(cached)
+
+
 def _post(server: LlmServer, body: dict[str, Any], timeout: float = 900) -> tuple[dict, float]:
     t = time.time()
     out = request_json(f"{server.base_url}/chat/completions", {"model": server.spec.served_model_name, **body},
@@ -72,11 +87,11 @@ def decode(server: LlmServer, streams: int, max_tokens: int = 512, thinking: boo
     def one(i: int) -> int:
         if thinking:
             body = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "max_tokens": max_tokens,
-                    "chat_template_kwargs": {"enable_thinking": True},
+                    "chat_template_kwargs": _ctk(server, True),
                     "messages": [{"role": "user", "content": PUZZLE.format(i=i, gap=i % 10 + 1)}]}
         else:
             body = {"temperature": 0.7, "max_tokens": max_tokens, "ignore_eos": True,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    "chat_template_kwargs": _ctk(server, False),
                     "messages": [{"role": "user", "content": f"[{i}] Describe a grid puzzle game."}]}
         out, _ = _post(server, body)
         return (out.get("usage") or {}).get("completion_tokens", 0)
@@ -96,7 +111,7 @@ def decode(server: LlmServer, streams: int, max_tokens: int = 512, thinking: boo
 def cold_prefill(server: LlmServer, streams: int, grids: int = 3) -> dict[str, Any]:
     def one(i: int) -> tuple[int, float]:
         text = "\n\n".join(grid_text(10_000 + 97 * i + g) for g in range(grids))
-        out, s = _post(server, {"temperature": 0.0, "max_tokens": 1, "chat_template_kwargs": {"enable_thinking": False},
+        out, s = _post(server, {"temperature": 0.0, "max_tokens": 1, "chat_template_kwargs": _ctk(server, False),
                                 "messages": [{"role": "user", "content": f"[{i}]\n{text}\nSay ok."}]})
         return (out.get("usage") or {}).get("prompt_tokens", 0), s
 
@@ -123,28 +138,87 @@ def _session(chat: Any, sid: int, turns: int, max_tokens: int, thinking: bool) -
     return times
 
 
+IPYTHON = [{"type": "function", "function": {
+    "name": "ipython", "description": "Run python code in the game kernel; observe() and play() live there.",
+    "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}}]
+
+
+def _tool_session(server: LlmServer, sid: int, turns: int, max_tokens: int,
+                  record: Any) -> list[float]:
+    """The agent's own shape: the ipython tool on every request, thinking on and sent back with each reply, a tool
+    result (or a user message when no tool was called) carrying the change after each turn."""
+    msgs: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"Game {sid}. Frame 0:\n{grid_text(sid)}\nStudy it with the ipython tool, then act."}]
+    times = []
+    for turn in range(1, turns + 1):
+        out, s = _post(server, {"temperature": 0.6, "top_p": 0.95, "max_tokens": max_tokens, "messages": msgs,
+                                "tools": IPYTHON, "tool_choice": "auto", "chat_template_kwargs": _ctk(server, True)})
+        times.append(s)
+        record(out, turn)
+        m = out["choices"][0]["message"]
+        reply: dict[str, Any] = {"role": "assistant", "content": m.get("content") or ""}
+        reasoning = m.get("reasoning_content") or m.get("reasoning")
+        if reasoning:
+            reply["reasoning_content"] = reasoning
+        calls = list(m.get("tool_calls") or [])
+        if calls:
+            reply["tool_calls"] = calls
+        msgs.append(reply)
+        delta = grid_text(sid * 1000 + turn, size=24)
+        if calls:
+            msgs += [{"role": "tool", "tool_call_id": c.get("id", ""), "content": f"Turn {turn}. Changed region:\n{delta}"}
+                     for c in calls]
+        else:
+            msgs.append({"role": "user", "content": f"Turn {turn}: you pressed 4. Changed region:\n{delta}\nNext?"})
+    return times
+
+
 def agent_like(server: LlmServer, sessions: int, turns: int = 5, max_tokens: int = 256,
-               thinking: bool = False) -> dict[str, Any]:
+               thinking: bool = False, tools: bool = False) -> dict[str, Any]:
+    """``prefix_hit_rate``: cached / prompt tokens over every request, from each reply's usage (falls back to vLLM's
+    counters when the server reports no cached count); ``later_hit_rate``: the same from the second turn on, where
+    the whole previous turn should be cached."""
+    seen: list[tuple[int, int, int]] = []  # (turn, prompt, cached)
+    lock = threading.Lock()
+
+    def record(out: dict[str, Any], turn: int) -> None:
+        with lock:
+            seen.append((turn, *_cached(out)))
+
     def chat(msgs: list, max_tokens: int, thinking: bool) -> str:
         out, _ = _post(server, {"temperature": 0.6, "max_tokens": max_tokens, "messages": msgs,
-                                "chat_template_kwargs": {"enable_thinking": thinking}})
+                                "chat_template_kwargs": _ctk(server, thinking)})
+        record(out, sum(1 for m in msgs if m["role"] == "assistant") + 1)
         return out["choices"][0]["message"].get("content") or "ok"
+
+    def run(s: int) -> list[float]:
+        return _tool_session(server, s, turns, max_tokens, record) if tools else \
+            _session(chat, s, turns, max_tokens, thinking)
 
     m0, t = server.metrics(), time.time()
     with ThreadPoolExecutor(sessions) as pool:
-        per = list(pool.map(lambda s: _session(chat, s, turns, max_tokens, thinking), range(sessions)))
+        per = list(pool.map(run, range(sessions)))
     wall, m1 = time.time() - t, server.metrics()
     first = [p[0] for p in per]
     later = [x for p in per for x in p[1:]]
-    return {"sessions": sessions, "turns": turns, "wall_s": round(wall, 1),
+    reported = all(c >= 0 for _, _, c in seen)
+
+    def hit(rows: list[tuple[int, int, int]]) -> float | None:
+        return _ratio(float(sum(c for _, _, c in rows)), sum(p for _, p, _ in rows)) if reported and rows else None
+
+    return {"sessions": sessions, "turns": turns, "tools": tools, "thinking": thinking or tools,
+            "wall_s": round(wall, 1),
             "turn1_mean_s": round(sum(first) / len(first), 2),
             "later_turn_mean_s": round(sum(later) / max(1, len(later)), 2),
-            "prefix_hit_rate": _ratio(_delta(m0, m1, "vllm:prefix_cache_hits_total"),
-                                      _delta(m0, m1, "vllm:prefix_cache_queries_total")),
-            "prompt_tokens": _delta(m0, m1, "vllm:prompt_tokens_total"),
+            "prefix_hit_rate": hit(seen) if reported else _ratio(_delta(m0, m1, "vllm:prefix_cache_hits_total"),
+                                                                 _delta(m0, m1, "vllm:prefix_cache_queries_total")),
+            "later_hit_rate": hit([r for r in seen if r[0] > 1]),
+            "prompt_tokens": sum(p for _, p, _ in seen),
             "gen_tok_s": _ratio(_delta(m0, m1, "vllm:generation_tokens_total"), wall),
             "spec_accept": _ratio(_delta(m0, m1, "vllm:spec_decode_num_accepted_tokens_total"),
-                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total"))}
+                                  _delta(m0, m1, "vllm:spec_decode_num_draft_tokens_total")),
+            "spec_accept_length": (m1 or {}).get("sglang:spec_accept_length")}
 
 
 TOOLS = [
@@ -195,7 +269,9 @@ def profile_bench(server: LlmServer, streams: int = 10) -> dict[str, Any]:
                      ("cold_prefill", lambda: cold_prefill(server, streams)),
                      ("agent_like", lambda: agent_like(server, streams)),
                      ("agent_like_thinking", lambda: agent_like(server, streams, turns=3, max_tokens=1024,
-                                                                thinking=True))):
+                                                                thinking=True)),
+                     ("agent_like_tools", lambda: agent_like(server, streams, turns=4, max_tokens=1536,
+                                                             tools=True))):
         try:
             row[name] = fn()
         except Exception as exc:  # noqa: BLE001 - one workload failing must not lose the others
@@ -331,11 +407,12 @@ def print_table(rows: list[dict[str, Any]], streams: int = 10) -> None:
 
     n = streams
     print(f"{'profile':32} {'start_s':>7} {'tool':>6} {'d1':>6} {'d8':>7} {f'd{n}':>7} {f'think{n}':>8} "
-          f"{'acc_len':>7} {'prefill':>8} {'turnN':>6} {'hit':>5}")
+          f"{'acc_len':>7} {'prefill':>8} {'turnN':>6} {'hit':>5} {'tools_turnN':>11} {'tools_hit':>9}")
     for r in rows:
         print(f"{r.get('profile', ''):32} {r.get('startup_s')!s:>7} {r.get('tool_mode')!s:>6} "
               f"{field(r, 'decode_1', 'tok_s'):>6} {field(r, 'decode_8', 'tok_s'):>7} "
               f"{field(r, f'decode_{n}', 'tok_s'):>7} {field(r, f'think_{n}', 'tok_s'):>8} "
               f"{field(r, f'decode_{n}', 'spec_accept_length'):>7} {field(r, 'cold_prefill', 'prefill_tok_s'):>8} "
-              f"{field(r, 'agent_like', 'later_turn_mean_s'):>6} {field(r, 'agent_like', 'prefix_hit_rate'):>5}  "
-              f"{str(r.get('error', ''))[:300]}")
+              f"{field(r, 'agent_like', 'later_turn_mean_s'):>6} {field(r, 'agent_like', 'prefix_hit_rate'):>5} "
+              f"{field(r, 'agent_like_tools', 'later_turn_mean_s'):>11} "
+              f"{field(r, 'agent_like_tools', 'later_hit_rate'):>9}  {str(r.get('error', ''))[:300]}")

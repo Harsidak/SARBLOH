@@ -63,6 +63,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                code_graph=bool(cfg.get("code_graph", True)),
                                reset_move=bool(cfg.get("reset_move", False)),
                                code_kept=bool(cfg.get("keep_code", False)),
+                               reasoning_kept=bool(cfg.get("keep_reasoning", True)),
                                board_text=bool(p.get("ascii", True)),
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
                                segmentation=bool(p.get("segmentation", True)),
@@ -321,7 +322,9 @@ class AgentSession:
         native = bool(calls and calls[0]["native"])
         if native:
             assistant["tool_calls"] = [c["raw"] for c in calls]
-        if reply.reasoning and (native or self.append_only):
+        # Config keep_reasoning off: the reply is stored without its thinking, so it is never sent back (the transcript
+        # still logs it, marked reasoning_unsent for the trace).
+        if reply.reasoning and (native or self.append_only) and self.cfg.get("keep_reasoning", True):
             assistant["_reasoning"] = reply.reasoning   # old builder: sent back until the next user message
         # Config keep_code off: the reply is stored without its code; once its cells ran, the code-graph lines of what
         # each cell defined take the code's place (step 5). The transcript keeps the code as written (``code_full``)

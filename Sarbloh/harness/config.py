@@ -96,10 +96,15 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 2000,
-        # Off: a stored reply keeps its thinking but not its code (each ipython call's code becomes a one-line stub;
-        # the code graph maps what the code defined, show_source(name) prints it). Decided once, when the reply is
-        # stored, so the prompt stays a prefix of the next one. The transcript keeps the code as written.
-        "keep_code": False,
+        # On: a stored reply keeps its code. Off: each ipython call's code becomes a one-line stub (the code graph maps
+        # what the code defined, show_source(name) prints it). Decided once, when the reply is stored, so the prompt
+        # stays a prefix of the next one. The transcript keeps the code as written. Off failed on 10-25: the model
+        # wrote the stub itself as its code in 97.7% of its calls.
+        "keep_code": True,
+        # Off: a stored reply keeps its code and text but not its thinking, so no old thinking is sent back; the model
+        # keeps what it works out in GOAL, PLAN, HYPOTHESES and FINDINGS. Each reply still thinks freely, and the
+        # transcript keeps the thinking (trace, SFT export). On: every thinking stays in the messages.
+        "keep_reasoning": False,
         # The code graph (harness/runtime/skills/codegraph.py): after every ipython call the host reads the agent's
         # live functions and classes and what each calls, and ends the output with one line of what changed (added,
         # changed, removed, calls a missing name); after a drain, trim or reset the whole map goes back in once.
