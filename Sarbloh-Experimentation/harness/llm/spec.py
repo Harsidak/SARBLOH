@@ -1,6 +1,6 @@
-"""What a model brings to the shared serving layer. ``gemma.py``, ``qwen.py``, ``qwen_flash_next.py``, ``nemotron.py``
-and ``deepseek_v4.py`` each define one ``SPEC``; config key ``model`` ("gemma" | "qwen" | "qwen_flash_next" | "nemotron" |
-"deepseek_v4") picks it. Nothing outside those files may name a model, parser or sampling value."""
+"""What a model brings to the shared serving layer. ``gemma.py``, ``qwen.py``, ``qwen_flash_next.py``, ``nemotron.py``,
+``deepseek_v4.py`` and ``glm.py`` each define one ``SPEC``; config key ``model`` ("gemma" | "qwen" | "qwen_flash_next" |
+"nemotron" | "deepseek_v4" | "glm") picks it. Nothing outside those files may name a model, parser or sampling value."""
 
 from __future__ import annotations
 
@@ -40,10 +40,14 @@ class ModelSpec:
     template_kwargs: Callable[[dict[str, Any]], dict[str, Any]] = field(default=_no_fix)
 
     def max_model_len(self, profile: str) -> int:
+        if "context" in self.profiles[profile]:  # llama.cpp: -c is the pool all slots share, not one request's window
+            return int(self.profiles[profile]["context"])
         flags = self.profiles[profile]["flags"]
         return int(flags["--max-model-len"] if "--max-model-len" in flags else flags["--context-length"])  # SGLang names it --context-length
 
     def has_tool_parser(self, profile: str) -> bool:
+        if "tools" in self.profiles[profile]:  # llama.cpp picks its tool parser from the chat template (--jinja)
+            return bool(self.profiles[profile]["tools"])
         return "--tool-call-parser" in self.profiles[profile]["flags"]
 
     def has_vision(self, profile: str) -> bool:
@@ -77,7 +81,7 @@ class ModelSpec:
         return out
 
 
-MODELS = ("gemma", "qwen", "qwen_flash_next", "nemotron", "deepseek_v4")
+MODELS = ("gemma", "qwen", "qwen_flash_next", "nemotron", "deepseek_v4", "glm")
 
 
 def get_spec(name: str) -> ModelSpec:

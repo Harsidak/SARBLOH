@@ -333,8 +333,8 @@ class LlmServer:
         python = rt.get("python") or sys.executable
         serve = rt.get("serve", DEFAULT_SERVE)
         self.backend = rt.get("backend") or "vllm"
-        cmd = [python, *serve, str(model_dir), "--served-model-name", self.spec.served_model_name,
-               "--host", "127.0.0.1", "--port", str(self.cfg["port"])]
+        cmd = [python, *serve, str(model_dir), rt.get("name_flag", "--served-model-name"), self.spec.served_model_name,
+               "--host", "127.0.0.1", "--port", str(self.cfg["port"])]  # llama.cpp names the flag --alias
 
         def fill(v: str) -> str:
             return v.replace("{model_dir}", str(model_dir))
