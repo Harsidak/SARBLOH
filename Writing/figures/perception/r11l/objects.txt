@@ -1,0 +1,37 @@
+  1 W 64x1    r0-63 c0-0        #afbe42 4c hud | adj 2,30
+  2 g 240px   r0-9 c1-51        #b4a354 30c | adj 1
+  3 g 134px   r0-17 c54-63      #c19968 10c
+  4 p 1x1     r18 c38           #33db0b 4c
+  5 p 1x1     r18 c40           #33db0b 4c
+  6 p 1x1     r19 c37           #33db0b 4c
+  7 p 1x1     r19 c41           #33db0b 4c
+  8 p 1x1     r20 c36           #33db0b 4c
+  9 p 1x1     r20 c42           #33db0b 4c
+ 10 p 1x1     r22 c36           #33db0b 4c
+ 11 p 1x1     r22 c42           #33db0b 4c
+ 12 p 1x1     r23 c37           #33db0b 4c
+ 13 p 1x1     r23 c41           #33db0b 4c
+ 14 p 1x1     r24 c38           #33db0b 4c
+ 15 p 1x1     r24 c40           #33db0b 4c
+ 16 W 12px    r34-38 c5-9       #705d6f 24c | has 17,18; adj 17
+ 17 p 1x1     r36 c7            #33db0b 4c | in 16; adj 16
+ 18 w 1x1     r38 c9            #33db0b 4c | in 16
+ 19 w 1x1     r39 c10           #33db0b 4c
+ 20 w 1x1     r40 c11           #33db0b 4c
+ 21 w 2x1     r41-42 c12-12     #899c9c 4c
+ 22 w 1x1     r43 c13           #33db0b 4c
+ 23 w 1x1     r44 c14           #33db0b 4c
+ 24 w 1x1     r45 c15           #33db0b 4c | in 25; adj 25
+ 25 p 20px    r45-49 c15-19     #1899f2 16c | has 24,26,28; adj 24,26,28
+ 26 M 1x1     r47 c17           #33db0b 4c | in 25; adj 25
+ 27 g 227px   r48-63 c40-63     #0aee5b 14c
+ 28 w 1x1     r49 c19           #33db0b 4c | in 25; adj 25
+ 29 w 2x1     r50-51 c20-20     #899c9c 4c
+ 30 g 37px    r52-63 c1-7       #20f226 8c | adj 1
+ 31 w 1x1     r52 c21           #33db0b 4c
+ 32 w 1x1     r53 c22           #33db0b 4c
+ 33 w 1x1     r54 c23           #33db0b 4c
+ 34 w 1x1     r55 c24           #33db0b 4c
+ 35 w 2x1     r56-57 c25-25     #899c9c 4c
+ 36 G 12px    r57-61 c25-29     #705d6f 24c | has 37; adj 37
+ 37 p 1x1     r59 c27           #33db0b 4c | in 36; adj 36

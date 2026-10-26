@@ -1,0 +1,18 @@
+  1 B 52x4    r0-51 c0-3        #917d60 4c
+  2 G 892px   r8-49 c14-53      #d6511e 40c | has 3,6,7,8,9,10; adj 3,6,7,8,9,10
+  3 B 43px    r9-15 c33-39      #764228 14c | in 2; has 4; adj 2,4,5
+  4 b 5px     r11-13 c35-37     #c54346 6c | in 3; has 5; adj 3
+  5 b 1x1     r13 c35           #33db0b 4c | in 4; adj 3
+  6 W 3px     r31-32 c21-22     #f539cd 6c | in 2; adj 2,7,8
+  7 w 1x1     r32 c20           #33db0b 4c | in 2; adj 2,6
+  8 w 1x1     r33 c21           #33db0b 4c | in 2; adj 2,6
+  9 O 2x5     r45-46 c34-38     #d2760f 4c | in 2; adj 2,10
+ 10 b 3x5     r47-49 c34-38     #d14691 4c | in 2; adj 2,9
+ 11 B 76px    r53-62 c1-10      #63ab89 14c | has 12; adj 12,13
+ 12 b 20px    r55-60 c3-8       #cfa883 6c | in 11; has 13; adj 11
+ 13 b 2x2     r59-60 c7-8       #cb8bec 4c | in 12; adj 11
+ 14 B 112px   r60-63 c12-63     #6a1ccc 20c | has 15,16,17,18; adj 15,16,17,18
+ 15 Y 2x42    r61-62 c13-54     #24824c 4c hud | in 14; adj 14
+ 16 R 2x2     r61-62 c56-57     #cb8bec 4c hud | in 14; adj 14
+ 17 R 2x2     r61-62 c59-60     #cb8bec 4c hud | in 14; adj 14
+ 18 R 2x2     r61-62 c62-63     #cb8bec 4c hud | in 14; adj 14

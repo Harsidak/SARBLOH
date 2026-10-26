@@ -1,0 +1,15 @@
+BRIEFING (clicks)
+MEASURED (certain):
+- no tile grid -> free movement. Open space = black (81% of screen).
+- all 4 main objects share one open space; straight paths between them are ALL CLEAR of rock
+- the grey areas are not open floor (likely walls)
+- obj 4 (purple dotted ring) encloses an EMPTY 5x5 space -- exactly the size of: obj 16 (white/purple diamond), obj 25 (purple/magenta disc), obj 36 (dark grey/purple diamond)
+- a light grey line connects obj 16 (white/purple diamond) to obj 25 (purple/magenta disc)
+- a light grey line connects obj 25 (purple/magenta disc) to obj 36 (dark grey/purple diamond)
+- obj 25 (purple/magenta disc) sits at the MIDPOINT of obj 16 (white/purple diamond) and obj 36 (dark grey/purple diamond) (error 0.5 cells) -> it is held between them; moving either end should move it to the new midpoint
+- obj 16, 36 (white/purple diamond; dark grey/purple diamond) have the same shape in different colours (white/purple vs dark grey/purple)
+GUESSES (check with one action):
+- obj 4 (purple dotted ring) = GOAL (80%) - test: get the right thing into it and see if the level ends
+- obj 16, 36 (white/purple diamond; dark grey/purple diamond) = HANDLE (click) (80%) - test: click an empty spot once: the selected handle should jump there
+- obj 1 (white bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 25 (purple/magenta disc) = CARRIED THING (75%) - test: move one handle: it should slide to the new midpoint
