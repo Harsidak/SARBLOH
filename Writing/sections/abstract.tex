@@ -1,3 +1,17 @@
 \begin{abstract}
-This is the abstract of the paper. It summarizes the problem, the proposed method, and the key results.
+ARC-AGI-3 drops an agent into a game it has never seen, with no instructions, and scores it by how few actions it
+needs compared with a human. On Kaggle it must also run offline, on one GPU, within nine hours. We find that the first
+thing that breaks is not reasoning but seeing: given the raw $64{\times}64$ integer grid, a frontier model needs
+200--300 actions on a level it clears in 12--24 once it gets a picture. We present \textsc{Sarbloh}, an agent built
+around a \emph{perception engine} that turns every frame into three aligned views: a picture, a lettered board with
+object ids that stay stable across steps, and a briefing that keeps facts \emph{measured by code} (reachability,
+enclosure, tethers and midpoints, alignment, look-alikes under rotation and scale) apart from role \emph{guesses},
+each of which comes with a one-action test. In a controlled perception lab the briefing scores 25/28 against 3/28 for
+our earlier encoder, at a tenth of the tokens. Around it we built a code-as-action agent that searches its own Python
+model of the game and sends whole move sequences from code, an append-only context that keeps 98.4\% of each prompt in
+the server's prefix cache, and a priority scheduler that shares one RTX PRO 6000 among 25 games, serving a 125B
+mixture-of-experts model with 6B active parameters. In a single pass over the 25 public games, \textsc{Sarbloh} clears
+143 of 183 levels in 8.2 hours. In the same time on the same server, the harness that won Milestone~\#1 clears 129
+distinct levels with four passes per game. On the hidden Kaggle evaluation our score rose from 0.27 to 16.53 in 24
+days. All code is released under Apache-2.0.
 \end{abstract}
