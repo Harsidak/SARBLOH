@@ -11,6 +11,7 @@
 % --- added for this paper (none of them is on the AAAI disallowed list) ---
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{xcolor}
 \usepackage[ruled,vlined,linesnumbered]{algorithm2e}
 \usepackage{tikz}
@@ -29,6 +30,9 @@
 \definecolor{soft}{HTML}{FDEBDD}
 \definecolor{softb}{HTML}{E3ECFD}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\algcomment}[1]{\footnotesize\itshape\textcolor{muted!70!ink}{#1}}
+\SetCommentSty{algcomment}
 \SetKwComment{Comment}{$\triangleright$\ }{}
 \SetKwProg{Fn}{function}{}{end}
 \SetAlFnt{\small}

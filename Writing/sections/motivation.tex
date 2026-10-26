@@ -1,0 +1,40 @@
+\section{Motivation: Perception Is the First Bottleneck}
+\label{sec:motivation}
+
+Before building anything, we ran three small experiments to find out where an LLM agent loses its actions.
+
+\paragraph{The input ladder.} We gave a frontier model (Gemini) the first level of \code{ls20}, a keyboard maze with a
+key, a lock and a move gauge, and changed only what it saw (Figure~\ref{fig:gemini}). With the raw integer grid and
+the action list it spent 200--300 actions and lost the game. Adding a rendered image of the board cut that to 12--24.
+A short explanation of the board's parts (bars, walls, colour rotations, no goal) brought it to 12. Telling it to reason
+in code brought it to 6. The largest single step came from the image, before any change to how the model thinks.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/gemini_ladder.pdf}
+\caption{Same model, same level, only the input changes. Seeing the board removes most of the wasted actions. Saying
+what the parts are and asking for code removes most of what remains. (One level, one run each: motivation, not a
+benchmark.)}
+\label{fig:gemini}
+\end{figure}
+
+\paragraph{The oracle briefing.} Next we separated \emph{understanding} from \emph{execution}. The same model played an
+\code{ls20} level twice: once with screenshots only, and once with a hand-written briefing that named the action
+meanings, the goal, the mechanics and the on-screen parts. Without the briefing the game was wasted. With it the level
+was cleared in about 6 actions, against about 10 for the author playing it cold. A model that is told what it is
+looking at executes well. The missing piece is the reading.
+
+\paragraph{Deltas lose the plot.} A cheaper encoding sends only the cells that changed. It saves tokens and loses
+the global effects of local actions: in \code{ls20}, stepping onto a small cross changes an icon on the other side of
+the screen. Whole-frame images kept those effects and became our primary view. Adding the segmented objects and an
+ASCII board next to the image gave exact positions and counts, which the image alone got wrong.
+
+\paragraph{What this asks for.} Two lessons follow. A model reads pictures much better than numbers, which matches
+reports that vision-language models are weak at fine-grained visual detail \citep{rahmanzadehgervi2024blind}, so
+the picture must be drawn to show structure rather than raw pixels. And the oracle briefing shows that a few lines
+of \emph{meaning} are worth more than any amount of reasoning. An oracle is not available on hidden games, though. What
+we can build is the part of the briefing that code can compute. Core knowledge \citep{spelke2007core} is largely
+geometric: what is connected, what is inside what, what can reach what, which shapes are the same shape. Code can
+compute these exactly and cheaply. Roles (which object is ``me'', what the goal is) cannot be computed. They can only be
+guessed, so they should be presented as guesses, each with a test. That split, \emph{measure what is certain, guess
+what is not, and make every guess cheap to check}, is the design principle of the perception engine.

@@ -1,12 +1,287 @@
 \section{Methodology}
 \label{sec:method}
 
-Explain your proposed method.
+Figure~\ref{fig:overview} shows the system. One \emph{session} plays one game. The host owns the environment, the
+perception engine turns each frame into views, a context builder packs them into the prompt, and the model acts
+through a Python kernel. Twenty-five sessions share one model server through a scheduler. We describe the perception
+engine first, then the lab that chose its design, then the acting, memory and systems layers that let a 6B-active model
+use it for nine hours.
 
-\subsection{Mathematical Formulation}
+\subsection{The perception engine}
+\label{sec:perception}
 
-You can include equations like this:
+The engine is about 1,500 lines of NumPy and Pillow on the host side, with no model calls. It produces three views of
+every state, and all three share one set of object ids (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/perception_views.pdf}
+\caption{One frame, three ways. (a) What a text model gets by default: integers (a $14{\times}14$ crop of $64{\times}64$).
+(b) The plain picture. (c, d) The engine's map on the first frames of \code{ls20} (arrow keys) and \code{r11l}
+(clicks), produced by the code in this paper. Floor is light and walls are hatched. Status boxes are grey and their
+contents are enlarged on the right. Each thing carries its object id and a guessed role. Dashed threads join
+look-alikes: magenta in (c) says the HUD icon is the goal's shape turned and scaled. A yellow ring marks a thing held at
+the midpoint of two tethers (d). The matching briefing text is in Appendix~\ref{app:briefings}.}
+\label{fig:views}
+\end{figure*}
+
+\paragraph{View 1: objects, letters and change lines.} The background is the modal colour. Every other 4-connected
+one-colour region is an object, with its bounding box, a shape hash, its adjacency and its containment. Objects are
+renumbered in reading order on the first frame and \emph{tracked} afterwards. The tracker matches each new object to
+an old one in five passes: unchanged, moved (same colour and shape), recoloured (same shape and place), reshaped (same
+colour, overlapping cells), and only then new. So ``obj~10'' means the same thing for a whole level, and the model can
+write \code{objects[10]} in code and \code{obj 10} in prose. The board is shown as one letter per colour with numbered
+rows and columns. Each step adds one \emph{change line} in the style of the Duck's no-op lines: ``\code{\#12 A4(right):
+6 cells changed at r10-12 c20-25; the HUD changed (1 cell)}''. Changes in the screen-edge status band are counted apart, so
+a move that only ticks the timer reads as a no-op on the board.
+
+\paragraph{View 2: the briefing.} The briefing is the oracle of \S\ref{sec:motivation}, restricted to what code can
+know. It is built on a \emph{layout} that is coarser than objects. Colours covering more than 8\% of the frame are
+terrain. The remaining pieces become lines (thin and long), bars (thin, on the screen edge), composite things
+(differently coloured pieces that touch, merged by union-find over 8-neighbours), icons (same-coloured pieces inside one
+panel), and dotted figures (three or more tiny pieces at most two cells apart). Compact terrain boxes become panels.
+Things at the edge or inside an edge panel are HUD. Every thing is named after the object id that covers most of it, so
+the briefing speaks the same ids as View~1.
+
+On this layout the engine computes seven kinds of \textsc{Measured} fact, each true by construction:
+\begin{itemize}
+\item \textbf{reach}: on a detected tile lattice, a BFS from the most self-like thing gives ``obj~6 is reachable in 6
+steps''; a thing that sits in a box gets ``the floor reaches the box's bottom side in 5 steps (the only way in)'';
+\item \textbf{inside}: a ring that encloses an empty $5{\times}5$ space, and which things are exactly that size;
+\item \textbf{tether}: thin lines that join two things, and a thing at the \emph{midpoint} of two others (``held between
+them; moving either end should move it'');
+\item \textbf{align}: key things that share rows or columns;
+\item \textbf{alike}: pairs equal under the 8 symmetries of the square times integer scale (``obj~12, drawn 2$\times$
+bigger and mirrored, becomes exactly obj~4''), and same-shape pairs in different colours (on/off states);
+\item \textbf{copies}: identical things, read as a count (lives, items);
+\item \textbf{lopsided}: a symmetric shape with asymmetric colours, which marks a direction or a state.
+\end{itemize}
+Then come the \textsc{Guesses}. Each non-line thing is scored against nine roles from game-design priors and the facts
+above (Table~\ref{tab:roles}). The top role and its share of the score are shown, followed by \emph{the one action that
+would confirm or refute it}. The briefing is capped at 20 lines, with at most a third for guesses, and the rest is
+shared round-robin between fact kinds so that one busy kind cannot crowd out the others. The rest is one
+\code{observe().briefing} away.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}L{0.21\columnwidth}L{0.37\columnwidth}L{0.36\columnwidth}@{}}
+\toprule
+Role & Evidence (scored) & One-action test \\
+\midrule
+YOU & compact, multi-coloured, unique, tile-sized & press one arrow key: it moves one tile \\
+GOAL & hollow outline that fits a thing; boxed; asked for by a HUD icon & bring the right thing in \\
+MOVES LEFT & long bar at the screen edge & any action shrinks it by one \\
+LIVES & identical copies in the HUD & watch it when you fail \\
+INVENTORY & single HUD icon; look-alike of a field thing & watch it after the modifier \\
+MODIFIER & small symbol, lopsided colours & step on it, check the icon \\
+HANDLE & tether end; on/off pair (clicks) & click empty space: it jumps \\
+CARRIED & both tethers end on it & move a handle: it follows \\
+\bottomrule
+\end{tabular}
+\caption{The role guesses. Each is printed with its confidence and its test, so a wrong guess costs one action.}
+\label{tab:roles}
+\end{table}
+
+\paragraph{View 3: the picture.} The map (Figure~\ref{fig:views}c,d) draws the layout rather than raw pixels: floor
+light, walls dark and hatched, panels pale, the tile lattice as thin lines, every thing in its true colours inside a box
+of its role's colour tagged ``\code{id: ROLE?}'', dashed threads between look-alikes, rings at held midpoints. HUD things
+are drawn again, enlarged, in a side panel. The briefing text is \emph{not} drawn into the picture. Text travels as text,
+where the model reads it exactly.
+
+\paragraph{When the views are sent.} The full view (the briefing, the whole board as letters, the picture) is sent at a
+level start and after a context rewrite. After a move the short view is sent instead: the change line, the changed
+region as letters with a 3-cell margin, and the new picture, all within 600 tokens. The object list is not printed. Its
+tokens bought little, so the agent reads it in code through \code{observe().objects}, where the ids are what matter. The engine takes about 35\,ms per
+frame on one CPU core, most of it drawing the picture.
+
+\begin{algorithm}[t]
+\caption{\textsc{Perceive}: one frame to three views}
+\label{alg:perceive}
+\KwIn{frame $g\in\{0..15\}^{H\times W}$, tracker $T$, previous lattice $\Lambda'$, legal actions $\mathcal{A}$}
+\KwOut{text view, picture, change line}
+$O \gets \textsc{Segment}(g)$ \Comment*[r]{objects}
+$(O, \delta) \gets T.\textsc{Match}(O)$ \Comment*[r]{stable ids}
+$\mathcal{T} \gets \{c : |g{=}c| > 0.08\,HW\}$ \Comment*[r]{terrain}
+$L \gets \textsc{Layout}(g,\mathcal{T})$ \Comment*[r]{things}
+\ForEach{thing $t\in L$}{
+  $t.\mathit{hud}\gets\textsc{AtEdge}(t)$;\ $t.\mathit{id}\gets\textsc{MajorityId}(t,O)$\;
+}
+$me \gets$ largest square multi-coloured non-HUD thing \lIf*{$\mathcal{A}\cap\{1..4\}\neq\emptyset$}{}
+$\Lambda \gets \textsc{Lattice}(L)$ \textbf{or} $\Lambda'$ if it still fits\;
+$F \gets \textsc{Reach}(me,\Lambda)\cup\textsc{Inside}\cup\textsc{Tether}\cup\textsc{Align}\cup\textsc{Alike}_{D_4\times s}\cup\dots$\;
+\ForEach{thing $t$}{
+  $\sigma_t[r] \gets \sum$ prior and relation evidence for role $r$\;
+  $\rho_t \gets \arg\max_r \sigma_t[r]$,\ \ $p_t\gets \sigma_t[\rho_t]/(1+\sum_r\sigma_t[r])$\;
+}
+$B \gets \textsc{Measured}(F)\,\Vert\,\textsc{Guesses}(\rho,p,\textsc{Test}(\rho))$\;
+\Return{$(B, O, \textsc{Letters}(g))$, \textsc{Map}$(L,\rho,F)$, $\delta$}
+\end{algorithm}
+
+\subsection{Choosing the design: the perception lab}
+\label{sec:lab}
+
+We did not design the briefing in one go. We built eight competing perception arms and graded each against a fixed
+28-point rubric of what a human sees on two dev screenshots (\code{ls20}, \code{r11l}), with the old encoder
+(E0) as the baseline (Figure~\ref{fig:lab}). The arms were an exploded inventory (X1), a surprise map of rare colours
+(X2), visual routines in the sense of Ullman such as reach, inside and midpoints (X3), look-alike threads (X4), foresight, i.e.\ predicting each
+action's effect (X5), a blueprint map (X6), a role ledger (X7), and the fusion of X3, X4, X6 and X7 (X8). Plain re-encodings (X1,
+X2) did no better than E0. Measured relations (X3) and roles (X7) carried most of the gain. The fusion X8 scored 25/28
+against 3/28 for E0, at about 370 text tokens per frame against about 3,500.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/perception_lab.pdf}
+\caption{The perception lab: rubric score of each arm on two dev frames, and its text cost per frame. X8, the
+fusion of measured relations and labelled role guesses, became the engine.}
+\label{fig:lab}
+\end{figure}
+
+We then checked what generalises, on 23 official games the arms were not designed on, graded by the game engine
+itself. Turning a screenshot into the exact grid was solved (23/23 games, 100\% of cells). Single-frame
+\emph{guesses} were not: the YOU guess was right on 6 of 14 keyboard games, the move gauge on 10 of 20, and 7 of 29
+labelled click handles really responded. Measured relations, being computed, do not have this problem. This result
+set the rule the engine follows: \emph{facts are stated as facts, roles are stated as guesses with a test}, and
+one real action is trusted over any amount of single-frame inference.
+
+\subsection{Acting in code}
+\label{sec:acting}
+
+The model has exactly one tool, \code{ipython}, a persistent kernel ported from Prime Agent \citep{karten2026prime}
+in the spirit of CodeAct \citep{wang2024codeact}. Inside it, \code{observe()} returns the state as data (letters,
+objects with ids, the change line, the briefing). \code{await play(path, predict)} is the only way to move. We
+first gave the model a separate move tool next to the Python tool, and it fell into loops switching between the two.
+Merging them was the change that let it model the game in code, search the model (BFS, DFS, or anything else it
+writes), and send the whole path it found in the same cell. A path may hold up to 100 moves.
+
+\begin{algorithm}[t]
+\caption{\textsc{Play}: send a path, stop at the first surprise}
+\label{alg:play}
+\KwIn{path $m_1..m_K$, optional model $\hat f(\text{board},m)$}
+$s\gets\textsc{Observe}()$;\ $\textit{surprise}\gets\varnothing$\;
+\For{$i\gets1$ \KwTo $K$}{
+  $\hat s \gets \hat f(s.\text{board}, m_i)$ \lIf*{$\hat f$ given}{}
+  $r \gets \textsc{Host.Act}(m_i)$ \Comment*[r]{checked, logged}
+  $s' \gets \textsc{Observe}()$\;
+  \If{$\hat s\neq\varnothing$ \textbf{and} $\textit{surprise}=\varnothing$ \textbf{and} $\textsc{Diff}_{\neg\text{HUD}}(\hat s,s')\neq\varnothing$}{
+    $\textit{surprise}\gets(i,m_i,\text{cells})$\;
+    \textsc{Host.ShortenNextThinking}()\;
+  }
+  \If{level up \textbf{or} game over \textbf{or} $s'$ seen before this try \textbf{or} wall hit twice}{\textbf{break}}
+  $s\gets s'$\;
+}
+\Return{change lines, \textit{surprise}, $s'$}
+\end{algorithm}
+
+Algorithm~\ref{alg:play} shows the contract. A wrong prediction does not stop the path. It is reported with the
+exact cells that differ, and the next turn gets a short thinking budget, since one wrong rule needs a small fix, not
+a new theory. What does stop a path is evidence that the remaining moves are wasted. The \emph{revisit leash} stops it
+when a board seen earlier in this try comes back (a loop, or a no-op), ignoring the 3-cell edge band where counters
+live. The host restarts a lost level itself, as the Duck harness does, and the kernel cannot read the game's source
+files. In the scored builds the model had no reset move at all, because an earlier nine-hour run spent 81\% of its
+tokens on levels where it had reset voluntarily. Without one, the model learned to burn its move bar to force a restart
+(240 moves in \code{ka59}). The current code therefore allows three resets per level and adds the leash. Counted
+offline on a later run, the leash would have withheld 2,331 of 9,913 moves and not one winning move. Both were added
+after the runs reported in \S\ref{sec:results}.
+
+\subsection{Memory and context}
+\label{sec:context}
+
+\paragraph{Append-only context.} The served model is a hybrid of Gated DeltaNet and attention
+\citep{yang2024gated}. On such a model the server can resume only from recurrent states saved at the end of an earlier
+request. So any edit to an old message, even swapping one picture for a newer one, forces a full prefill from that point.
+Our first runs reused almost nothing: 3,283 of 5,599 requests after a new board reused about 0\% of the prompt, and
+with the picture sent last and never stored, every request reused exactly the 4,416-token pre-warmed prefix and nothing
+more, about 10\% of the prompt. The fix was to make the prompt \emph{only grow}. Each reply keeps its thinking, each
+new picture is stored once as its own message right after the output that produced it, and memory updates are appended
+as diffs. A game keeps its scheduler slot for 20 requests before it competes again. Prefix reuse rose to
+\textbf{98.4\%} of all prompt tokens over a nine-hour run.
+
+\paragraph{Drain, not summarise.} When the context passes 118k tokens, the oldest whole turns are dropped in code until
+it is under 55k, as in the Duck harness. There is no model call and no summary. The first message is kept, and the
+whole memory and code map are re-inserted once (Algorithm~\ref{alg:loop}, line~3). We removed LLM summaries after
+measuring that the model wrote poor ones.
+
+\paragraph{Memory as variables.} The agent's memory is four kernel dictionaries keyed by level, \code{GOAL},
+\code{PLAN}, \code{HYPOTHESES} and \code{FINDINGS}, which it edits in code and the host copies after every cell.
+Nothing is erased at a level-up, because later levels compose earlier mechanics. A fifth, \code{SKILLS}, is filled
+by \code{recall()} from a skill book that a hidden \emph{curator} writes at every level-up. The curator is one JSON call
+that judges which hypotheses the level proved or refuted, adds them to a cross-game lessons graph (with a separate
+store of refuted rules, so a falsified rule is not proposed again), and picks 2--5 skill notes to load. A \emph{code
+graph}, read live from the kernel with \code{ast}, ends every cell's output with one line of what the agent's code
+defined or broke (``\code{! solve calls missing step\_model}'').
+
+\begin{algorithm}[t]
+\caption{\textsc{Session}: the turn loop of one game}
+\label{alg:loop}
+\While{no stop (time, actions, game end)}{
+  \For{$j\gets1$ \KwTo 12}{
+    \lIf{$|\text{ctx}|>118\text{k}$}{drop oldest turns to 55k; re-insert memory, code map}
+    $y\gets\textsc{LLM}(\text{ctx})$ \Comment*[r]{prefix-cached}
+    run each \code{ipython} call of $y$; append outputs, new picture, memory diff\;
+    \lIf{a cell moved \textbf{or} thinking since last move $>16\text{k}$}{\textbf{break}}
+  }
+  \textsc{Scheduler.EndTurn}()\Comment*[r]{after 20 calls}
+  \lIf{level up}{\textsc{Curator}(); load chosen skills}
+}
+\end{algorithm}
+
+\subsection{Serving and scheduling on one GPU}
+\label{sec:systems}
+
+\paragraph{Model and server.} The agent runs on Qwen3.8-Flash-Next, a 125B mixture-of-experts with 6B active parameters
+and Gated DeltaNet plus sparse attention, quantised to W4A16 with AutoRound \citep{cheng2023autoround} and served by
+SGLang \citep{zheng2024sglang} with EAGLE speculative decoding \citep{li2024eagle} (3 draft steps), an FP8 KV cache and a
+136k context. Each game gets a 12k-token budget per reply. A watchdog treats a frozen server as failed even when its
+process is alive (its token counters must move while requests are running), dumps every stack before a kill, budgets
+restarts by remaining wall clock rather than by count, and falls back along a chain of server profiles.
+
+\paragraph{Priority scheduler.} All 25 games are alive from the start, but only 10 hold a GPU slot at a time. When a slot
+frees up, the waiting game with the highest expected score per GPU-second gets it. For a game on level $L{+}1$ of $n$
+that has spent $t$ reply tokens and $a$ actions on that level,
 \begin{equation}
-    y = mx + c
-    \label{eq:line}
+\pi = \Big(\tfrac{L+1}{n(n+1)/2}\big(\tfrac{h}{h+a}\big)^{2} + \gamma_{\text{tail}}\Big)\cdot
+2^{-\left((t/\tau)^2+(a/\alpha)^2\right)},
+\label{eq:priority}
 \end{equation}
+with $h{=}25$, $\tau{=}40$k tokens and $\alpha{=}115$ actions. The first factor is the RHAE weight of the next level,
+discounted as in Eq.~\eqref{eq:rhae}. The second is \emph{hope}: a game that has burned many tokens or actions without
+progress yields to one that is moving. A level-up sends a game back into the queue at once.
+
+\subsection{Experimental protocol}
+\label{sec:protocol}
+
+Every change was run as an experiment: a written hypothesis with a kill criterion, then a run, then a verdict. Experiments
+ran locally on a 6\,GB laptop GPU for plumbing only, and on Kaggle for anything that is scored. Table~\ref{tab:exps}
+lists the experiments that shaped the shipped system. A full Kaggle run plays all 25 public games for up to nine
+hours. Public-game numbers are a development signal, since those games are in pre-training corpora. The hidden Kaggle
+score is the only uncontaminated number we report.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lL{0.42\columnwidth}L{0.42\columnwidth}@{}}
+\toprule
+ID & Question & Outcome \\
+\midrule
+E02 & cell deltas vs.\ a 10$\times$ image? & image kept; deltas lose global effects \\
+E03 & add objects + ASCII to the image? & kept; exact positions and counts \\
+E105 & understanding or execution? & understanding: briefed 6 vs.\ $\sim$10 actions \\
+E115 & 8 perception arms, held-out check & X8 25/28; guesses $\approx$50\% held-out \\
+E116 & X8 inside the agent, one \code{observe()} & shipped \\
+E109 & SGLang vs.\ vLLM (FP8 27B) & 342 vs.\ 315 tok/s @ 8 streams \\
+E112 & NVFP4 + MTP on SGLang & 1,162 tok/s @ 10 thinking streams \\
+E111 & priority scheduler & shipped (Eq.~\ref{eq:priority}) \\
+E123 & \code{play()} until surprise & shipped (Alg.~\ref{alg:play}) \\
+E122 & guardrail audit vs.\ the Duck & leash, auto-reset, reset cap \\
+E107/8 & LoRA SFT and GRPO pipelines & built, tested; no gain shown yet \\
+-- & code stubbed out of history & \textbf{negative}: model copied the stub \\
+-- & first backbones in the Prime port (Gemma-4-31B, Qwen3.8-27B) & $\le$0.27 on Kaggle; replaced \\
+\bottomrule
+\end{tabular}
+\caption{Experiments behind the shipped system (the full log, with hypotheses and kill criteria, is in the
+repository).}
+\label{tab:exps}
+\end{table}

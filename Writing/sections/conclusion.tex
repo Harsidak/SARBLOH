@@ -1,4 +1,25 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-Summarize the paper and suggest future work.
+On an interactive benchmark scored by action efficiency, an agent cannot afford to reason its way around a bad view of
+the world. Every probing move costs it quadratically. Our first experiments showed that for language models the view
+is the first thing that fails: integers are nearly unreadable, a picture fixes most of it, and a few lines of meaning
+fix much of the rest. \textsc{Sarbloh}'s perception engine supplies those lines from code. It states what geometry
+proves, guesses what it cannot prove, and attaches to every guess the single action that would settle it. The perception
+lab showed why that split matters: single-frame guesses were right about half the time on games they were not designed
+on, so they have to be labelled as guesses.
+
+Around the engine, the rest is engineering for a fixed GPU budget. The agent acts in code and sends whole paths. The
+prompt only grows, so 98.4\% of it stays cached. A scheduler hands the GPU to whichever game is most likely to score
+next. With these pieces a 6B-active open model clears 143 of 183 public levels in one pass, matches a strong harness
+per GPU-hour while reaching more distinct levels in the same time, and took our hidden-set score from 0.27 to 16.53 in
+24 days.
+
+\paragraph{Limitations.} The briefing's own contribution on the hidden set has not been isolated by a same-model A/B.
+The Gemini ladder and the oracle briefing are single runs that motivate the design; they do not measure it. Public-game
+numbers are contaminated. Our absolute score is far below the leading entries, and much of what remains lost is levels
+the agent never comes to understand, which is the problem this paper argues perception should attack next.
+
+\paragraph{Next.} A clean briefing A/B on the hidden set, perception that updates its role guesses from the outcomes of
+their tests, and LoRA fine-tuning \citep{hu2021lora} on our own cleared-level traces, with GRPO \citep{shao2024grpo}
+tried only if it beats supervised fine-tuning within the same GPU budget. Both pipelines are already built.

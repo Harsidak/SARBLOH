@@ -40,19 +40,19 @@
    "2026-10-02",
    0.27,
    "sarbloh-prime",
-   "Prime Agent port, SGLang"
+   "Prime Agent port"
   ],
   [
    "2026-10-03",
    0.19,
    "sarbloh-experimentation",
-   "first experimentation build"
+   "first experimentation build (perception engine X8 wired in on 10-03)"
   ],
   [
    "2026-10-05",
    5.14,
    "sarbloh-experimentation",
-   "Flash-Next + MTP on SGLang, prefix-cache prompts, perception engine, 10 games at once"
+   "Flash-Next + speculative decoding on SGLang, prefix-cache prompts, 10 games at once"
   ],
   [
    "2026-10-08",
@@ -76,7 +76,7 @@
    "2026-10-16",
    2.97,
    "sarbloh-experimentation",
-   "Nemotron backbone trial"
+   "regression (harness and backbone trials)"
   ],
   [
    "2026-10-21",

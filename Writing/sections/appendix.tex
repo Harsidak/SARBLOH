@@ -1,0 +1,81 @@
+\sloppy
+\section{The briefings of Figure~\ref{fig:views}}
+\label{app:briefings}
+
+This is the engine's output, copied without edits, for the first frames shown in Figure~\ref{fig:views} (the
+20-line cap, as the agent sees it). The object ids match the map.
+
+\paragraph{\code{ls20} (arrow keys).}
+\begin{lstlisting}
+BRIEFING (arrow keys)
+MEASURED (certain):
+- Floor is a 5x5 tile grid.
+- obj 4 (blue 6-cell shape): sits inside a black box that is NOT plain floor; the floor reaches the box's bottom side in 5 steps (the only way in)
+- obj 6 (white/light grey plus): reachable in 6 steps
+- obj 4 (blue 6-cell shape) is directly above obj 10 (blue/orange square) (shared columns 35-37)
+- obj 12 (blue irregular shape (24 cells)) (drawn 2x bigger), mirrored left-right OR turned 90 deg clockwise, becomes exactly obj 4 (blue 6-cell shape)
+- 3 identical red square (2x2): obj 16, 17, 18 -> a count of something (lives, items, tiles)
+- obj 6 (white/light grey plus) has a symmetric shape but lopsided colours (marks a direction/state)
+- obj 10 (blue/orange square) has a symmetric shape but lopsided colours (marks a direction/state)
+GUESSES (check with one action):
+- obj 10 (blue/orange square) = YOU (80%) - test: press one arrow key: it should move one tile and the gauge should drop
+- obj 12 (blue irregular shape (24 cells)) = INVENTORY (80%) - test: watch it after touching the modifier
+- obj 4 (blue 6-cell shape) = GOAL (75%) - test: get the right thing into it and see if the level ends
+- obj 15 (yellow bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 16, 17, 18 (red square) = LIVES (75%) - test: watch it when the gauge runs out or you fail
+- obj 6 (white/light grey plus) = MODIFIER (67%) - test: step onto it, then check whether the inventory icon changed
+\end{lstlisting}
+
+\paragraph{\code{r11l} (clicks).}
+\begin{lstlisting}
+BRIEFING (clicks)
+MEASURED (certain):
+- no tile grid -> free movement. Open space = black (81% of screen).
+- all 4 main objects share one open space; straight paths between them are ALL CLEAR of rock
+- the grey areas are not open floor (likely walls)
+- obj 4 (purple dotted ring) encloses an EMPTY 5x5 space -- exactly the size of: obj 16 (white/purple diamond), obj 25 (purple/magenta disc), obj 36 (dark grey/purple diamond)
+- a light grey line connects obj 16 (white/purple diamond) to obj 25 (purple/magenta disc)
+- a light grey line connects obj 25 (purple/magenta disc) to obj 36 (dark grey/purple diamond)
+- obj 25 (purple/magenta disc) sits at the MIDPOINT of obj 16 (white/purple diamond) and obj 36 (dark grey/purple diamond) (error 0.5 cells) -> it is held between them; moving either end should move it to the new midpoint
+- obj 16, 36 (white/purple diamond; dark grey/purple diamond) have the same shape in different colours (white/purple vs dark grey/purple)
+GUESSES (check with one action):
+- obj 4 (purple dotted ring) = GOAL (80%) - test: get the right thing into it and see if the level ends
+- obj 16, 36 (white/purple diamond; dark grey/purple diamond) = HANDLE (click) (80%) - test: click an empty spot once: the selected handle should jump there
+- obj 1 (white bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 25 (purple/magenta disc) = CARRIED THING (75%) - test: move one handle: it should slide to the new midpoint
+\end{lstlisting}
+
+\section{Configuration of the scored runs}
+\label{app:config}
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}L{0.5\columnwidth}L{0.46\columnwidth}@{}}
+\toprule
+Knob & Value \\
+\midrule
+Games / GPU slots / scheduler quantum & 25 / 10 / 20 calls \\
+Action budget per game & 2,000 \\
+Moves per \code{play()} path & $\le$100 \\
+Reply budget / inner requests per turn & 12k tokens / 12 \\
+Thinking before a turn yields & 16k tokens \\
+Drain trigger / target / window & 118k / 55k / 131k tokens \\
+Reasoning effort & \code{xhigh} \\
+Picture & 10 px per cell, newest only, stored once \\
+Briefing / short-view caps & 20 lines / 600 tokens \\
+Memory caps (goal/plan/hyp./find.) & 150/200/400/300 tokens \\
+Sampling & $T{=}0.6$, top-$p$ 0.95, top-$k$ 20 \\
+Server & SGLang, W4A16, EAGLE 3 steps, FP8 KV \\
+\bottomrule
+\end{tabular}
+\caption{Main settings (from \code{harness/config.py} and the notebook overrides).}
+\end{table}
+
+\section{Reproducing the figures}
+Every number in this paper is produced by four scripts in \code{Writing/scripts/}: \code{collect\_data.py} (the Kaggle
+submission history, the per-game table and the lab scores, each with its source), \code{extract\_curves.py} (levels
+over time from the run logs), \code{make\_perception\_figure.py} (renders real frames through the agent's own
+\code{perception.py}), and \code{plot\_results.py}. The experiment log, with every hypothesis, kill criterion and
+verdict, is in \code{experiments/}.

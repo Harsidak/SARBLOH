@@ -62,6 +62,7 @@ history/
 planning/
 resources/
 scripts/
+!Writing/scripts/
 tests/
 Alignment/
 .agents/

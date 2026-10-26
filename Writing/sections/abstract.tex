@@ -11,7 +11,7 @@ our earlier encoder, at a tenth of the tokens. Around it we built a code-as-acti
 model of the game and sends whole move sequences from code, an append-only context that keeps 98.4\% of each prompt in
 the server's prefix cache, and a priority scheduler that shares one RTX PRO 6000 among 25 games, serving a 125B
 mixture-of-experts model with 6B active parameters. In a single pass over the 25 public games, \textsc{Sarbloh} clears
-143 of 183 levels in 8.2 hours. In the same time on the same server, the harness that won Milestone~\#1 clears 129
-distinct levels with four passes per game. On the hidden Kaggle evaluation our score rose from 0.27 to 16.53 in 24
-days. All code is released under Apache-2.0.
+143 of 183 levels in 8.2 hours. On the same server and model, a later release of the harness that won Milestone~\#1,
+playing every game four times over, clears 129 distinct levels in the same time. On the hidden Kaggle evaluation our
+score rose from 0.27 to 16.53 in 24 days, 13.7$\times$ the June milestone-winning score. All code is released under Apache-2.0.
 \end{abstract}

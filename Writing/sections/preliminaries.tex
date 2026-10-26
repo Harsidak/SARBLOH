@@ -1,0 +1,81 @@
+\section{Preliminaries}
+\label{sec:prelim}
+
+\subsection{ARC-AGI-3 and its score}
+An ARC-AGI-3 environment is a turn-based game made of a sequence of levels \citep{arcagi3}. At each step the agent
+receives a frame, a grid of up to $64{\times}64$ cells with one of 16 colours each, together with the game state
+(\code{NOT\_FINISHED}, \code{WIN}, \code{GAME\_OVER}) and the number of levels completed so far. It answers with one
+action: \code{ACTION1}--\code{ACTION4} (directions), \code{ACTION5} (a game-specific key), \code{ACTION6}$(x,y)$ (a
+click), \code{ACTION7}, or \code{RESET}. Nothing tells the agent what any action does, what it controls, or what
+counts as winning. Early levels teach a mechanic and later levels compose several. The games use only core-knowledge
+priors \citep{spelke2007core}: objects, agents, goals, number and elementary geometry.
+
+The score is \emph{Relative Human Action Efficiency} (RHAE). Let $h_{l}$ be the human baseline for level $l$ (the
+upper-median best human action count) and $a_{l}$ the agent's action count. Then
+\begin{equation}
+S_l = \min\!\Big(1.15,\, \big(\tfrac{h_l}{a_l}\big)^2\Big),\quad
+E = \frac{\min\!\big(\sum_{l\le k} l,\; \sum_{l\le n} l\, S_l\big)}{\sum_{l\le n} l},
+\label{eq:rhae}
+\end{equation}
+where $k$ of the $n$ levels were completed, and the benchmark score is the mean of $E$ over games. Three properties
+drive everything that follows. Reasoning is free and only committed actions count. The penalty is \emph{quadratic},
+so an agent that needs twice the human's actions keeps a quarter of the credit. Later levels weigh more, so the
+mechanics learned early pay off late.
+
+\subsection{The offline Kaggle setting}
+The Kaggle track reruns a submitted notebook on hidden games, without internet access. Our measured hardware is one NVIDIA RTX PRO 6000
+Blackwell (96\,GB), 176\,GB of RAM and a nine-hour limit on the GPU notebook. Every model must be open-weight and loaded
+from an attached dataset. In practice the budget is fixed in GPU-hours, so what an agent can afford to think is
+limited by tokens per second, and what it can afford to see is limited by the prompt length the cache keeps warm.
+
+\subsection{How ARC has been attacked}
+\paragraph{Static ARC.} The first ARC competitions were won by search over hand-written domain-specific languages
+\citep{wind2020icecuber}. Later work added object graphs \citep{xu2023arga}, library learning \citep{ellis2021dreamcoder}
+and minimum-description-length pressure \citep{ferre2025madil}. The ARC Prize 2024 winners moved to neural methods:
+test-time training \citep{akyurek2024ttt,arcprize2024}, combined induction and transduction \citep{li2024induction},
+and later tiny recursive networks \citep{jolicoeur2025trm}. These systems map a few input--output pairs to one answer.
+They never have to act.
+
+\paragraph{Agents for ARC-AGI-3.} Interactive ARC rewards a different design. General LLM agents interleave reasoning
+and acting \citep{yao2022react} or grow a library of code skills \citep{wang2023voyager}. Symbolica's \emph{Arcgentica}
+\citep{knutsen2026arcgentica} uses an orchestrator that never touches the game and delegates to subagents that return
+compressed summaries, which keeps the context small. \emph{VISTA} \citep{vista2026} is a visual harness with lossless
+frame memory. \emph{Executable World Models} \citep{rodionov2026ewm} keep a Python model of the game, verify it
+against every past step, and plan through it, in the spirit of WorldCoder \citep{tang2024worldcoder} and code world
+models \citep{lehrach2025cwm}. \emph{Tycho} \citep{lehmann2026tycho} induces programmatic world models. Graph-based
+exploration \citep{rudakov2025graph} needs no training and ranks actions by salience. \emph{Prime Agent}
+\citep{karten2026prime} gives a frontier model one persistent IPython REPL and reports a large ARC-AGI-3 gain from the
+harness alone; our harness started as a port of its host loop. All of these use frontier API models. Their numbers come
+from the 25 public games, which are partly memorised by now, and none of them runs offline.
+
+\paragraph{The open-weight field.} The comparison class for this paper is the Kaggle offline track
+(Table~\ref{tab:field}). Milestone~\#1 (June 2026) was won by Tufa Labs' \emph{Duck} \citep{duck2026,arcprizemilestone1}.
+It runs Qwen~3.6 27B locally inside a Python REPL that exposes the game as variables, perceives through images, ASCII
+grids and segmentation, and evicts its oldest messages so it can play indefinitely. Its authors found that hand-crafted
+tools hurt and that letting the model improvise worked better. Second and third place both ran Gemma-4-31B as a
+vision model that emits JSON actions from labelled frames \citep{arcprizemilestone1}.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}llcr@{}}
+\toprule
+System & Model & Offline & Score \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Public games, frontier APIs (self-reported)}} \\
+Exec.\ World Models & GPT-5.5 & -- & 58.1 \\
+Prime Agent & frontier & -- & 95.5 \\
+Arcgentica, VISTA, Tycho & frontier & -- & high \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Hidden games, Kaggle, one GPU}} \\
+Reki (M\#1, 2nd) & Gemma-4-31B & \checkmark & 0.87 \\
+Duck (M\#1, 1st) & Qwen 3.6 27B & \checkmark & 1.21 \\
+\textbf{\textsc{Sarbloh} (ours)} & \textbf{Flash-Next} & \checkmark & \textbf{16.53} \\
+\bottomrule
+\end{tabular}
+\caption{Where \textsc{Sarbloh} sits. The two halves are not comparable: one is the public set with unbounded
+frontier inference, the other the hidden set on one GPU. M\#1 scores are from June. The leaderboard has moved since
+(\S\ref{sec:results}).}
+\label{tab:field}
+\end{table}

@@ -1,0 +1,22 @@
+SARBLOH
+Copyright 2026 Harsidak Singh Banwait
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository contains or derives from the third-party work below. Each keeps its own licence.
+
+1. Prime Agent (https://github.com/PrimeIntellect-ai/prime-agent, commit 2d24ad4), MIT licence,
+   Copyright (c) 2025 Mario Zechner, Copyright (c) 2026 Prime Intellect.
+   - Sarbloh/rlm/ and Sarbloh-Experimentation/rlm/ are its Python kernel runtime, vendored unchanged;
+     the MIT licence text is in each rlm/LICENSE.
+   - Sarbloh/harness/ (kernel host, compaction, agent loop) began as a Python port of its TypeScript host loop.
+
+2. AAAI author kit (Writing/aaai2027.sty, Writing/aaai2027.bst), distributed by AAAI for preparing papers
+   in its format. Used only to typeset the paper in Writing/.
+
+3. ARC-AGI-3 public games, by the ARC Prize Foundation. eval/real_games/ holds copies of the 25 public games, as
+   distributed through the arc-agi toolkit (https://github.com/arcprize/arc-agi, MIT), for offline development.
+   They remain under the ARC Prize Foundation's terms and are not covered by this repository's licence.
+
+Model weights, Kaggle datasets and third-party repositories under resources/ are not part of this repository's
+licence and are not redistributed.

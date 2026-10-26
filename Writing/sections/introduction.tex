@@ -57,7 +57,7 @@ experiments included, and a same-server comparison with the Milestone~\#1 winnin
 \node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Guess + test}\\[-1pt]{\scriptsize roles from priors,}\\[-1pt]{\scriptsize one action to check}};
 \node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Render}\\[-1pt]{\scriptsize map picture, letters,}\\[-1pt]{\scriptsize change line}};
 \begin{scope}[on background layer]
-\node[draw=ours, dashed, rounded corners=4pt, fill=ours!4, fit=(seg)(render), inner sep=5pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Perception engine} (host side, pure code, $\approx$10\,ms per frame)}] (pe) {};
+\node[draw=ours, dashed, rounded corners=4pt, fill=ours!4, fit=(seg)(render), inner sep=5pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Perception engine} (host side, pure code, $\approx$35\,ms per frame on one CPU core)}] (pe) {};
 \end{scope}
 
 \node[box, minimum width=34mm, below=13mm of render.south east, anchor=north east] (ctx) {\textbf{Context builder}\\[-1pt]{\scriptsize append-only, picture stored once,}\\[-1pt]{\scriptsize drain oldest turns at 118k}};
@@ -69,7 +69,7 @@ experiments included, and a same-server comparison with the Milestone~\#1 winnin
 \draw[flow] (layout) -- (measure);
 \draw[flow] (measure) -- (guess);
 \draw[flow] (guess) -- (render);
-\draw[hotflow] (render.south) |- node[lab, pos=0.25, right]{views} (ctx.east);
+\draw[hotflow] (render.south) -- node[lab, right]{views} (render.south |- ctx.north);
 \draw[flow] (ctx) -- node[lab, above]{prompt} (llm);
 \draw[flow] (llm) -- node[lab, above]{code} (kernel);
 \draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{moves,\\one at a time} (game.south);
