@@ -4,7 +4,8 @@ and the hard stops. Each one takes the running AgentSession ``s`` (harness/agent
 Where they are called from in ``AgentSession._loop`` and ``_request``:
 1. stop?            ``should_stop`` (before every request of a turn)
 4. store the reply  ``read_calls`` (unknown tool, broken JSON)
-5. run the tools    ``check_play`` and ``read_moves`` for each move ``play()`` sends, ``batch_stop`` after it;
+5. run the tools    ``check_play`` and ``read_moves`` for each move ``play()`` sends, ``seen_before`` (the revisit
+                    leash) and ``batch_stop`` after it;
                     ``refuse_host`` for other requests; ``level_start_note`` after a level-up
 Cut off, no tool:   ``cut_off_note``
 Turn caps:          ``over_turn_budget`` (thinking tokens since the last move)
@@ -13,6 +14,7 @@ End of a turn:      ``end_turn`` (budget restart, ``stuck_note``, curator, the s
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -25,6 +27,8 @@ from harness.agent import prompts
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)
 _ACTION_NAMES = {0: "RESET", 1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "FIRE",
                  7: "UNDO"}
+EDGE_BAND = 3                         # rows and columns at each edge the revisit leash does not compare
+REVISIT_STOP = "board seen before"    # the stop reason play() reports
 
 
 # --- hard stops ---------------------------------------------------------------------------------------------------
@@ -117,14 +121,44 @@ def check_play(s: Any, cell: dict[str, Any] | None, path_len: Any) -> None:
         raise RuntimeError(prompts.event_message("act_too_many", sent=int(path_len), act_max=cap))
 
 
+def new_life(s: Any) -> None:
+    """The revisit leash forgets its boards: the level started or was reset, and the board now is the first one of
+    the new try. Called from AgentSession._tool_act (a level up, a reset) and _auto_reset."""
+    s._life_boards = {_board_key(s._frame())}
+
+
+def seen_before(s: Any) -> bool:
+    """The revisit leash: records the board after a move and says whether it was already seen in this try (since the
+    level started or was last reset). In a game with fixed rules the shortest way to a goal never passes the same
+    board twice, so a repeat is a loop, or a move that changed nothing. The edge band is not compared: a move bar or a
+    counter there changes on every move. Always False with config revisit_stop off. Called from AgentSession._tool_act."""
+    if not s.cfg.get("revisit_stop", False):
+        return False
+    key = _board_key(s._frame())
+    if key in s._life_boards:
+        return True
+    s._life_boards.add(key)
+    return False
+
+
+def _board_key(rows: list[list[int]]) -> bytes:
+    if len(rows) > 2 * EDGE_BAND and all(len(r) > 2 * EDGE_BAND for r in rows):
+        rows = [r[EDGE_BAND:-EDGE_BAND] for r in rows[EDGE_BAND:-EDGE_BAND]]
+    return hashlib.md5(json.dumps(rows).encode()).digest()
+
+
 def batch_stop(s: Any, cell: dict[str, Any], move: Any, before: Any, after: Any, info: dict[str, Any]) -> str | None:
-    """Why the rest of a play() path must not be sent, or None. Only three things stop it: a level up, the game's
-    end (GAME_OVER or WIN), and a wall hit twice (the same move twice in a row with not one pixel changed). A timer bar
-    or an animation changing never stops it. Called from AgentSession._host after each move."""
+    """Why the rest of a play() path must not be sent, or None. Only four things stop it: a level up, the game's
+    end (GAME_OVER or WIN), a board seen before in this try (config revisit_stop, see seen_before) and a wall hit
+    twice (the same move twice in a row with not one pixel changed). A timer bar or an animation changing never stops
+    it. Called from AgentSession._host after each move."""
     if info.get("level_up"):
         return "level up"
     if info.get("state") in ("GAME_OVER", "WIN") or s.arc.finished:
         return "GAME_OVER" if info.get("state") == "GAME_OVER" else "game finished"
+    if info.get("revisit"):
+        s.stats["revisits"] += 1
+        return REVISIT_STOP
     if before != after:
         cell["noop_move"] = None
         return None
@@ -144,8 +178,8 @@ def check_cell_open(cell: dict[str, Any]) -> None:
 
 def read_moves(s: Any, args: dict[str, Any]) -> list[tuple[int, int | None, int | None]]:
     """The moves of one act as (action, row, column), all or nothing: refused whole if the list is empty or over
-    act_max_actions, an item cannot be read, it holds a reset while config reset_move is off, or an action is not legal
-    now. Called from AgentSession._tool_act."""
+    act_max_actions, an item cannot be read, it holds a reset while config reset_move is 0 or more resets than this
+    level has left, or an action is not legal now. Called from AgentSession._tool_act."""
     raw = args.get("actions")
     if isinstance(raw, str):
         raw = json.loads(raw) if raw.strip().startswith("[") else [raw]
@@ -160,8 +194,14 @@ def read_moves(s: Any, args: dict[str, Any]) -> list[tuple[int, int | None, int 
         parsed = [parse_action(a) for a in raw]
     except ValueError as exc:
         raise ValueError(prompts.event_message("act_bad_args", problem=str(exc), act_max=int(s.cfg.get("act_max_actions", 5)))) from None
-    if not s.cfg.get("reset_move", False) and any(a == 0 for a, _, _ in parsed):
-        raise ValueError(prompts.event_message("act_no_reset"))
+    resets = sum(1 for a, _, _ in parsed if a == 0)
+    if resets:
+        allowed = int(s.cfg.get("reset_move") or 0)
+        if not allowed:
+            raise ValueError(prompts.event_message("act_no_reset"))
+        used = s._resets_used.get(s.arc.game.state.levels_completed, 0)
+        if used + resets > allowed:
+            raise ValueError(prompts.event_message("act_no_resets_left", allowed=allowed))
     legal = [a for a in s.arc.game.state.available_actions if a != 0]
     bad = [label(a, r, c) for a, r, c in parsed if a != 0 and a not in legal]
     if bad:

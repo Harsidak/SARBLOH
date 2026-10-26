@@ -62,6 +62,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                picture_last=not bool(p.get("old_images", False)),
                                code_graph=bool(cfg.get("code_graph", True)),
                                reset_move=bool(cfg.get("reset_move", False)),
+                               revisit_stop=bool(cfg.get("revisit_stop", False)),
                                code_kept=bool(cfg.get("keep_code", False)),
                                reasoning_kept=bool(cfg.get("keep_reasoning", True)),
                                board_text=bool(p.get("ascii", True)),
@@ -136,7 +137,8 @@ class AgentSession:
                       "graph_deltas": 0, "graph_snapshots": 0,
                       "memory_full": 0, "memory_updates": 0, "turn_yields": 0, "outer_turns": 0,
                       "turn_requests_max": 0,
-                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0, "auto_resets": 0}
+                      "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0, "auto_resets": 0,
+                      "model_resets": 0, "revisits": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -160,6 +162,8 @@ class AgentSession:
         self._graph: dict[str, Any] = {}
         self._call_graphs: dict[str, str] = {}   # call id -> graph lines of what that call defined (_store_reply)
         self._act_info: dict[str, Any] | None = None
+        self._life_boards: set[bytes] | None = None   # the revisit leash: the boards of this try (guardrails.new_life)
+        self._resets_used: dict[int, int] = {}        # level (levels completed) -> resets the agent sent on it
         self._cell: dict[str, Any] | None = None   # the ipython cell running now: its call, and the acts it made
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
@@ -734,7 +738,9 @@ class AgentSession:
         arc.cell_actions = 0
         arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "code": json.dumps(args),
                         "say": getattr(reply, "content", None), "thought": getattr(reply, "reasoning", None)}
-        lines, steps, stop, level_up, new_skills, load = [], [], None, False, [], {}
+        lines, steps, stop, level_up, new_skills, load, revisit = [], [], None, False, [], {}, False
+        if self._life_boards is None:
+            guardrails.new_life(self)
         for n, (a, r, c) in enumerate(parsed):
             label = guardrails.label(a, r, c)
             try:
@@ -752,9 +758,16 @@ class AgentSession:
                 self.tracker.reset()
                 self._objects, _ = self.tracker.observe(self._frame())
                 change = "LEVEL UP: a new level begins (shown in full below)"
+                guardrails.new_life(self)
             else:
                 self._objects, change = self.tracker.observe(self._frame())
                 change = change or "no change"
+                if a == 0:
+                    self._resets_used[level0] = self._resets_used.get(level0, 0) + 1
+                    self.stats["model_resets"] += 1
+                    guardrails.new_life(self)
+                elif obs.get("state") != "GAME_OVER":
+                    revisit = guardrails.seen_before(self)
             self._last_step = st.get("i")
             line = f"#{st.get('i')} {label}: {change}"
             if st.get("repeat_of") is not None:
@@ -791,7 +804,7 @@ class AgentSession:
                 break
         done = len(steps)
         lost = stop == "GAME_OVER"
-        restarted = lost and not self.cfg.get("reset_move", False) and self._auto_reset(turn, lines, steps)
+        restarted = lost and self._auto_reset(turn, lines, steps)
         arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "after_cell": True}
         try:   # one line per step for obs.history in the kernel
             observation.append_history(self.kernel.session_dir, steps)
@@ -815,10 +828,10 @@ class AgentSession:
                          "actions": [start, arc.game.action_count], "via": via, "predicted": predicted,
                          "play_id": play_id})
         self._act_info = {"done": done, "stopped": stop, "level_up": level_up,
-                          "state": "GAME_OVER" if lost else s.engine_state.name}
+                          "state": "GAME_OVER" if lost else s.engine_state.name, "revisit": revisit}
         if load:
             self._act_info["load_skills"] = load
-        if level_up:   # the won goals, marked "won" in GOAL in the kernel by play()
+        if level_up:   # the host's copy of GOAL goes back to the kernel by play()
             self._act_info["goal"] = mem.working.kernel_values()["GOAL"]
         if done == 0 and stop:
             raise RuntimeError(stop)
@@ -830,9 +843,9 @@ class AgentSession:
         return "\n".join(out)
 
     def _auto_reset(self, turn: int, lines: list[str], steps: list[dict[str, Any]]) -> bool:
-        """Config reset_move off: after a GAME_OVER the host restarts the level itself with one RESET, as the Duck
-        harness does, and adds its change line and step row. False when the reset was refused (budget or time spent).
-        Called from _tool_act."""
+        """After a GAME_OVER the host restarts the level itself with one RESET, as the Duck harness does, and adds its
+        change line and step row; it is not one of the agent's config reset_move resets. False when the reset was refused
+        (budget or time spent). Called from _tool_act."""
         try:
             self.arc.handle({"type": "arc.reset"}, source="auto")
         except Exception as exc:  # noqa: BLE001 - out of moves or time: the game ends here
@@ -840,6 +853,7 @@ class AgentSession:
             return False
         st = dict(self.arc.last_step or {})
         self._objects, _ = self.tracker.observe(self._frame())
+        guardrails.new_life(self)
         self._last_step = st.get("i")
         change = "the level starts again from its first state"
         lines.append(f"#{st.get('i')} RESET (automatic after GAME_OVER): {change}")
@@ -887,9 +901,8 @@ class AgentSession:
                              "action_count": acount, "goal": g["goal"], "status": g["status"],
                              "prev_status": g["prev_status"]})
         saved = [f"plan {k}" for k in wrote["plan"]]
-        saved += [f"goal {g['status']}" for g in wrote["goal"]]
-        for h in wrote["hypotheses"]:
-            saved.append(f"{h['id']} {'new' if h['prev_status'] is None else h['status']}")
+        saved += ["goal added" for _ in wrote["goal"]]
+        saved += [f"{h['id']} added" for h in wrote["hypotheses"]]
         if wrote["findings"]:
             saved.append(f"{len(wrote['findings'])} finding{'s' if len(wrote['findings']) > 1 else ''} added")
         if wrote["removed"]:

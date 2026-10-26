@@ -3,8 +3,8 @@
 The REPL is the agent's only game tool: it models the game in code, searches the model and sends the moves it finds,
 in the same cell. ``play()`` is the only way to move: it sends the moves one at a time, each as a host request
 (``AgentSession._host``, type ``arc.act``) that runs it exactly like the old act tool did (the same parsing, legality
-check, change lines and stops: level up, GAME_OVER, game end), and it stops early on a level up, the game's end or a wall hit
-twice; a wrong prediction is reported at the end and the path goes on.
+check, change lines and stops: level up, GAME_OVER, game end), and it stops early on a level up, the game's end, a board
+seen before in this try or a wall hit twice; a wrong prediction is reported at the end and the path goes on.
 
     r = await play(["4", "4", "1"])                 # moves, no check
     r = await play(path, predict=step)              # reports the first move step() got wrong
@@ -13,11 +13,11 @@ twice; a wrong prediction is reported at the end and the path goes on.
     r.obs          # the state after the last move
 
 A move is "1".."5", "7", "6 r c" (a click at row r, column c), an int 1..7, or a tuple (6, r, c); "reset" only with
-config reset_move on (off: the host restarts a lost level itself).
+config reset_move above 0, as many times per level as it says (the host restarts a lost level itself).
 
 Each move also sends the agent's memory variables (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS), so the host saves them
-before the move runs; after a level up nothing is emptied: GOAL is replaced by the host's copy, where the kept goals of
-the level just won are marked "won", and the skills the curator picked at that level-up are loaded into SKILLS.
+before the move runs; after a level up nothing is emptied: GOAL is replaced by the host's copy (plain lists of
+goals; the host keeps which ones won), and the skills the curator picked at that level-up are loaded into SKILLS.
 """
 
 from __future__ import annotations
@@ -181,8 +181,9 @@ def _changed(before: Any, after: Any, skip: set[tuple[int, int]]) -> bool:
 
 async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool = True,
                quiet: bool = False, stop_if_unchanged: bool = True) -> PlayResult:
-    """Make the moves of ``path`` one at a time. Only a level up, the game's end or a wall hit twice (the same move
-    twice in a row, not one pixel changed) stops the path; a wrong prediction is reported and the path goes on.
+    """Make the moves of ``path`` one at a time. Only a level up, the game's end, a board seen before in this try or a
+    wall hit twice (the same move twice in a row, not one pixel changed) stops the path; a wrong prediction is reported
+    and the path goes on.
 
     ``predict(board, move)`` gets ``obs.board`` before the move and returns the board it expects after it: a list of
     rows, or a dict {(r, c): letter} with only the cells to check, or None to not check this move. With ``state``,
@@ -237,7 +238,7 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
                     await _repl.host_request({"type": "arc.surprise", "args": {"move": i, "action": _move(move)}})
                 except Exception:  # noqa: BLE001 - outside the harness there is no host to tell
                     pass
-        if r.batch_stop:   # level up, game end or a wall hit twice: the host's guardrails decide
+        if r.batch_stop:   # level up, game end, a board seen before or a wall hit twice: the host's guardrails decide
             if i < len(path) - 1:
                 res.stopped, noop = r.batch_stop, r.batch_stop == "wall hit twice"
             break

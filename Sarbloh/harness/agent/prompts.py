@@ -52,6 +52,9 @@ actions you must understand the game from board(Read the board with `observe()`)
 simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
 Every move you send counts against your score, while thinking and code cost nothing, so send only the moves you need.
 Before you build a big model or a search for a goal, test that goal with one move. If the game does not react the way the goal says it should, the goal is wrong: change it before you write more code.
+
+Protocol(you have to strictly follow this protocol):
+When thinking carefully you must focus more on code writing.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
@@ -124,7 +127,7 @@ obs = observe() is a frozen copy of the state at the moment it is called. It doe
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
 - `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo,{reset_in_path} or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same). One move is a path of one: `await play(["5"])`.
-- The whole path is sent unless one of these happens: the level is won, GAME_OVER, the game ends, or the same move twice in a row changes not one pixel (a wall). A timer or animation never stops a path.
+- The whole path is sent unless one of these happens: the level is won, GAME_OVER, the game ends, {path_stop}. A timer or animation never stops a path.
 - Before any move is spent, a path is refused with a `RuntimeError` when it has more than {act_max} moves, or when its first move is illegal or unreadable. Catching or reading that error costs nothing. An illegal or unreadable move later in the path stops the path there: the moves before it are made, the rest are not sent.
 - After a level up, further `play()` calls in the same cell are refused, so the new level is seen before anything else is sent.
 - `predict` checks the path against your model as it runs. It is a function `predict(board, move)`: it receives `obs.board` before each move and returns the board it expects after it, or a dict {{(r, c): letter}} with only the cells it cares about, or None for a move it does not check. Typically it wraps your step model: `await play(path, predict=lambda b, m: step(b, m))`.
@@ -132,7 +135,7 @@ play():
 - Cells of `hud` objects are left out of the check, so counters never count as a surprise.
 - A wrong prediction does not stop the path. The first one is recorded as the surprise and printed after the path ends: the move, the cells that differ (predicted and actual) and a small window of the board around them.
 - The call prints `play: 3 of 3 moves done` (with `; stopped: <reason>` when it stopped early) and one change line per move. A click is written `A6(r12,c40)` and `[GAME_OVER]` marks the move that lost the level. `quiet=True` prints nothing.
-- It returns `r`: `r.done` (moves made), `r.stopped` ("level up", "GAME_OVER", "wall hit twice", ... or None when the whole path ran), `r.surprise` (None or a dict with `move`, `action` and `cells`), `r.lines` (the change lines), `r.level_up`, `r.state` and `r.obs` (the state after the last move).
+- It returns `r`: `r.done` (moves made), `r.stopped` ("level up", "GAME_OVER", {stop_names}, ... or None when the whole path ran), `r.surprise` (None or a dict with `move`, `action` and `cells`), `r.lines` (the change lines), `r.level_up`, `r.state` and `r.obs` (the state after the last move).
 - {reset_line}"7" takes back the last move where the game allows it, and is not counted.
 
 recall():
@@ -166,9 +169,9 @@ Skills you can load with `recall()`:
 MEMORY = """Your memory:
 {earlier_kept} stay in the messages. {memory_where}
 Your memory is five variables in your `ipython` kernel. The first four are dicts with one entry per level: "L1" for level 1, "L2" for level 2, and so on. Change them in your code when they change, and they are saved:
-- `GOAL`: for each level, the goals you think win it, each marked "kept" or "refuted". For example `GOAL["L2"] = {{"push the block onto the flag": "kept"}}`. Write a goal as what wins the level. When a test shows a goal does not win, mark it refuted with `GOAL["L2"]["push the block onto the flag"] = "refuted"` and add the next goal to test. When you win a level, its kept goals are marked "won".
+- `GOAL`: for each level, a list of the goals you think win it, each written as what wins the level. For example `GOAL["L2"] = ["push the block onto the flag"]`.
 - `PLAN`: for each level, your next steps and why, in one or two sentences. For example `PLAN["L2"] = "push the block right"`.
-- `HYPOTHESES`: for each level, the rules you think the game follows, each written concretely (objects, directions, counts) and marked "kept" or "refuted". For example `HYPOTHESES.setdefault("L2", {{}})["1 moves obj 4 up by 5 cells"] = "kept"`. Mark one "refuted" when a move shows it is wrong.
+- `HYPOTHESES`: for each level, a list of the rules you think the game follows, each written concretely (objects, directions, counts). For example `HYPOTHESES.setdefault("L2", []).append("1 moves obj 4 up by 5 cells")`.
 - `FINDINGS`: for each level, a list of facts you saw, one short text each. For example `FINDINGS.setdefault("L2", []).append("the bar loses one block per move")`.
 - `SKILLS`: a dict of skill name to text, the skills you loaded with `recall()` and the ones picked for you when you win a level.
 Only change GOAL, PLAN, HYPOTHESES and FINDINGS at the top level of a cell, as in the examples above. Do not rename them, do not copy them into other variables, and do not use them inside your functions or your search: they are notes for you, not inputs to your code. A plain assignment inside a function only makes a local copy and is not saved.
@@ -206,7 +209,7 @@ The first state is below. In your first `ipython` call, read `observe()`, find w
 CONTINUE_GAME = "continue"
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
-Your GOAL, PLAN, HYPOTHESES, FINDINGS and SKILLS are all kept. The kept goals of the level you won are now marked "won".
+Your GOAL, PLAN, HYPOTHESES, FINDINGS and SKILLS are all kept.
 Start from what you learned on the last level. Do not test known actions again. Your functions are still in the kernel.
 If in case you encounter new objects or a changed layout update your code accordingly.
 """
@@ -220,16 +223,21 @@ LEVEL_NOTE = "This is level {level}. Write its notes under \"L{level}\" in your 
 
 EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
-GAME_OVER = """GAME_OVER: this level was lost, and the game has started it again from its first state. Continue"""
+GAME_OVER = """GAME_OVER: this level was lost. Continue"""
 
-# GAME_OVER when config reset_move is on: the agent sends the reset itself.
+# GAME_OVER when the host could not restart the level (no moves or time left).
 GAME_OVER_RESET = """GAME_OVER: this level is lost. send `await play(["reset"])`. Your memory is kept."""
 
-# The reset wording of the system prompt: config reset_move off (the host restarts a lost level) or on.
-RESET_CONTROL = "- There is no reset move. When a level is lost (GAME_OVER), the game starts that level again by itself."
+# The reset wording of the system prompt: config reset_move 0 (no reset move) or more.
+RESET_CONTROL = "- There is no reset move."
 RESET_CONTROL_MOVE = "- \"reset\" restarts the current level."
-RESET_LINE = "There is no reset move: after a GAME_OVER the level starts again by itself. "
+RESET_LINE = "There is no reset move. "
 RESET_LINE_MOVE = "\"reset\" is a move too: it restarts the level and loses its progress. "
+
+# What else stops a play() path: config revisit_stop on, or off (only the wall rule).
+REVISIT_PATH_STOP = ("or a move brings back a board already seen since the level started or was last reset (a loop, "
+                     "or a move that changed nothing; the 3 rows and columns at each edge are not compared)")
+WALL_PATH_STOP = "or the same move twice in a row changes not one pixel (a wall)"
 
 WIN = "WIN: every level is done, and the game is complete."
 
@@ -263,7 +271,9 @@ ACT_ILLEGAL = ("{bad} is not legal now, so nothing was run and no move was spent
 
 ACT_BAD_ARGS = (""" play() refused this path: {problem}. No move was made and no move was spent""")
 
-ACT_NO_RESET = ("There is no reset move, so nothing was run and no move was spent. A lost level starts again by itself.")
+ACT_NO_RESET = ("There is no reset move, so nothing was run and no move was spent.")
+
+ACT_NO_RESETS_LEFT = ("The {allowed} resets of this level are used, so nothing was run and no move was spent.")
 
 LOW_BUDGET = "Only {left} moves are left for this game."
 
@@ -292,7 +302,8 @@ EVENT_SNIPPETS: dict[str, str] = {
     "start": TASK_GAME, "continue": CONTINUE_GAME, "level_up": LEVEL_UP, "game_over": GAME_OVER,
     "game_over_reset": GAME_OVER_RESET, "win": WIN,
     "act_now": ACT_NOW, "call_tool_now": CALL_TOOL_NOW, "compacted": COMPACTED, "act_too_many": ACT_TOO_MANY,
-    "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "act_no_reset": ACT_NO_RESET, "low_budget": LOW_BUDGET,
+    "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "act_no_reset": ACT_NO_RESET,
+    "act_no_resets_left": ACT_NO_RESETS_LEFT, "low_budget": LOW_BUDGET,
     "low_time": LOW_TIME,
     "fix_now": FIX_NOW, "stuck": STUCK, "reuse_code": REUSE_CODE,
 }
@@ -353,7 +364,8 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
 def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True, code_graph: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
-                reasoning_kept: bool = True, reset_move: bool = False, **_: Any) -> str:
+                reasoning_kept: bool = True, reset_move: bool = False, revisit_stop: bool = False,
+                **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
@@ -361,7 +373,8 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     (config ``perception.ascii``); ``memory_shown`` whether a [memory] block is in the messages (config
     ``memory.in_context``); ``short_objects`` and ``observe_view`` say whether the state after moves lists the changed
     objects and whether `observe()` also puts the full state in the messages (config ``perception``); ``reset_move``
-    whether "reset" is a move the agent may send (config ``reset_move``; off: a lost level restarts by itself);
+    whether "reset" is a move the agent may send (config ``reset_move``); ``revisit_stop`` whether a path stops at a
+    board seen before in this try (config ``revisit_stop``);
     ``code_kept`` and ``reasoning_kept`` whether stored replies keep their code and their thinking (config ``keep_code``,
     ``keep_reasoning``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
@@ -384,12 +397,14 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
              "observe_code": "" if observe_view else " `observe()` gives the same state in your code only."}
     resets = {"reset_control": RESET_CONTROL_MOVE, "reset_in_path": " \"reset\",", "reset_line": RESET_LINE_MOVE} \
         if reset_move else {"reset_control": RESET_CONTROL, "reset_in_path": "", "reset_line": RESET_LINE}
+    stops = {"path_stop": REVISIT_PATH_STOP, "stop_names": '"board seen before", "wall hit twice"'} if revisit_stop \
+        else {"path_stop": WALL_PATH_STOP, "stop_names": '"wall hit twice"'}
     thinking = "thinking, " if reasoning_kept else ""
     earlier = f"Your earlier {thinking}code and tool outputs" if code_kept else \
         (f"Your earlier {thinking}tool outputs (not your code: in its place you see the code graph of the functions and "
          "classes it defined)")
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
-                           memory_where=memory, **pictures, **board, **views, **resets, earlier_kept=earlier,
+                           memory_where=memory, **pictures, **board, **views, **resets, **stops, earlier_kept=earlier,
                            thinking_note="" if reasoning_kept else THINKING_NOT_KEPT)
 
 

@@ -61,10 +61,16 @@ DEFAULT: dict[str, Any] = {
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
         "stuck_note_tokens": 0,
-        # On: "reset" is a move the agent may send in play(). Off: it is refused (nothing spent), and after a GAME_OVER
-        # the host restarts the level by itself, as the Duck harness does (the 9h run spent 81% of its tokens on levels
-        # with a voluntary reset).
-        "reset_move": False,
+        # How many times per level the agent may send "reset" in play(); a reset over it is refused (nothing spent).
+        # 0: there is no reset move (the 9h run spent 81% of its tokens on levels with a voluntary reset). After a
+        # GAME_OVER the host always restarts the level by itself, as the Duck harness does, and that reset is not counted.
+        # Run 10-26 had none and the model burned its move bar to restart (ka59 240 moves, g50t 466).
+        "reset_move": 3,
+        # On: the rest of a play() path is not sent after a move that brings back a board already seen since the level
+        # started or was last reset (a loop, or a move that changed nothing); the 3 rows and columns at each edge, where
+        # move bars and counters sit, are not compared. Nothing is refused. Run 10-26, counted offline: 2331 of 9913
+        # moves would not have been sent, and not one winning move.
+        "revisit_stop": True,
         # On: the agent's kernel may open and list files only in its own game folder, the memory folder recall()
         # reads, the temp folder and the Python libraries, and may not start other programs (runtime/skills/
         # fileguard.py). Off: the whole file system is readable, including the game files.

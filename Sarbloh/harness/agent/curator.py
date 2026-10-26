@@ -1,5 +1,5 @@
 """The curator: the hidden reviewer that turns the agent's trajectory into memory. It runs at every level-up (inside
-``play()``, before the level-up marks the level's kept goals "won"; nothing of the agent's memory is erased),
+``play()``, before the level-up marks the level's goals "won"; nothing of the agent's memory is erased),
 and, when config ``curator_every_turns`` is above 0, at the end of a turn once that many model requests have gone by
 since its last pass.
 
@@ -25,7 +25,7 @@ from harness.memory.timeline import render_row
 _INTRO = """Your job is to review the memory of the agent that is playing a turn based game you need to return in json only.
 IMPORTANT: Don't think much and reason answer straight from the memory below.
 
-The agent writes its own plan, hypotheses, findings and goal, and it keeps the skills it is using in SKILLS. The code graph below lists the functions it wrote and what each one calls. Its notes are kept per level ("L1", "L2", ...), and it marks each goal and hypothesis "kept" or "refuted" itself; judge them yourself from the steps. Your job:
+The agent writes its own plan, hypotheses, findings and goal, and it keeps the skills it is using in SKILLS. The code graph below lists the functions it wrote and what each one calls. Its notes are kept per level ("L1", "L2", ...), and a goal marked [won] won its level; judge the hypotheses yourself from the steps. Your job:
 1. lessons: facts to keep for later levels and other games: findings, a goal that won a level, and hypotheses you judge from the last steps. Read each hypothesis next to the moves the agent made and what they did. A hypothesis is a "rule" when the moves show it held, above all when following it won the level. It is "refuted" when a move did something else. When the steps show neither, leave it out. Each lesson is one short general sentence (name objects by colour and shape, not by id). Link it to the shapes it is about with their key, e.g. "R#a1b2c3"."""
 
 _SKILLS = """

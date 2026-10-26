@@ -3,13 +3,14 @@
 They are five variables in the agent's kernel (``KERNEL_VARS``). GOAL, PLAN, HYPOTHESES and FINDINGS the agent writes,
 each a dict keyed by level ("L1", "L2", ...), so what it wrote on an earlier level stays and can be used again:
 
-    GOAL = {"L4": {"light all three windows": "kept", "line the plunger up with the plug": "refuted"}}
+    GOAL = {"L4": ["light all three windows"]}
     PLAN = {"L4": "click id21 twice, then check window B"}
-    HYPOTHESES = {"L4": {"A6 on obj 18 grows R1 by 3 rows": "kept"}}
+    HYPOTHESES = {"L4": ["A6 on obj 18 grows R1 by 3 rows"]}
     FINDINGS = {"L4": ["the pink bar loses one cell per move"]}
 
-A goal or a hypothesis is "kept" or "refuted"; a level-up marks the kept goals of the level just won "won" (only a win
-does). SKILLS, a dict of skill name -> text, is filled by ``recall()`` (at most five, the oldest dropped first) and by
+Goals and hypotheses are plain text, with no status: the agent keeps what it believes and deletes what it ruled out. A
+dict is read as its keys, so an old {"text": "kept"} still saves. Only the host marks a goal: a level-up marks the goals
+of the level just won "won" (shown in the memory block, kept here). SKILLS, a dict of skill name -> text, is filled by ``recall()`` (at most five, the oldest dropped first) and by
 the curator at a level-up. The host copies them here after every ipython call and before every move (``sync``); an
 edit the agent makes to SKILLS stays in this game's memory and never reaches the shared skill book. The host checks
 the shape of what is written, and that a goal does not say the level cannot be won (every level can be); it judges
@@ -26,17 +27,15 @@ from typing import Any
 from harness.memory.store import fit_lines, read_json, write_json
 
 KERNEL_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS", "SKILLS")   # the memory variables in the agent's kernel
-GOAL_STATUSES = ("kept", "refuted", "won")   # "won" only from a level win
-HYP_STATUSES = ("kept", "refuted")
 SKILL_TEXT_CHARS = 1200   # a SKILLS entry is kept up to this many characters
 # A goal says what wins the level; one that says the level cannot be won is not saved.
 NO_WIN = re.compile(r"\b(unsolvable|unwinnable|not (?:be )?(?:solvable|winnable)|(?:impossible|no way) to "
                     r"(?:win|solve|clear|beat|complete)|(?:cannot|can't|can never) be (?:won|solved|cleared|beaten))\b",
                     re.IGNORECASE)
 _KEY = re.compile(r"^\s*L?\s*(\d+)\s*$", re.IGNORECASE)
-_EXAMPLE = {"GOAL": 'GOAL["L2"] = {"push the block onto the flag": "kept"}',
+_EXAMPLE = {"GOAL": 'GOAL["L2"] = ["push the block onto the flag"]',
             "PLAN": 'PLAN["L2"] = "push the block right"',
-            "HYPOTHESES": 'HYPOTHESES["L2"] = {"1 moves obj 4 up by 5 cells": "kept"}',
+            "HYPOTHESES": 'HYPOTHESES["L2"] = ["1 moves obj 4 up by 5 cells"]',
             "FINDINGS": 'FINDINGS["L2"] = ["the bar loses one block per move"]'}
 
 
@@ -57,6 +56,14 @@ def _texts(v: Any) -> list[str]:
         return []
     items = v if isinstance(v, (list, tuple)) else [v]
     return [t for t in (str(x).strip() for x in items) if t]
+
+
+def _notes(v: Any) -> list[str]:
+    """The texts of a goal or hypothesis entry: a text, a list, or a dict read as its keys; repeats dropped."""
+    seen: dict[str, str] = {}
+    for t in _texts(list(v) if isinstance(v, dict) else v):
+        seen.setdefault(t.lower(), t)
+    return list(seen.values())
 
 
 class WorkingMemory:
@@ -82,8 +89,8 @@ class WorkingMemory:
         """Copies the kernel's memory variables (``KERNEL_VARS``; a missing one is left alone). Memory mirrors them: what
         the agent deleted there is deleted here. A variable with a wrong shape is not copied at all: it is named in
         ``rejected`` and the reason is in ``errors``. Returns what changed: ``plan`` (the level keys whose plan changed),
-        ``goal`` (one event per new or changed goal: level, goal, status, prev_status), ``hypotheses`` (one event per
-        new or changed one), ``findings`` (added), ``removed`` (texts), ``skills`` (the names, when a skill was loaded,
+        ``goal`` (one event per new goal: level, goal, status, prev_status), ``hypotheses`` (one event per new one),
+        ``findings`` (added), ``removed`` (texts), ``skills`` (the names, when a skill was loaded,
         dropped or changed, else None), ``errors`` and ``rejected``."""
         out: dict[str, Any] = {"plan": [], "goal": [], "hypotheses": [], "findings": [], "removed": [],
                                "skills": None, "errors": [], "rejected": []}
@@ -125,39 +132,26 @@ class WorkingMemory:
         return out
 
     # GOAL ---------------------------------------------------------------------------------------------------
-    def _parse_goals(self, item: Any, lv: int, errors: list[str]) -> dict[str, str]:
-        """{goal text: status} of one level; a text or a list of texts means kept goals."""
-        if not isinstance(item, dict):
-            item = {t: "kept" for t in _texts(item)}
-        won = {g["text"].lower() for g in self.goals if g["level"] == lv and g["status"] == "won"}
-        goals: dict[str, str] = {}
-        for text, status in item.items():
-            text, status = str(text).strip(), str(status or "kept").strip().lower()
-            if not text:
-                continue
-            if status not in GOAL_STATUSES:
-                errors.append(f"GOAL {level_key(lv)} {text!r}: the status must be \"kept\" or \"refuted\", not {status!r}")
-            elif status == "won" and text.lower() not in won:
-                errors.append(f"GOAL {level_key(lv)} {text!r}: only winning the level marks a goal \"won\"")
-            elif NO_WIN.search(text):
+    def _parse_goals(self, item: Any, lv: int, errors: list[str]) -> list[str]:
+        """The goal texts of one level. A goal that says the level cannot be won is not saved."""
+        goals = []
+        for text in _notes(item):
+            if NO_WIN.search(text):
                 errors.append(f"GOAL {level_key(lv)} {text!r}: a goal says what wins the level, and every level can be "
-                              f"won. Mark a goal you ruled out \"refuted\" and write the next goal to test")
+                              f"won")
             else:
-                goals[text] = status
+                goals.append(text)
         return goals
 
-    def _apply_goals(self, parsed: dict[int, dict[str, str]], out: dict[str, Any], *, turn: int) -> None:
+    def _apply_goals(self, parsed: dict[int, list[str]], out: dict[str, Any], *, turn: int) -> None:
         old = {(g["level"], g["text"].lower()): g for g in self.goals}
         kept: list[dict[str, Any]] = []
         for lv in sorted(parsed):
-            for text, status in parsed[lv].items():
+            for text in parsed[lv]:
                 g = old.get((lv, text.lower()))
-                if g is None:
-                    g = {"level": lv, "text": text, "status": status, "turn": turn}
-                    out["goal"].append({"level": lv, "goal": text, "status": status, "prev_status": None})
-                elif g["status"] != status:
-                    out["goal"].append({"level": lv, "goal": text, "status": status, "prev_status": g["status"]})
-                    g = dict(g, status=status)
+                if g is None:   # "status" is the host's: "kept" until a level-up marks it "won"
+                    g = {"level": lv, "text": text, "status": "kept", "turn": turn}
+                    out["goal"].append({"level": lv, "goal": text, "status": "kept", "prev_status": None})
                 kept.append(g)
         keys = {(g["level"], g["text"].lower()) for g in kept}
         out["removed"] += [g["text"] for g in self.goals if (g["level"], g["text"].lower()) not in keys]
@@ -177,38 +171,22 @@ class WorkingMemory:
         self.plans = new
 
     # HYPOTHESES ---------------------------------------------------------------------------------------------
-    def _parse_hypotheses(self, item: Any, lv: int, errors: list[str]) -> dict[str, str]:
-        """{rule: status} of one level; a text or a list of texts means kept ones."""
-        if not isinstance(item, dict):
-            item = {t: "kept" for t in _texts(item)}
-        hyps: dict[str, str] = {}
-        for text, status in item.items():
-            text, status = str(text).strip(), str(status or "kept").strip().lower()
-            if not text:
-                continue
-            if status not in HYP_STATUSES:
-                errors.append(f"HYPOTHESES {level_key(lv)} {text!r}: the status must be \"kept\" or \"refuted\", "
-                              f"not {status!r}")
-            else:
-                hyps[text] = status
-        return hyps
+    def _parse_hypotheses(self, item: Any, lv: int, errors: list[str]) -> list[str]:
+        """The rule texts of one level."""
+        return _notes(item)
 
-    def _apply_hypotheses(self, parsed: dict[int, dict[str, str]], out: dict[str, Any], *, turn: int) -> None:
+    def _apply_hypotheses(self, parsed: dict[int, list[str]], out: dict[str, Any], *, turn: int) -> None:
         old = {(h["level"], h["text"].lower()): h for h in self.hypotheses}
         kept: list[dict[str, Any]] = []
         for lv in sorted(parsed):
-            for text, status in parsed[lv].items():
+            for text in parsed[lv]:
                 h = old.get((lv, text.lower()))
                 if h is None:
-                    h = {"id": f"h{self.next_h}", "text": text, "status": status, "evidence": [], "level": lv,
-                         "turn": turn, "history": [[turn, status]]}
+                    h = {"id": f"h{self.next_h}", "text": text, "status": "kept", "evidence": [], "level": lv,
+                         "turn": turn, "history": [[turn, "kept"]]}
                     self.next_h += 1
                     out["hypotheses"].append({**{k: h[k] for k in ("id", "text", "status", "evidence")},
                                               "prev_status": None})
-                elif h["status"] != status:
-                    out["hypotheses"].append({"id": h["id"], "text": h["text"], "status": status,
-                                              "evidence": h["evidence"], "prev_status": h["status"]})
-                    h = dict(h, status=status, history=[*h["history"], [turn, status]])
                 kept.append(h)
         keys = {(h["level"], h["text"].lower()) for h in kept}
         out["removed"] += [h["text"] for h in self.hypotheses if (h["level"], h["text"].lower()) not in keys]
@@ -239,8 +217,8 @@ class WorkingMemory:
 
     # --- level-up and new game -------------------------------------------------------------------------------
     def win_level(self, level: int) -> tuple[str, list[str]]:
-        """Level ``level`` (0-based) was won: its kept goals become "won". Returns the confirmation line and the goals
-        it marked. Nothing is erased."""
+        """Level ``level`` (0-based) was won: its goals become "won". Returns the confirmation line and the goals it
+        marked. Nothing is erased."""
         won = []
         for i, g in enumerate(self.goals):
             if g["level"] == level and g["status"] == "kept":
@@ -261,12 +239,12 @@ class WorkingMemory:
     def kernel_values(self) -> dict[str, Any]:
         """The memory as the kernel variables hold it (to put them back after a kernel restart, a refused write or a
         level-up)."""
-        goal: dict[str, dict[str, str]] = {}
+        goal: dict[str, list[str]] = {}
         for g in sorted(self.goals, key=lambda g: g["level"]):
-            goal.setdefault(level_key(g["level"]), {})[g["text"]] = g["status"]
-        hyps: dict[str, dict[str, str]] = {}
+            goal.setdefault(level_key(g["level"]), []).append(g["text"])
+        hyps: dict[str, list[str]] = {}
         for h in sorted(self.hypotheses, key=lambda h: h["level"]):
-            hyps.setdefault(level_key(h["level"]), {})[h["text"]] = h["status"]
+            hyps.setdefault(level_key(h["level"]), []).append(h["text"])
         finds: dict[str, list[str]] = {}
         for f in sorted(self.findings, key=lambda f: f["level"]):
             finds.setdefault(level_key(f["level"]), []).append(f["text"])
@@ -277,10 +255,11 @@ class WorkingMemory:
         """Rendered blocks under their caps, oldest level first; empty blocks are ""."""
         c = self.caps
         order = lambda items: sorted(items, key=lambda x: x["level"])
-        goals = fit_lines([f"{level_key(g['level'])} [{g['status']}] {g['text']}" for g in order(self.goals)], c["goal"])
+        goals = fit_lines([f"{level_key(g['level'])}{' [won]' if g['status'] == 'won' else ''} {g['text']}"
+                           for g in order(self.goals)], c["goal"])
         plans = fit_lines([f"{k}: {t}" for k, t in sorted(self.plans.items(), key=lambda kv: _level(kv[0]) or 0)],
                           c["plan"])
-        hyps = fit_lines([f"{level_key(h['level'])} [{h['status']}] {h['id']} {h['text']}"
+        hyps = fit_lines([f"{level_key(h['level'])} {h['id']} {h['text']}"
                           for h in order(self.hypotheses)], c["hypotheses"])
         finds = fit_lines([f"{level_key(f['level'])} - {f['text']}" for f in order(self.findings)], c["findings"])
         skills = fit_lines([f"- {n}: {first_sentence(t)}" for n, t in self.skills.items()], c["skills"])
