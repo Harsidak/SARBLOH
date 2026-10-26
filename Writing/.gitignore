@@ -1,0 +1,27 @@
+# LaTeX Output
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+output/
+# Python
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+.env
+# Jupyter Notebooks
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+datasets/*.csv
+datasets/*.json
+datasets/*.pt
+datasets/*.pth
+datasets/*.h5
