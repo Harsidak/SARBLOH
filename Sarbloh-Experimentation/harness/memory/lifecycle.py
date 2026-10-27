@@ -4,7 +4,7 @@ Files: ``<root>/<game>/timeline.jsonl`` (#1), ``<root>/<game>/working.json`` (th
 HYPOTHESES, FINDINGS and SKILLS), ``<root>/<game>/levels.jsonl`` (what each won level held), and, shared by all
 games, ``<root>/lessons.json`` (#8) and ``<root>/skills.json``.
 
-Level-up: the kept goals of the level are marked "won" and confirmed ("confirmed: won level N"); the level's findings
+Level-up: the goals of the level are marked "won" and confirmed ("confirmed: won level N"); the level's findings
 become ``rule`` nodes of the lessons graph and its won goals ``goal`` nodes, each linked to the shapes it names as
 "obj N" (the curator judges the hypotheses). Nothing is erased: every level's goals, plan, hypotheses and findings stay.
 New game: the timeline is archived and everything except the lessons graph and the skills is erased.

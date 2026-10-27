@@ -46,6 +46,7 @@ try:
 except Exception:
     np = None
 from observation import observe   # the state, read-only and free
+from observation import moves, frame_diff   # every move of the level with its boards; an object diff of two boards
 from acting import play           # `await play(path, predict=step)`: the only way to move; stops at the first surprise
 from source import show_source    # the code of a name defined in an earlier cell
 from codegraph import graph       # the live map of the agent's functions and classes

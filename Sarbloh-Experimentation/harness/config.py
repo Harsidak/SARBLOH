@@ -61,10 +61,16 @@ DEFAULT: dict[str, Any] = {
         # Each time the current level has eaten this many more reply tokens without being won, a note says to question
         # the goal and the least tested rule. 0 = off.
         "stuck_note_tokens": 0,
-        # On: "reset" is a move the agent may send in play(). Off: it is refused (nothing spent), and after a GAME_OVER
-        # the host restarts the level by itself, as the Duck harness does (the 9h run spent 81% of its tokens on levels
-        # with a voluntary reset).
-        "reset_move": False,
+        # How many times per level the agent may send "reset" in play(); a reset over it is refused (nothing spent).
+        # 0: there is no reset move (the 9h run spent 81% of its tokens on levels with a voluntary reset). After a
+        # GAME_OVER the host always restarts the level by itself, as the Duck harness does, and that reset is not counted.
+        # Run 10-26 had none and the model burned its move bar to restart (ka59 240 moves, g50t 466).
+        "reset_move": 3,
+        # On: the rest of a play() path is not sent after a move that brings back a board already seen since the level
+        # started or was last reset (a loop, or a move that changed nothing); the 3 rows and columns at each edge, where
+        # move bars and counters sit, are not compared. Nothing is refused. Run 10-26, counted offline: 2331 of 9913
+        # moves would not have been sent, 6 of them winning moves.
+        "revisit_stop": True,
         # On: the agent's kernel may open and list files only in its own game folder, the memory folder recall()
         # reads, the temp folder and the Python libraries, and may not start other programs (runtime/skills/
         # fileguard.py). Off: the whole file system is readable, including the game files.
@@ -85,7 +91,7 @@ DEFAULT: dict[str, Any] = {
         # The counts include the system prompt, the tools and the code graph. trigger_tokens + reserve_tokens (one
         # 12k reply) must fit under cap_tokens.
         "compaction": {"reserve_tokens": 12288, "cap_tokens": 131072, "trigger_tokens": 118000,
-                       "drain_target_tokens": 55000},
+                       "drain_target_tokens": 70000},
         # The prompt only grows between rewrites, so the server's prefix cache keeps it (harness/agent/context.py):
         # every thinking stays, the newest picture goes last in every request (never stored, see perception
         # old_images), and the memory is a stored message, in full after a rewrite and every memory_full_every
@@ -96,10 +102,15 @@ DEFAULT: dict[str, Any] = {
         # The thinking sent back in the current tool-call chain, newest reply first, up to this many tokens (chars/4);
         # older replies keep their tool calls and outputs but lose their thinking. Each turn still thinks freely.
         "chain_reasoning_tokens": 2000,
-        # Off: a stored reply keeps its thinking but not its code (each ipython call's code becomes a one-line stub;
-        # the code graph maps what the code defined, show_source(name) prints it). Decided once, when the reply is
-        # stored, so the prompt stays a prefix of the next one. The transcript keeps the code as written.
-        "keep_code": False,
+        # On: a stored reply keeps its code. Off: each ipython call's code becomes a one-line stub (the code graph maps
+        # what the code defined, show_source(name) prints it). Decided once, when the reply is stored, so the prompt
+        # stays a prefix of the next one. The transcript keeps the code as written. Off failed on 10-25 and 10-27: the
+        # model wrote the stub itself as its code (97.7% and 98% of its calls).
+        "keep_code": True,
+        # Off: a stored reply keeps its code and text but not its thinking, so no old thinking is sent back; the model
+        # keeps what it works out in GOAL, PLAN, HYPOTHESES and FINDINGS. Each reply still thinks freely, and the
+        # transcript keeps the thinking (trace, SFT export). On: every thinking stays in the messages.
+        "keep_reasoning": True,
         # The code graph (harness/runtime/skills/codegraph.py): after every ipython call the host reads the agent's
         # live functions and classes and what each calls, and ends the output with one line of what changed (added,
         # changed, removed, calls a missing name); after a drain, trim or reset the whole map goes back in once.
