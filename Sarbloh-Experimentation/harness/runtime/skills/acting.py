@@ -167,7 +167,8 @@ def _surprise_text(res: PlayResult, obs: Any) -> str:
 
 SURPRISE_NOTE = ("One rule in your model was wrong at this move. Fix only that rule in `step()`, then search again "
                  "from the board now and call `play()` with the new path.")
-NOOP_NOTE = ("The same move hit a wall twice in a row (not one pixel changed), so the rest of the path was not sent. "
+NOOP_NOTE = ("The same move hit a wall twice in a row (nothing changed but the edge rows and columns), so the rest of "
+             "the path was not sent. "
              "Check whether the move is blocked here before you send it again.")
 
 
@@ -182,7 +183,7 @@ def _changed(before: Any, after: Any, skip: set[tuple[int, int]]) -> bool:
 async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool = True,
                quiet: bool = False, stop_if_unchanged: bool = True) -> PlayResult:
     """Make the moves of ``path`` one at a time. Only a level up, the game's end, a board seen before in this try or a
-    wall hit twice (the same move twice in a row, not one pixel changed) stops the path; a wrong prediction is reported
+    wall hit twice (the same move twice in a row, nothing changed away from the edge) stops the path; a wrong prediction is reported
     and the path goes on.
 
     ``predict(board, move)`` gets ``obs.board`` before the move and returns the board it expects after it: a list of

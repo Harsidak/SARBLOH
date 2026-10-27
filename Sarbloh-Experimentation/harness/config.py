@@ -69,8 +69,15 @@ DEFAULT: dict[str, Any] = {
         # On: the rest of a play() path is not sent after a move that brings back a board already seen since the level
         # started or was last reset (a loop, or a move that changed nothing); the 3 rows and columns at each edge, where
         # move bars and counters sit, are not compared. Nothing is refused. Run 10-26, counted offline: 2331 of 9913
-        # moves would not have been sent, 6 of them winning moves.
-        "revisit_stop": True,
+        # moves would not have been sent, 6 of them winning moves. Off since 10-27: in run 10-26b the model routed round it
+        # with one-move play() loops (22% of its moves were sent after it fired), 282 turns reasoned about the "loop
+        # detector", and ls20 got slower; the 35-move path that won ls20 level 1 on 10-23 is stopped 9 times.
+        "revisit_stop": False,
+        # The wall stop (the same move twice in a row and the board unchanged) leaves out this many rows and columns at
+        # each edge, where move bars and counters sit; 0 compares the whole frame, so a wall bump that moves the bar never
+        # counts. Counted offline on runs 10-23, 10-26 and 10-26b (50,555 moves): it fires 1,493 times instead of 328, and
+        # once before a level up later in the same cell.
+        "wall_edge_band": 3,
         # On: the agent's kernel may open and list files only in its own game folder, the memory folder recall()
         # reads, the temp folder and the Python libraries, and may not start other programs (runtime/skills/
         # fileguard.py). Off: the whole file system is readable, including the game files.
@@ -133,7 +140,10 @@ DEFAULT: dict[str, Any] = {
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
             "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": False,     # object list with ids, hashes, containment, adjacency
-            "briefing": False,         # briefing: MEASURED facts and GUESSES, in the full view
+            # briefing: MEASURED facts and GUESSES, in the full view. It also draws the picture: on, the labelled map
+            # (terrain, panels, tile grid, HUD panel) the system prompt describes; off, the plain frame (one colour per
+            # cell). Off from 10-19 to 10-25 in Sarbloh, until 10-27 here.
+            "briefing": True,
             "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)

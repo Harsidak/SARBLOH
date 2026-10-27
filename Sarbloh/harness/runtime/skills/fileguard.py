@@ -9,7 +9,8 @@ Allowed roots: the kernel's working folder (its game folder), ``RLM_SESSION_DIR`
 folder, ``sys.prefix`` / ``sys.base_prefix`` / ``sys.exec_prefix`` and every ``sys.path`` folder at install time (so
 imports work), plus ``/dev``, ``/proc`` and ``/sys`` on POSIX. Denied roots, which win over allowed ones: every folder in
 ``SARBLOH_GAME_FILES`` (the environments folder, set by ``games.make_arcade``), and the agent's own code folder (the one
-that holds ``harness/``, on ``sys.path`` so the kernel can import it): only the import system may read that one. The
+that holds ``harness/``, on ``sys.path`` so the kernel can import it): only the import system may read that one, except
+the base skills folder (``harness/agent/skills``), which ``recall()`` lists and reads but nothing may write. The
 4-hour run spent 56 requests reading the harness code (play(), the game wrapper, this guard) from the code dataset.
 An allowed root that is the file system root, the home folder, or holds a denied root is dropped. ``os.walk`` swallows
 the error and yields nothing; ``open`` and ``os.listdir`` raise ``PermissionError``; ``inspect.getsource`` of a harness
@@ -33,6 +34,11 @@ _PROGRAM_PREFIXES = ("subprocess.Popen", "os.system", "os.exec", "os.posix_spawn
 
 _installed = False
 CODE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# The base skills recall() loads (markdown, not code) sit inside the code folder: they may be listed and read, never
+# written. Without this recall() in the kernel never found one (run 10-26: `recall("", "skills")` listed only the
+# curated skills, and "bfs" found nothing), although the system prompt names them.
+SKILLS_DIR = os.path.join(CODE_ROOT, "harness", "agent", "skills")
+_READ_EVENTS = ("os.listdir", "os.scandir")
 
 
 def _norm(path: Any) -> str | None:
@@ -85,12 +91,21 @@ def install() -> None:
     if _installed:
         return
     allowed, denied, code = roots()
+    skills = _norm(SKILLS_DIR)
     busy = [False]
 
     def allowed_path(n: str) -> bool:
         if not any(_under(n, a) for a in allowed) or any(_under(n, d) for d in denied):
             return False
         return not any(_under(n, c) for c in code) or _importing()
+
+    def reads_skills(event: str, args: tuple, n: str) -> bool:
+        if not skills or not _under(n, skills):
+            return False
+        if event in _READ_EVENTS:
+            return True
+        mode = args[1] if event == "open" and len(args) > 1 else None
+        return isinstance(mode, str) and not set(mode) & set("wax+")
 
     def hook(event: str, args: tuple) -> None:
         if busy[0]:
@@ -103,7 +118,8 @@ def install() -> None:
         busy[0] = True
         try:
             for i in where:
-                if i < len(args) and (n := _norm(args[i])) is not None and not allowed_path(n):
+                if i < len(args) and (n := _norm(args[i])) is not None and not allowed_path(n) \
+                        and not reads_skills(event, args, n):
                     raise PermissionError(f"{os.fsdecode(args[i])}: your code may only use files in its own folder "
                                           "for this game")
         finally:

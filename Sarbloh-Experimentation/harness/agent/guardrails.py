@@ -141,17 +141,23 @@ def seen_before(s: Any) -> bool:
     return False
 
 
+def _inner(rows: list[list[int]], band: int) -> list[list[int]]:
+    """The board without ``band`` rows and columns at each edge (the whole board if it is too small or band is 0)."""
+    if band > 0 and len(rows) > 2 * band and all(len(r) > 2 * band for r in rows):
+        return [r[band:-band] for r in rows[band:-band]]
+    return rows
+
+
 def _board_key(rows: list[list[int]]) -> bytes:
-    if len(rows) > 2 * EDGE_BAND and all(len(r) > 2 * EDGE_BAND for r in rows):
-        rows = [r[EDGE_BAND:-EDGE_BAND] for r in rows[EDGE_BAND:-EDGE_BAND]]
-    return hashlib.md5(json.dumps(rows).encode()).digest()
+    return hashlib.md5(json.dumps(_inner(rows, EDGE_BAND)).encode()).digest()
 
 
 def batch_stop(s: Any, cell: dict[str, Any], move: Any, before: Any, after: Any, info: dict[str, Any]) -> str | None:
     """Why the rest of a play() path must not be sent, or None. Only four things stop it: a level up, the game's
     end (GAME_OVER or WIN), a board seen before in this try (config revisit_stop, see seen_before) and a wall hit
-    twice (the same move twice in a row with not one pixel changed). A timer bar or an animation changing never stops
-    it. Called from AgentSession._host after each move."""
+    twice (the same move twice in a row with nothing changed outside the config wall_edge_band rows and columns at each
+    edge, where move bars and counters sit; 0 compares the whole frame). A timer bar or an animation changing never
+    stops it. Called from AgentSession._host after each move."""
     if info.get("level_up"):
         return "level up"
     if info.get("state") in ("GAME_OVER", "WIN") or s.arc.finished:
@@ -159,7 +165,8 @@ def batch_stop(s: Any, cell: dict[str, Any], move: Any, before: Any, after: Any,
     if info.get("revisit"):
         s.stats["revisits"] += 1
         return REVISIT_STOP
-    if before != after:
+    band = int(s.cfg.get("wall_edge_band") or 0)
+    if _inner(before, band) != _inner(after, band):
         cell["noop_move"] = None
         return None
     if cell.get("noop_move") == move:

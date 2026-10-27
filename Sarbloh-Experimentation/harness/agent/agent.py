@@ -63,6 +63,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                code_graph=bool(cfg.get("code_graph", True)),
                                reset_move=bool(cfg.get("reset_move", False)),
                                revisit_stop=bool(cfg.get("revisit_stop", False)),
+                               wall_edge_band=int(cfg.get("wall_edge_band") or 0),
                                code_kept=bool(cfg.get("keep_code", False)),
                                reasoning_kept=bool(cfg.get("keep_reasoning", True)),
                                board_text=bool(p.get("ascii", True)),

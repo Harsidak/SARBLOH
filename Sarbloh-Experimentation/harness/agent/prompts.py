@@ -120,13 +120,13 @@ obs = observe() is a frozen copy of the state at the moment it is called. It doe
 - obs.ascii(r0, c0, r1, c1) returns a labelled text window of the rows r0..r1 and columns c0..c1. A window around the objects of interest is a few hundred characters; the whole 64x64 board is about 4,000.
 - obs.change is the change line of the newest move. `obs.history` is the last 20 steps, newest first, each a dict with `i`, `level`, `action`, `change` and `state`.
 - obs.before is the board before the newest move, in the same form as `obs.board` (None before the first move).
+- obs.status holds the level, the moves used and the legal moves; {obs_briefing}`obs.step`, `obs.background` and `obs.legend` complete it.
 
 moves():
 `moves()` is every move of this level so far, oldest first, the tries before a GAME_OVER included. `moves(all_levels=True)` is every move of the game. Each is a dict with `i`, `level`, `move` (written as in a `play()` path), `before` and `after` (the boards before and after the move, in the same form as `obs.board`), `change` and `state`. It is free.
 
 frame_diff():
 `frame_diff(before, after)` compares two boards and returns what changed as objects: `changed` (the number of cells that differ) and the lists `moved`, `rotated`, `changed_color`, `appeared` and `disappeared`, at most 30 entries each. Each entry has the `letter`, `size` and its boxes [r0, c0, r1, c1]; `moved` also has `by` [rows, columns] and `rotated` has `turn` (degrees clockwise). `frame_diff()` with no arguments compares `obs.before` with the board now. It is free.
-- obs.status holds the level, the moves used and the legal moves; {obs_briefing}`obs.step`, `obs.background` and `obs.legend` complete it.
 
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
@@ -242,6 +242,9 @@ RESET_LINE_MOVE = "\"reset\" is a move too: it restarts the level and loses its 
 REVISIT_PATH_STOP = ("or a move brings back a board already seen since the level started or was last reset (a loop, "
                      "or a move that changed nothing; the 3 rows and columns at each edge are not compared)")
 WALL_PATH_STOP = "or the same move twice in a row changes not one pixel (a wall)"
+# The wall rule with config wall_edge_band above 0: the edge rows and columns are not compared.
+WALL_PATH_STOP_EDGE = ("or the same move twice in a row changes nothing outside the {band} rows and columns at each edge "
+                       "(a wall)")
 
 WIN = "WIN: every level is done, and the game is complete."
 
@@ -369,7 +372,7 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
                 reasoning_kept: bool = True, reset_move: bool = False, revisit_stop: bool = False,
-                **_: Any) -> str:
+                wall_edge_band: int = 0, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
@@ -378,7 +381,8 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     ``memory.in_context``); ``short_objects`` and ``observe_view`` say whether the state after moves lists the changed
     objects and whether `observe()` also puts the full state in the messages (config ``perception``); ``reset_move``
     whether "reset" is a move the agent may send (config ``reset_move``); ``revisit_stop`` whether a path stops at a
-    board seen before in this try (config ``revisit_stop``);
+    board seen before in this try (config ``revisit_stop``); ``wall_edge_band`` how many edge rows and columns the wall
+    rule leaves out (config ``wall_edge_band``);
     ``code_kept`` and ``reasoning_kept`` whether stored replies keep their code and their thinking (config ``keep_code``,
     ``keep_reasoning``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
@@ -402,7 +406,8 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     resets = {"reset_control": RESET_CONTROL_MOVE, "reset_in_path": " \"reset\",", "reset_line": RESET_LINE_MOVE} \
         if reset_move else {"reset_control": RESET_CONTROL, "reset_in_path": "", "reset_line": RESET_LINE}
     stops = {"path_stop": REVISIT_PATH_STOP, "stop_names": '"board seen before", "wall hit twice"'} if revisit_stop \
-        else {"path_stop": WALL_PATH_STOP, "stop_names": '"wall hit twice"'}
+        else {"path_stop": WALL_PATH_STOP_EDGE.format(band=wall_edge_band) if wall_edge_band > 0 else WALL_PATH_STOP,
+              "stop_names": '"wall hit twice"'}
     thinking = "thinking, " if reasoning_kept else ""
     earlier = f"Your earlier {thinking}code and tool outputs" if code_kept else \
         (f"Your earlier {thinking}tool outputs (not your code: in its place you see the code graph of the functions and "
