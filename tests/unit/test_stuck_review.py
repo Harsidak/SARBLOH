@@ -49,6 +49,8 @@ class FakeLLM:
         r = self.replies.pop(0)
         if isinstance(r, Exception):
             raise r
+        if isinstance(r, tuple):   # (content, thinking): a reply cut off while thinking
+            return SimpleNamespace(content=r[0], reasoning=r[1], completion_tokens=24000)
         return SimpleNamespace(content=r, completion_tokens=1234)
 
 
@@ -150,11 +152,36 @@ try:
 except ValueError:
     ok("empty_reply_raises", True)
 try:
-    curator.review(llm=FakeLLM(["I could not decide."]), memory=m, level=1, legal=[3], objects=[], tokens=1,
+    llm = FakeLLM(["I could not decide.", "Still no idea."])
+    curator.review(llm=llm, memory=m, level=1, legal=[3], objects=[], tokens=1,
                    moves_left=None, max_tokens=10, overflow=Overflow)
     ok("no_json_raises", False)
 except ValueError:
-    ok("no_json_raises", True)
+    ok("no_json_raises", len(llm.calls) == 2)
+
+# A reply cut off at the cap while thinking (run 10-27: 10 of 15): one more call, thinking off, writes the JSON from
+# the tail of the notes.
+notes = "x" * 30000 + "the agent never clicked the blue dot; goal: open the door"
+llm = FakeLLM([("", notes), '{"goals": ["open the door"], "untried": ["click the blue dot"]}'])
+rev = curator.review(llm=llm, memory=m, level=1, legal=[3], objects=[], tokens=1, moves_left=None, max_tokens=24000,
+                     overflow=Overflow, template_kwargs={"reasoning_effort": "xhigh"})
+c2 = llm.calls[1]
+ok("cut_off_finished", rev["goals"] == ["open the door"] and rev.get("finished") is True
+   and rev["reply_tokens"] == 24000 + 1234, str(rev))
+ok("finish_call_thinking_off", c2["thinking"] is False and c2["max_tokens"] == curator.REVIEW_FINISH_TOKENS
+   and c2["template_kwargs"] is None and c2["messages"][0]["content"] == curator.REVIEW_SYSTEM)
+user2 = c2["messages"][1]["content"]
+ok("finish_call_has_notes_tail", user2.startswith(llm.calls[0]["messages"][1]["content"])
+   and "goal: open the door\n</your_notes>" in user2 and user2.endswith(curator.REVIEW_FINISH)
+   and user2.count("x") < 25000, str(len(user2)))
+
+# The short form kept in memory.
+short = curator.review_memory({"mistakes": ["m1", "m2", "m3", "m4"], "untried": ["u1"], "goals": ["g1", "g2"],
+                               "next_experiment": "click the door", "beliefs": [{"belief": "b", "status": "x"}]})
+ok("memory_form", short == "Mistakes:\n- m1\n- m2\n- m3\nNot tried:\n- u1\nGoals that fit, most likely first:\n"
+   "- g1\n- g2\nNext experiment: click the door", short)
+ok("memory_form_capped", len(curator.review_memory({"mistakes": ["y" * 390] * 5, "untried": ["z" * 390] * 5,
+                                                     "goals": ["w" * 390] * 3})) <= curator.REVIEW_MEMORY_CHARS)
 llm = FakeLLM([Overflow(), '{"goals": ["x"]}'])
 curator.review(llm=llm, memory=m, level=1, legal=[3], objects=[], tokens=1, moves_left=None, max_tokens=10,
                overflow=Overflow)
@@ -171,7 +198,8 @@ def session(replies, *, run_age_s, level=1, stuck_level=1, reviewed=False, left_
     s = SimpleNamespace(
         cfg={"memory": {"review_at_s": at, "review_max_tokens": 24000}, "request_timeout_s": 900.0},
         arc=SimpleNamespace(game=SimpleNamespace(state=state), finished=False, budget_left=900),
-        _stuck_level=stuck_level, _reviewed=reviewed, _level_tokens=150000, deadline=time.time() + left_s,
+        _stuck_level=stuck_level, _reviewed=reviewed, _review=None, _shown={}, _level_tokens=150000,
+        deadline=time.time() + left_s,
         run_start=time.time() - run_age_s,
         llm=FakeLLM(replies), memory=m, _objects=[blue], _effort=lambda: {"reasoning_effort": "xhigh"}, _graph={},
         stats={"reviews": 0, "review_errors": 0, "review_tokens": 0},
@@ -199,9 +227,24 @@ s, ev, pu = session([good], run_age_s=H4 + 1, left_s=200)
 ok("not_near_deadline", not s.llm.calls)
 s, ev, pu = session([good], run_age_s=H4 * 2, at=0)
 ok("off_when_zero", not s.llm.calls)
-s, ev, pu = session(["no json here"], run_age_s=H4 + 1)
+s, ev, pu = session(["no json here", "nor here"], run_age_s=H4 + 1)
 ok("failure_logged_no_message_no_retry", not pu and s.stats["review_errors"] == 1 and s._reviewed
-   and "error" in ev[0], str(ev))
+   and "error" in ev[0] and len(s.llm.calls) == 2 and s._review is None, str(ev))
+
+# --- the review stays in memory until its level is won -----------------------------------------------------------
+s, ev, pu = session([good], run_age_s=H4 + 1)
+ok("review_kept_as_memory", s._review == (1, "Goals that fit, most likely first:\n- open the door\n"
+                                             "Next experiment: click the door"), str(s._review))
+ok("review_marked_shown", s._shown["review"] == s._review[1])
+s.memory = SimpleNamespace(blocks=lambda objects: {"goal": "L2: open the door"})
+ok("blocks_have_review", AgentSession._blocks(s).get("review") == s._review[1])
+s.arc.game.state.levels_completed = 2
+ok("blocks_drop_review_after_win", "review" not in AgentSession._blocks(s))
+from harness.agent import context
+s.arc.game.state.levels_completed = 1
+pinned = context.pinned_message(AgentSession._blocks(s), "")["content"]
+ok("pinned_shows_review", "## The reviewer's advice on this level (kept until you win it)\nGoals that fit" in pinned
+   and pinned.index("Hypotheses") < pinned.index("reviewer's advice"), pinned)
 
 print("================ SUMMARY ================")
 print(f"CHECKS: {CHECKS[0]}")

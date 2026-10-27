@@ -14,7 +14,7 @@ One request:
                     then the level-up note
 No tool call: a continuation message (or, if the reply was cut off, the "call the tool now" note) and the turn goes on.
 End of a turn: stuck note, stuck review (``_maybe_review``: once per game, after 4 h of run time, the curator reads
-the whole level and the agent gets its review), curator (``_maybe_curate``, off by default: it runs at level-ups), scheduler slot (``guardrails.end_turn``).
+the whole level and the agent gets its review; its short form stays a memory section until the level is won), curator (``_maybe_curate``, off by default: it runs at level-ups), scheduler slot (``guardrails.end_turn``).
 The guardrails (refused moves, notes that push the model to act, tool-call checks, hard stops) are in guardrails.py.
 There is one tool, ipython: ``recall()`` and ``graph()`` are kernel functions, and the memory is five kernel variables
 (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS) copied after every call (``_read_memory``).
@@ -216,6 +216,8 @@ class AgentSession:
         self.stuck_note_tokens = int(cfg.get("stuck_note_tokens") or 0)
         self._stuck_level, self._level_tokens, self._stuck_notes = 0, 0, 0
         self._reviewed = False   # the stuck review ran in this game (config memory.review_at_s)
+        # The review's short form and its level (0-based): a memory section until that level is won (_blocks).
+        self._review: tuple[int, str] | None = None
         # When the run started (the notebook clock, set by run.main); the review is timed from it. Not set (local
         # runs, tests): this session's start.
         self.run_start = float(cfg.get("run_start") or time.time())
@@ -296,7 +298,7 @@ class AgentSession:
             # Old builder only: the memory block sent with each request, rebuilt when a new user message arrives.
             newest = self.messages[context.chain_start(self.messages) - 1] if self.messages else None
             if self._pinned is None or self._pinned_for is not newest:
-                self._pinned = context.pinned_message(self.memory.blocks(self._objects), self._game_status())
+                self._pinned = context.pinned_message(self._blocks(), self._game_status())
                 self._pinned_for = newest
                 self._pinned_chars = len(self._pinned["content"])
                 self._log_event({"event": "pinned", **self._pinned})   # not a stored message: the trace needs it
@@ -409,7 +411,7 @@ class AgentSession:
             if self._shown is None or (every and self._states_since_full >= every):
                 self._append(self._memory_full())
             else:
-                blocks = self.memory.blocks(self._objects)
+                blocks = self._blocks()
                 keys = context.changed_sections(blocks, self._shown)
                 if keys:
                     self._shown = dict(blocks)
@@ -484,12 +486,20 @@ class AgentSession:
 
     def _memory_full(self) -> dict[str, Any]:
         """The whole memory as one message. Called at the start (run), from _push, and after a drain, trim or reset."""
-        blocks = self.memory.blocks(self._objects)
+        blocks = self._blocks()
         self._shown, self._states_since_full = dict(blocks), 0
         msg = context.pinned_message(blocks, self._game_status())
         self.stats["memory_full"] += 1
         self.stats["pinned_chars_max"] = max(self.stats["pinned_chars_max"], len(msg["content"]))
         return msg
+
+    def _blocks(self) -> dict[str, str]:
+        """The memory sections, plus the stuck review's short form while its level is not won. Called wherever the
+        memory goes into the context (_memory_full, _push, _request, _drain)."""
+        blocks = self.memory.blocks(self._objects)
+        if self._review is not None and self._review[0] == self.arc.game.state.levels_completed:
+            blocks = {**blocks, "review": self._review[1]}
+        return blocks
 
     def _insert_memory(self) -> None:
         """After a drain or trim: puts the full memory back before the newest user message."""
@@ -1026,6 +1036,11 @@ class AgentSession:
         self.stats["review_tokens"] += int(rev.get("reply_tokens") or 0)
         self._log_event({"event": "review", "level": level + 1, "tokens": self._level_tokens, "moves": moves, "duration_s": round(time.time() - t0, 1), **rev})
         self._push({"role": "user", "content": curator.review_message(rev, moves=moves)})
+        # From now on the short form is a memory section, so a drain cannot drop it. It is marked as shown: the
+        # message above already says it, and it goes out with the next full memory.
+        self._review = (level, curator.review_memory(rev))
+        if self._shown is not None:
+            self._shown["review"] = self._review[1]
 
     # --- context: system prompt, drain ----------------------------------------------------------------------
     def _system_prompt(self) -> str:
@@ -1090,7 +1105,7 @@ class AgentSession:
         drain_target_tokens; what is kept stays word for word. Trims if the newest turn alone is over the target.
         Called from _request step 2 and _on_overflow."""
         target = int(self.cfg["compaction"].get("drain_target_tokens", 70000))
-        mem = context.pinned_message(self.memory.blocks(self._objects), self._game_status())             if self.append_only and self.memory_in_context else None
+        mem = context.pinned_message(self._blocks(), self._game_status())             if self.append_only and self.memory_in_context else None
         graph = context.graph_message(codegraph.render(self._graph)) if self.code_graph and self._graph else None
         size = lambda m: self._estimate(m) + context.reasoning_tokens(m)
         fixed = (len(self._system_prompt()) + (len(mem["content"]) if mem else 0) +

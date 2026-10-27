@@ -193,6 +193,15 @@ REVIEW_OBJECTS = 30         # objects on screen listed
 REVIEW_NEVER_CLICKED = 15   # objects never clicked listed
 REVIEW_CAPS = {"beliefs": 12, "mistakes": 5, "untried": 6, "goals": 3}
 REVIEW_ITEM_CHARS = 400
+# A reply that ran out of tokens while thinking has no JSON (run 10-27: 10 of 15 reviews, each stopped at exactly the
+# 24000-token cap). The tail of its thinking goes to a second call, thinking off, that writes the JSON from it.
+REVIEW_NOTES_CHARS = 24000
+REVIEW_FINISH_TOKENS = 4000
+REVIEW_FINISH = """You ran out of room before you wrote your reply. The end of your notes is above, in <your_notes>. Do not start over: write the JSON object now, from your notes and the moves. Reply with the JSON object and nothing else."""
+# The review as it stays in the agent's memory until the level is won (drains used to drop the review message
+# within 12 to 35 minutes, run 10-27).
+REVIEW_MEMORY_ITEMS = 3
+REVIEW_MEMORY_CHARS = 2000
 _CLICK = re.compile(r"A6\(r(\d+),c(\d+)\)")
 
 
@@ -322,9 +331,10 @@ def _clean_review(out: dict[str, Any]) -> dict[str, Any]:
 def review(*, llm: Any, memory: Any, level: int, legal: list[int], objects: list[Any], tokens: int,
            moves_left: int | None, max_tokens: int, overflow: type[Exception], timeout_s: float | None = None,
            template_kwargs: dict[str, Any] | None = None, code_graph: str = "") -> dict[str, Any]:
-    """One stuck review, thinking on (one call, no retry: it costs the game's clock). Returns the cleaned review plus
-    the input size and reply tokens. A context overflow halves the move lines once; a reply with no usable JSON raises
-    (the caller logs it and the agent goes on)."""
+    """One stuck review, thinking on (no retry: it costs the game's clock). Returns the cleaned review plus the input
+    size and reply tokens. A context overflow halves the move lines once. A reply with no JSON (it ran out of tokens
+    while thinking) gets one short call with thinking off that writes the JSON from the tail of its notes
+    (``finished``); if that has no usable JSON either, it raises (the caller logs it and the agent goes on)."""
     steps = REVIEW_STEPS
     for _ in range(2):
         user = review_input(memory, level=level, legal=legal, objects=objects, tokens=tokens, moves_left=moves_left,
@@ -336,8 +346,21 @@ def review(*, llm: Any, memory: Any, level: int, legal: list[int], objects: list
         except overflow:
             steps //= 2
             continue
-        rev = _clean_review(extract_json(reply.content))
-        return {**rev, "input_chars": len(user), "reply_tokens": getattr(reply, "completion_tokens", None)}
+        used = int(getattr(reply, "completion_tokens", 0) or 0)
+        try:
+            return {**_clean_review(extract_json(reply.content)), "input_chars": len(user), "reply_tokens": used}
+        except json.JSONDecodeError:
+            pass
+        except ValueError as exc:
+            if "no JSON object" not in str(exc):   # a JSON reply with nothing usable: no second call
+                raise
+        notes = (getattr(reply, "reasoning", "") or reply.content or "")[-REVIEW_NOTES_CHARS:]
+        end = llm.chat([{"role": "system", "content": REVIEW_SYSTEM},
+                        {"role": "user", "content": f"{user}\n\n<your_notes>\n{notes}\n</your_notes>\n\n{REVIEW_FINISH}"}],
+                       tools=None, max_tokens=REVIEW_FINISH_TOKENS, timeout_s=timeout_s, thinking=False)
+        rev = _clean_review(extract_json(end.content))
+        used += int(getattr(end, "completion_tokens", 0) or 0)
+        return {**rev, "input_chars": len(user), "reply_tokens": used, "finished": True}
     raise ValueError("review input too long even with half the move lines")
 
 
@@ -360,3 +383,19 @@ def review_message(rev: dict[str, Any], *, moves: int) -> str:
     if rev.get("next_experiment"):
         parts.append("Next experiment: " + rev["next_experiment"])
     return "\n\n".join(parts)
+
+
+def review_memory(rev: dict[str, Any]) -> str:
+    """The short form of the review kept in the agent's memory until the level is won: the mistakes, what was not
+    tried, the goals and the next experiment (the checked beliefs are in the review message only)."""
+    parts = []
+    for key, title in (("mistakes", "Mistakes"), ("untried", "Not tried"), ("goals", "Goals that fit, most likely first")):
+        if rev.get(key):
+            parts.append(f"{title}:\n" + "\n".join(f"- {x}" for x in rev[key][:REVIEW_MEMORY_ITEMS]))
+    if rev.get("next_experiment"):
+        parts.append("Next experiment: " + rev["next_experiment"])
+    return _clip_lines("\n".join(parts), REVIEW_MEMORY_CHARS)
+
+
+def _clip_lines(text: str, chars: int) -> str:
+    return text if len(text) <= chars else text[:chars - 3].rsplit("\n", 1)[0] + "\n..."

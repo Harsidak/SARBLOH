@@ -52,13 +52,14 @@ BOARD_RUN = 4                      # this many board-like lines in a row are a p
 CODE_STUB = "# code not kept in the messages"
 _FENCED = re.compile(r"```(?:python|py|ipython|repl)?[ \t]*\n(.*?)```", re.DOTALL)   # = guardrails._FENCED
 REASONING_BUDGET_TOKENS = 16000   # the thinking re-sent in the current chain (config chain_reasoning_tokens)
-ORDER = ("goal", "plan", "skills", "hypotheses", "findings")
+ORDER = ("goal", "plan", "skills", "hypotheses", "findings", "review")
 TITLES = {
     "goal": "Goals by level (GOAL)",
     "plan": "Plans by level (PLAN)",
     "skills": "Skills you loaded (SKILLS; print(SKILLS[name]) shows one)",
     "hypotheses": "Hypotheses by level (HYPOTHESES)",
     "findings": "Findings by level (FINDINGS)",
+    "review": "The reviewer's advice on this level (kept until you win it)",
 }
 EMPTY = {"goal": "(none yet: write one in GOAL as soon as you have a guess)",
          "plan": "(none yet)", "hypotheses": "(none yet)"}
