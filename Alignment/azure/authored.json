@@ -1,0 +1,71 @@
+{
+ "model": "/mnt/nvme/models/Qwen3.8-Flash-Next",
+ "dtype": "bf16",
+ "device_map": "split",
+ "cpu_modules": [
+  "ngram_embedding"
+ ],
+ "experts_implementation": "grouped_mm",
+ "long_context": "on",
+ "long_query_chunk": 1024,
+ "long_moe_chunk": 16384,
+ "allow_missing_weights": [
+  "(^|\\.)mtp\\.",
+  "lm_head"
+ ],
+ "data_path": "data/*.jsonl",
+ "eval_path": null,
+ "select": "all",
+ "filter_cleared": false,
+ "images": "placeholder",
+ "max_seq_len": 32768,
+ "overlong": "drop",
+ "mask_mode": "auto",
+ "template_kwargs": {
+  "enable_thinking": true
+ },
+ "row_template_kwargs": true,
+ "examples_cache": "data/cache/examples_authored.jsonl",
+ "lora_r": 16,
+ "lora_alpha": 32,
+ "lora_dropout": 0.0,
+ "lora_targets": [
+  "q_proj",
+  "k_proj",
+  "v_proj",
+  "o_proj",
+  "in_proj_qkv",
+  "in_proj_z",
+  "out_proj"
+ ],
+ "lora_exclude": [
+  "visual",
+  "vision",
+  "(^|\\.)mtp\\.",
+  "lm_head",
+  "embed",
+  "indexer",
+  "ple",
+  "hyper_connection",
+  "shared_expert"
+ ],
+ "epochs": 3,
+ "max_steps": null,
+ "lr": 0.0001,
+ "warmup_ratio": 0.05,
+ "batch_size": 1,
+ "grad_accum": 8,
+ "max_grad_norm": 1.0,
+ "gradient_checkpointing": true,
+ "loss_chunk": 2048,
+ "log_every": 1,
+ "save_every": 5,
+ "resume": true,
+ "max_train_hours": 1.5,
+ "eval_max_examples": 4,
+ "gen_samples": 0,
+ "reload_check": false,
+ "min_loss_drop": 0.0,
+ "save_merged": false,
+ "output_dir": "/mnt/nvme/sft_out/authored"
+}

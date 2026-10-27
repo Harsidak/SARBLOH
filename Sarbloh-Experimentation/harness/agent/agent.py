@@ -64,6 +64,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                reset_move=bool(cfg.get("reset_move", False)),
                                revisit_stop=bool(cfg.get("revisit_stop", False)),
                                wall_edge_band=int(cfg.get("wall_edge_band") or 0),
+                               replay_stop=bool(cfg.get("replay_stop", False)),
                                code_kept=bool(cfg.get("keep_code", False)),
                                reasoning_kept=bool(cfg.get("keep_reasoning", True)),
                                board_text=bool(p.get("ascii", True)),
@@ -165,6 +166,11 @@ class AgentSession:
         self._act_info: dict[str, Any] | None = None
         self._life_boards: set[bytes] | None = None   # the revisit leash: the boards of this try (guardrails.new_life)
         self._resets_used: dict[int, int] = {}        # level (levels completed) -> resets the agent sent on it
+        # The replay stop (config replay_stop): the moves of this try, the board it started from, and every try that
+        # ended in GAME_OVER as (start board, its moves); see guardrails.check_replay.
+        self._life_moves: list[tuple[int, int | None, int | None]] = []
+        self._life_start: bytes | None = None
+        self._lost_tries: set[tuple[bytes | None, tuple[Any, ...]]] = set()
         self._cell: dict[str, Any] | None = None   # the ipython cell running now: its call, and the acts it made
         # Perception state, the game's memory, and what is pushed after the current reply's tool results.
         self.perception = dict(cfg.get("perception") or {})
@@ -189,6 +195,7 @@ class AgentSession:
         self._act_via: str | None = None
         self._act_predicted: bool | None = None
         self._act_play_id: int | None = None
+        self._act_path: list[Any] | None = None   # the whole play() path, sent with its first move (the replay stop)
         self._pinned_chars = 0
         self._pinned: dict[str, Any] | None = None   # the memory message, kept until a new user message arrives
         self._pinned_for: dict[str, Any] | None = None   # the user message it was built for
@@ -758,7 +765,11 @@ class AgentSession:
         via, self._act_via = self._act_via, None
         predicted, self._act_predicted = self._act_predicted, None
         play_id, self._act_play_id = self._act_play_id, None
+        path, self._act_path = self._act_path, None
         parsed = guardrails.read_moves(self, args)   # all or nothing: nothing runs if one item is bad
+        if self._life_boards is None:
+            guardrails.new_life(self)
+        guardrails.check_replay(self, parsed, path)   # a known losing try is not sent again
         level0 = arc.game.state.levels_completed
         self.stats["act_calls"] += 1
         start = arc.game.action_count
@@ -766,8 +777,6 @@ class AgentSession:
         arc.step_ref = {"session": self.name, "turn": turn, "call": call_id, "code": json.dumps(args),
                         "say": getattr(reply, "content", None), "thought": getattr(reply, "reasoning", None)}
         lines, steps, stop, level_up, new_skills, load, revisit = [], [], None, False, [], {}, False
-        if self._life_boards is None:
-            guardrails.new_life(self)
         for n, (a, r, c) in enumerate(parsed):
             label = guardrails.label(a, r, c)
             try:
@@ -780,6 +789,8 @@ class AgentSession:
                 stop = f"action {n + 1} ({label}) refused: {exc}"
                 break
             st = dict(arc.last_step or {})
+            if a != 0:
+                self._life_moves.append((a, r, c))   # a reset or a level-up starts a new try (guardrails.new_life)
             before_objs = self._objects
             if obs.get("level_up"):
                 self.tracker.reset()
@@ -824,6 +835,7 @@ class AgentSession:
                 stop = "level up"
                 break
             if obs.get("state") == "GAME_OVER":
+                guardrails.record_loss(self)
                 stop = "GAME_OVER"
                 break
             if arc.finished:
@@ -848,7 +860,8 @@ class AgentSession:
                                              win_levels=arc.game.number_of_levels, level=self._level(),
                                              new_skills=new_skills, loaded_skills=list(load), **self._left()))
         if lost:
-            out.append(prompts.event_message("game_over" if restarted else "game_over_reset", **self._left()))
+            out.append(prompts.event_message("game_over" if restarted else "game_over_reset", **self._left(),
+                                             replay_note=prompts.REPLAY_NOTE if self.cfg.get("replay_stop") else ""))
         plan = mem.working.plan_for(level0) or None
         mem.record_act({"turn": turn, "level": level0, "steps": [x["i"] for x in steps], "plan": plan, "stop": stop})
         self._log_event({"event": "act", "turn": turn, "call": call_id, "plan": plan,
@@ -1205,6 +1218,7 @@ class AgentSession:
             self._act_via = args.pop("via", None)   # the kernel helper that sent it ("play"), for the trace
             self._act_predicted = args.pop("predicted", None)   # whether the agent predicted this move
             self._act_play_id = args.pop("play_id", None)       # which play() call of the game sent it
+            self._act_path = args.pop("path", None)             # the whole path, with its first move only
         guardrails.check_play(self, cell, args.pop("path_len", None))
         if "memory" in args:   # the memory variables, saved before the moves run
             self._sync_memory(args.pop("memory"), cell)

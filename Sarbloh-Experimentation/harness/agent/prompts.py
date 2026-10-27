@@ -130,9 +130,9 @@ frame_diff():
 
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
-- `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo,{reset_in_path} or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same). One move is a path of one: `await play(["5"])`.
+- `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo,{reset_in_path} or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same; rows and columns are 0 to 63). One move is a path of one: `await play(["5"])`.
 - The whole path is sent unless one of these happens: the level is won, GAME_OVER, the game ends, {path_stop}. A timer or animation never stops a path.
-- Before any move is spent, a path is refused with a `RuntimeError` when it has more than {act_max} moves, or when its first move is illegal or unreadable. Catching or reading that error costs nothing. An illegal or unreadable move later in the path stops the path there: the moves before it are made, the rest are not sent.
+- Before any move is spent, a path is refused with a `RuntimeError` when it has more than {act_max} moves, or when its first move is illegal or unreadable{replay_refusal}. Catching or reading that error costs nothing. An illegal or unreadable move later in the path stops the path there: the moves before it are made, the rest are not sent.
 - After a level up, further `play()` calls in the same cell are refused, so the new level is seen before anything else is sent.
 - `predict` checks the path against your model as it runs. It is a function `predict(board, move)`: it receives `obs.board` before each move and returns the board it expects after it, or a dict {{(r, c): letter}} with only the cells it cares about, or None for a move it does not check. Typically it wraps your step model: `await play(path, predict=lambda b, m: step(b, m))`.
 - `state` lets the model work on its own state instead of the board: with `state=my_state_of`, the check compares `predict(my_state_of(obs), move)` with `my_state_of(observe())` after the move, using `==`.
@@ -210,7 +210,8 @@ ENVIRONMENT = """Python packages: `collections`, `heapq`, `itertools`, `functool
 TASK_GAME = """{levels}You have at most {max_actions} moves for the whole game.
 The first state is below. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and test that goal with one move. Use what changed to write your model."""
 
-CONTINUE_GAME = "continue"
+CONTINUE_GAME = ("You ended your reply without calling a tool, so nothing ran. Call `ipython` now: read the state with "
+                 "`observe()` if you need it, then send your moves with `await play(path, predict=...)`.")
 
 LEVEL_UP = """LEVEL UP: level {levels_done} of {win_levels} is done. The new level is shown below.
 Your GOAL, PLAN, HYPOTHESES, FINDINGS and SKILLS are all kept.
@@ -227,7 +228,10 @@ LEVEL_NOTE = "This is level {level}. Write its notes under \"L{level}\" in your 
 
 EARLY_LEVELS = 2   # config knobs with "early"/"later" values use "early" on levels 1 and 2
 
-GAME_OVER = """GAME_OVER: this level was lost. Continue"""
+# No wording that the level restarts by itself (run 10-26: the model burned its move bar to get a restart).
+GAME_OVER = """GAME_OVER: this level was lost. Find out why before you send more moves: look at the move marked [GAME_OVER] and the board just before it (`moves()` has every move of this level with the boards before and after it). If a bar or a counter ran out, the level allows only so many moves and the path must be shorter. Fix your `step()` model so it predicts this loss, then search from the board now.{replay_note}"""
+# Added to GAME_OVER with config replay_stop on.
+REPLAY_NOTE = " `play()` refuses a path that repeats a lost try: the same moves from the level's start up to the move that lost."
 
 # GAME_OVER when the host could not restart the level (no moves or time left).
 GAME_OVER_RESET = """GAME_OVER: this level is lost. send `await play(["reset"])`. Your memory is kept."""
@@ -282,6 +286,14 @@ ACT_NO_RESET = ("There is no reset move, so nothing was run and no move was spen
 
 ACT_NO_RESETS_LEFT = ("The {allowed} resets of this level are used, so nothing was run and no move was spent.")
 
+# The play() refusal of the system prompt with config replay_stop on.
+REPLAY_REFUSAL = (", or when it would repeat a try of this level that ended in GAME_OVER (the same moves since the "
+                  "level started or was last reset, up to the move that lost)")
+
+ACT_REPLAY = ("Move {at} of this path ({label}) would repeat the exact {total} moves of an earlier try of this level, "
+              "counted from the level's start or its last reset, and that try was lost at this move. Nothing was run and "
+              "no move was spent. Change the path before that move.")
+
 LOW_BUDGET = "Only {left} moves are left for this game."
 
 LOW_TIME = "Only about {minutes} minutes are left."
@@ -310,7 +322,7 @@ EVENT_SNIPPETS: dict[str, str] = {
     "game_over_reset": GAME_OVER_RESET, "win": WIN,
     "act_now": ACT_NOW, "call_tool_now": CALL_TOOL_NOW, "compacted": COMPACTED, "act_too_many": ACT_TOO_MANY,
     "act_illegal": ACT_ILLEGAL, "act_bad_args": ACT_BAD_ARGS, "act_no_reset": ACT_NO_RESET,
-    "act_no_resets_left": ACT_NO_RESETS_LEFT, "low_budget": LOW_BUDGET,
+    "act_no_resets_left": ACT_NO_RESETS_LEFT, "act_replay": ACT_REPLAY, "low_budget": LOW_BUDGET,
     "low_time": LOW_TIME,
     "fix_now": FIX_NOW, "stuck": STUCK, "reuse_code": REUSE_CODE,
 }
@@ -349,6 +361,8 @@ def event_message(kind: str, *, moves_left: int | None = None, minutes_left: int
     ``moves_left`` or ``minutes_left`` is low, a short note is added to the messages in ``NOTE_KINDS``."""
     if kind not in EVENT_SNIPPETS:
         raise ValueError(f"no {kind!r} message; known: {sorted(EVENT_SNIPPETS)}")
+    if kind == "game_over":
+        ctx.setdefault("replay_note", "")   # REPLAY_NOTE with config replay_stop on
     parts = [_fill(EVENT_SNIPPETS[kind], ctx)]
     if kind == "level_up" and new_skills:
         parts.append(_fill(NEW_SKILLS, {"names": ", ".join(new_skills)}))
@@ -372,7 +386,7 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
                 reasoning_kept: bool = True, reset_move: bool = False, revisit_stop: bool = False,
-                wall_edge_band: int = 0, **_: Any) -> str:
+                wall_edge_band: int = 0, replay_stop: bool = False, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
@@ -382,7 +396,8 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     objects and whether `observe()` also puts the full state in the messages (config ``perception``); ``reset_move``
     whether "reset" is a move the agent may send (config ``reset_move``); ``revisit_stop`` whether a path stops at a
     board seen before in this try (config ``revisit_stop``); ``wall_edge_band`` how many edge rows and columns the wall
-    rule leaves out (config ``wall_edge_band``);
+    rule leaves out (config ``wall_edge_band``); ``replay_stop`` whether a path that repeats a lost try is refused (config
+    ``replay_stop``);
     ``code_kept`` and ``reasoning_kept`` whether stored replies keep their code and their thinking (config ``keep_code``,
     ``keep_reasoning``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
@@ -414,7 +429,8 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
          "classes it defined)")
     return assemble_system(legend=LEGEND_LETTERS, act_max=act_max, graph_note=GRAPH_NOTE if code_graph else "",
                            memory_where=memory, **pictures, **board, **views, **resets, **stops, earlier_kept=earlier,
-                           thinking_note="" if reasoning_kept else THINKING_NOT_KEPT)
+                           thinking_note="" if reasoning_kept else THINKING_NOT_KEPT,
+                           replay_refusal=REPLAY_REFUSAL if replay_stop else "")
 
 
 def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:

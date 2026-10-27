@@ -44,6 +44,10 @@ DEFAULT: dict[str, Any] = {
     "agent": {
         "act_max_actions": 100,        # moves per play() path: a whole searched path in one call (max_actions caps the game)
         "allow_fenced_code": True,     # run ```python blocks as ipython when no native tool call came back
+        # Run a tool call the model wrote as text when the server did not parse it: every <tool_call> in the reply's
+        # text, else the last one in its thinking (the JSON or the <function=...> form). Runs 10-23, 10-26 and 10-26b
+        # had 70 replies with <tool_call> text and no tool call, each answered with a note instead of running the code.
+        "recover_tool_calls": True,
         # The most one reply may write, thinking and code together: "early" on levels 1 and 2, "later" after, or one
         # int for every level. A reply cut at this cap gets a note to call the tool sooner. run.py caps it at
         # reserve_tokens.
@@ -78,6 +82,12 @@ DEFAULT: dict[str, Any] = {
         # counts. Counted offline on runs 10-23, 10-26 and 10-26b (50,555 moves): it fires 1,493 times instead of 328, and
         # once before a level up later in the same cell.
         "wall_edge_band": 3,
+        # On: a play() path that would repeat, from the start of the level (or its last reset), the exact moves of a try
+        # that ended in GAME_OVER is refused before the losing move is sent: the whole path when the repeat is in it, or
+        # that one move when it comes in a later play(). The try must also start from the same board (edge band left
+        # out), so a level whose first state changes between tries is never refused. Runs 10-23, 10-26 and 10-26b,
+        # counted offline: 23 exact repeats, 1,137 moves.
+        "replay_stop": True,
         # On: the agent's kernel may open and list files only in its own game folder, the memory folder recall()
         # reads, the temp folder and the Python libraries, and may not start other programs (runtime/skills/
         # fileguard.py). Off: the whole file system is readable, including the game files.
@@ -88,7 +98,10 @@ DEFAULT: dict[str, Any] = {
         "reasoning_effort": {"early": "medium", "later": "medium"},
         "request_timeout_s": 900.0,
         "cell_timeout_s": 300.0,
-        "tool_output_chars": 8000,     # about 2000 tokens (upstream: 65536 per stream)
+        # The most one cell's output (and its error) may hold: about 1,000 tokens, the Duck harness's cap. A longer one keeps
+        # its first two thirds and its last third (the notes at the end survive); 3-4% of the cells of runs 10-23, 10-26
+        # and 10-26b were longer.
+        "tool_output_chars": 4096,
         "context_window": 131072,      # served context; run.py sets it from the server profile / local server
         # No summary: the context is kept under cap_tokens by dropping old messages in code (no model call), as the
         # Duck harness does. Above trigger_tokens (or window - reserve, if lower) a drain drops the oldest whole turns

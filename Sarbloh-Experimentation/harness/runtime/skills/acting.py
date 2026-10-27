@@ -70,6 +70,14 @@ def _move(a: Any) -> str:
     return str(int(a))   # int, numpy int
 
 
+def _move_text(a: Any) -> str:
+    """``_move``, or the item as text when it cannot be read (the host stops the path at it when it comes)."""
+    try:
+        return _move(a)
+    except (TypeError, ValueError):
+        return str(a)
+
+
 async def _act(actions: list[Any], **extra: Any) -> ActResult:
     """Send ``actions`` to the host (each costs one move); ``extra`` goes with them (``predicted``, ``path_len``).
     Raises RuntimeError when the request is refused (nothing is spent then). Not shown to the agent: ``play()``
@@ -210,6 +218,7 @@ async def play(path: Any, predict: Any = None, state: Any = None, skip_hud: bool
         extra: dict[str, Any] = {"via": "play", "play_id": play_id, "predicted": want is not None}
         if i == 0:
             extra["path_len"] = len(path)   # the host refuses a path over its cap before any move
+            extra["path"] = [_move_text(m) for m in path]   # and one that repeats a try that lost (config replay_stop)
         try:
             r = await _act([move], **extra)
         except RuntimeError as exc:

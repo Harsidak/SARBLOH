@@ -29,6 +29,7 @@ _ACTION_NAMES = {0: "RESET", 1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "FIRE
                  7: "UNDO"}
 EDGE_BAND = 3                         # rows and columns at each edge the revisit leash does not compare
 REVISIT_STOP = "board seen before"    # the stop reason play() reports
+GRID_MAX = 63                         # the largest row and column of a click (the grid is at most 64x64)
 
 
 # --- hard stops ---------------------------------------------------------------------------------------------------
@@ -91,13 +92,50 @@ def read_calls(s: Any, reply: Any) -> list[dict[str, Any]]:
     if calls:
         s.stats["native_calls"] += len(calls)
         return calls
-    # Fallback: code in fenced blocks (models or servers without working tool-call parsing).
+    # Fallbacks for models or servers without working tool-call parsing: a <tool_call> written in the reply's text,
+    # then code in fenced blocks, then the last <tool_call> in the thinking (earlier ones there are drafts).
+    recover = s.cfg.get("recover_tool_calls", False)
+    codes = text_tool_calls(reply.content or "") if recover else []
+    if codes:
+        return _text_calls(s, codes)
     blocks = [b for b in _FENCED.findall(reply.content or "") if b.strip()]
     if blocks and s.cfg["allow_fenced_code"]:
         s.stats["fenced_calls"] += 1
         return [{"native": False, "raw": None, "name": "ipython", "args": {}, "code": "\n\n".join(blocks),
                  "error": None}]
-    return []
+    codes = text_tool_calls(getattr(reply, "reasoning", None) or "")[-1:] if recover else []
+    return _text_calls(s, codes) if codes else []
+
+
+_TOOL_CALL = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+_XML_CODE = re.compile(r"<function=ipython>\s*<parameter=code>\n?(.*?)\n?</parameter>", re.DOTALL)
+
+
+def text_tool_calls(text: str) -> list[str]:
+    """The ipython code of each <tool_call> written as text: {"name": "ipython", "arguments": {"code": ...}} (the
+    arguments may be a JSON string) or <function=ipython><parameter=code>...</parameter></function>. A call to another
+    tool, or one that cannot be read, is skipped. Used by read_calls."""
+    codes = []
+    for body in _TOOL_CALL.findall(text):
+        xml = _XML_CODE.search(body)
+        if xml:
+            code = xml.group(1)
+        else:
+            try:
+                obj = json.loads(body.strip())
+                args = obj.get("arguments", obj.get("parameters")) if obj.get("name") == "ipython" else None
+                args = json.loads(args) if isinstance(args, str) else args
+                code = args.get("code") if isinstance(args, dict) else None
+            except (ValueError, AttributeError):
+                code = None
+        if isinstance(code, str) and code.strip():
+            codes.append(code)
+    return codes
+
+
+def _text_calls(s: Any, codes: list[str]) -> list[dict[str, Any]]:
+    s.stats["recovered_calls"] = s.stats.get("recovered_calls", 0) + 1
+    return [{"native": False, "raw": None, "name": "ipython", "args": {}, "code": "\n\n".join(codes), "error": None}]
 
 
 # --- what refuses a move ------------------------------------------------------------------------------------------
@@ -122,9 +160,43 @@ def check_play(s: Any, cell: dict[str, Any] | None, path_len: Any) -> None:
 
 
 def new_life(s: Any) -> None:
-    """The revisit leash forgets its boards: the level started or was reset, and the board now is the first one of
-    the new try. Called from AgentSession._tool_act (a level up, a reset) and _auto_reset."""
-    s._life_boards = {_board_key(s._frame())}
+    """A new try: the level started or was reset, and the board now is its first one. The revisit leash forgets its
+    boards and the replay stop its moves. Called from AgentSession._tool_act (a level up, a reset) and _auto_reset."""
+    key = _board_key(s._frame())
+    s._life_boards = {key}
+    s._life_start, s._life_moves = key, []
+
+
+def record_loss(s: Any) -> None:
+    """The try ended in GAME_OVER: its first board and its moves (the losing one last) are kept for the replay stop.
+    Called from AgentSession._tool_act at a GAME_OVER, before the automatic reset."""
+    s._lost_tries.add((s._life_start, tuple(s._life_moves)))
+
+
+def check_replay(s: Any, moves: list[tuple[int, int | None, int | None]], path: Any = None) -> None:
+    """The replay stop: refuses, before anything is sent, moves that would repeat from the start of this try the exact
+    moves of a try that ended in GAME_OVER from the same first board. Same board and same moves give the same result,
+    so the move that lost would lose again. ``path`` is the whole play() path (sent with its first move): then the
+    whole path is checked and refused; else only ``moves``. A reset in the path ends the check (the next try starts
+    there). Off with config replay_stop off. Called from AgentSession._tool_act."""
+    if not s.cfg.get("replay_stop", False) or not s._lost_tries:
+        return
+    if path:
+        read = []
+        for m in path:
+            try:
+                read.append(parse_action(m))
+            except ValueError:
+                break   # read_moves refuses the unreadable move when it comes; check the moves before it
+        moves = read or moves
+    series = list(s._life_moves)
+    for n, move in enumerate(moves):
+        if move[0] == 0:
+            return
+        series.append(move)
+        if (s._life_start, tuple(series)) in s._lost_tries:
+            s.stats["replay_stops"] = s.stats.get("replay_stops", 0) + 1
+            raise ValueError(prompts.event_message("act_replay", at=n + 1, label=label(*move), total=len(series)))
 
 
 def seen_before(s: Any) -> bool:
@@ -237,6 +309,8 @@ def parse_action(item: Any) -> tuple[int, int | None, int | None]:
     if nums[0] == 6:
         if len(nums) != 3:
             raise ValueError(f"action {item!r}: a click needs a row and a column, as \"6 r c\"")
+        if not (0 <= nums[1] <= GRID_MAX and 0 <= nums[2] <= GRID_MAX):
+            raise ValueError(f"action {item!r}: a click's row and column are 0 to {GRID_MAX}")
         return 6, nums[1], nums[2]
     if len(nums) != 1:
         raise ValueError(f"action {item!r}: one action per list item (only action 6 takes r c)")

@@ -100,3 +100,18 @@ experimentation games in one 45-minute run at equal tok/s.
 - First: from existing transcripts, count (a) actions sent after a level-up / GAME_OVER inside the same `act()` call,
   (b) ipython outputs over 1000 tokens. If both are near zero, there is nothing to port.
 - Then: levels cleared and actions per level, 45-minute Kaggle run, experimentation games.
+
+## Port of 2026-10-27 (owner: add the "worth adding" ones to Sarbloh-Experimentation)
+
+Counted offline first (scratchpad `guard_counts.py`) on runs 10-23, 10-26 and 10-26b:
+| Guardrail | Config | Count that motivates it |
+| --- | --- | --- |
+| Replay stop: a path that repeats, from the level start (or last reset) and the same first board, the exact moves of a try that ended in GAME_OVER is refused before any move is spent | `replay_stop` True | 23 exact repeats, 1,137 moves (16/632, 5/305, 2/200) |
+| GAME_OVER note asks why (the [GAME_OVER] move, `moves()`, a bar running out); no restart wording (run 10-26 bar burning) | text | 457 GAME_OVERs (322, 70, 65) |
+| No-tool reply gets "call ipython now" instead of "continue" (#4) | text | continuations 136 and 105 on 10-26/10-26b |
+| `<tool_call>` written as text runs (#5): all in the reply text, else the last one in the thinking | `recover_tool_calls` True | 70 replies (42, 9, 19) |
+| Tool output cap 8000 -> 4096 chars (#11), head 2/3 + tail 1/3 kept | `tool_output_chars` 4096 (config + 3 notebooks) | 3-4% of cells over 4096 |
+| Click row/column outside 0-63 refused (#17) | always | not counted |
+
+Test: `tests/unit/test_game_over_guardrails.py` (28 checks; sp80 level 1 lost by FIRE x5 on the local copy). Suite 29/37,
+the same 8 stale failures as before. Not run on Kaggle. Kill criterion: the default above (levels cleared at equal tok/s).
