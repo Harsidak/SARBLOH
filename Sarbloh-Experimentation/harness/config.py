@@ -138,7 +138,7 @@ DEFAULT: dict[str, Any] = {
             # On: every picture stays in the prompt where it was sent (prefix-stable, but the prompt grows each turn).
             "old_images": False,
             "cell": 10,                # picture pixels per grid cell: 64x64 -> 640x640 map, plus the HUD panel
-            "ascii": True,             # letter board in the message (whole, or the changed region); off: code reads it
+            "ascii": False,            # letter board in the message (whole, or the changed region); off: code reads it
             "segmentation": False,     # object list with ids, hashes, containment, adjacency
             # briefing: MEASURED facts and GUESSES, in the full view. It also draws the picture: on, the labelled map
             # (terrain, panels, tile grid, HUD panel) the system prompt describes; off, the plain frame (one colour per

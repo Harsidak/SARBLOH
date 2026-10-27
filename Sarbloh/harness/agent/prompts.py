@@ -52,9 +52,6 @@ actions you must understand the game from board(Read the board with `observe()`)
 simulating the game rules, making sure that it plays same moves in the model and the real game to find where they disagree, then taking actions to win game.
 Every move you send counts against your score, while thinking and code cost nothing, so send only the moves you need.
 Before you build a big model or a search for a goal, test that goal with one move. If the game does not react the way the goal says it should, the goal is wrong: change it before you write more code.
-
-Protocol(you have to strictly follow this protocol):
-When thinking carefully you must focus more on code writing.
 """
 
 # The colour legend, in the letters the board is written with (``observe()``).
