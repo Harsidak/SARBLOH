@@ -163,6 +163,12 @@ DEFAULT: dict[str, Any] = {
             # turn once this many requests have gone by since its last pass.
             "curator_every_turns": 0,
             "curator_max_tokens": 4000,
+            # The stuck review, once per game: at the first turn end after this much run time (from the notebook
+            # start), the agent's turn waits while the curator reads the whole level it is on (every move, the beliefs
+            # held and dropped) with thinking on, and its review comes back to the agent as a message. By 4 h most
+            # games are stuck (owner, 10-27: ~120 of 183 levels by then). 0 = off.
+            "review_at_s": 4 * 3600,
+            "review_max_tokens": 24000,   # the review's reply, thinking included
             "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
             # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
             "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},

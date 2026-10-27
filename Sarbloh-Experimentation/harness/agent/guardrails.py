@@ -269,7 +269,7 @@ def cut_off_note(s: Any) -> None:
 
 def end_turn(s: Any, reason: str, requests: int) -> None:
     """The end of one turn of the outer loop (``reason``: "moved", a cap, or the game stopped): restarts the thinking
-    budget (the short one after a surprise), adds the stuck note, runs the curator when it is due, and gives the GPU
+    budget (the short one after a surprise), adds the stuck note, runs the stuck review and the curator when they are due, and gives the GPU
     slot to the best waiting game (this game queues again and may get it straight back). No note says to move: a turn
     that ends at a cap just goes on in the next one. Called from _loop."""
     s.stats["outer_turns"] += 1
@@ -284,6 +284,7 @@ def end_turn(s: Any, reason: str, requests: int) -> None:
     if s.end_reason:
         return
     stuck_note(s)
+    s._maybe_review()
     s._maybe_curate()
     give = getattr(s.llm, "yield_turn", None)
     if callable(give):

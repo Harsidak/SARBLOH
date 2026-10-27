@@ -11,7 +11,8 @@ each a dict keyed by level ("L1", "L2", ...), so what it wrote on an earlier lev
 Goals and hypotheses are plain text, with no status: the agent keeps what it believes and deletes what it ruled out. A
 dict is read as its keys, so an old {"text": "kept"} still saves. Only the host marks a goal: a level-up marks the goals
 of the level just won "won" (shown in the memory block, kept here). SKILLS, a dict of skill name -> text, is filled by ``recall()`` (at most five, the oldest dropped first) and by
-the curator at a level-up. The host copies them here after every ipython call and before every move (``sync``); an
+the curator at a level-up. Goals and hypotheses the agent deletes are kept aside in ``dropped`` (only the stuck review
+reads them, so it can tell the agent which ideas it already gave up). The host copies them here after every ipython call and before every move (``sync``); an
 edit the agent makes to SKILLS stays in this game's memory and never reaches the shared skill book. The host checks
 the shape of what is written, and that a goal does not say the level cannot be won (every level can be); it judges
 nothing else. Nothing is erased at a level-up, only at a new game. Every block is rendered under its token cap
@@ -28,6 +29,7 @@ from harness.memory.store import fit_lines, read_json, write_json
 
 KERNEL_VARS = ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS", "SKILLS")   # the memory variables in the agent's kernel
 SKILL_TEXT_CHARS = 1200   # a SKILLS entry is kept up to this many characters
+DROPPED_KEPT = 200        # deleted goals and hypotheses kept for the stuck review, newest last
 # A goal says what wins the level; one that says the level cannot be won is not saved.
 NO_WIN = re.compile(r"\b(unsolvable|unwinnable|not (?:be )?(?:solvable|winnable)|(?:impossible|no way) to "
                     r"(?:win|solve|clear|beat|complete)|(?:cannot|can't|can never) be (?:won|solved|cleared|beaten))\b",
@@ -78,11 +80,12 @@ class WorkingMemory:
         self.goal_log: list[str] = d.get("goal_log", [])
         self.skills: dict[str, str] = d.get("skills", {})
         self.next_h: int = d.get("next_h", 1)
+        self.dropped: list[dict[str, Any]] = d.get("dropped", [])          # {"kind", "text", "level", "turn"}
 
     def save(self) -> None:
         write_json(self.path, {"goals": self.goals, "plans": self.plans, "hypotheses": self.hypotheses,
                                "findings": self.findings, "goal_log": self.goal_log, "skills": self.skills,
-                               "next_h": self.next_h})
+                               "next_h": self.next_h, "dropped": self.dropped})
 
     # --- writes --------------------------------------------------------------------------------------------
     def sync(self, values: dict[str, Any], *, turn: int, level: int) -> dict[str, Any]:
@@ -154,7 +157,9 @@ class WorkingMemory:
                     out["goal"].append({"level": lv, "goal": text, "status": "kept", "prev_status": None})
                 kept.append(g)
         keys = {(g["level"], g["text"].lower()) for g in kept}
-        out["removed"] += [g["text"] for g in self.goals if (g["level"], g["text"].lower()) not in keys]
+        gone = [g for g in self.goals if (g["level"], g["text"].lower()) not in keys]
+        out["removed"] += [g["text"] for g in gone]
+        self._drop("goal", [g for g in gone if g["status"] != "won"], turn)
         self.goals = kept
 
     # PLAN ---------------------------------------------------------------------------------------------------
@@ -189,8 +194,16 @@ class WorkingMemory:
                                               "prev_status": None})
                 kept.append(h)
         keys = {(h["level"], h["text"].lower()) for h in kept}
-        out["removed"] += [h["text"] for h in self.hypotheses if (h["level"], h["text"].lower()) not in keys]
+        gone = [h for h in self.hypotheses if (h["level"], h["text"].lower()) not in keys]
+        out["removed"] += [h["text"] for h in gone]
+        self._drop("hypothesis", gone, turn)
         self.hypotheses = kept
+
+    def _drop(self, kind: str, items: list[dict[str, Any]], turn: int) -> None:
+        """Keeps the goals or hypotheses the agent deleted (the newest DROPPED_KEPT), for the stuck review."""
+        for x in items:
+            self.dropped.append({"kind": kind, "text": x["text"], "level": x["level"], "turn": turn})
+        del self.dropped[:-DROPPED_KEPT]
 
     # FINDINGS -----------------------------------------------------------------------------------------------
     def _parse_findings(self, item: Any, lv: int, errors: list[str]) -> list[str]:
@@ -230,7 +243,7 @@ class WorkingMemory:
 
     def clear_game(self) -> None:
         self.goals, self.plans, self.hypotheses, self.findings = [], {}, [], []
-        self.goal_log, self.next_h, self.skills = [], 1, {}
+        self.goal_log, self.next_h, self.skills, self.dropped = [], 1, {}, []
 
     # --- reads -----------------------------------------------------------------------------------------------
     def plan_for(self, level: int) -> str:

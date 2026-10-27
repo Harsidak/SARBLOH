@@ -13,8 +13,8 @@ One request:
                     the output then gets the memory receipt and the code-graph change line (``_graph_delta``);
                     then the level-up note
 No tool call: a continuation message (or, if the reply was cut off, the "call the tool now" note) and the turn goes on.
-End of a turn: stuck note, curator (``_maybe_curate``, off by default: it runs at level-ups), scheduler slot
-(``guardrails.end_turn``).
+End of a turn: stuck note, stuck review (``_maybe_review``: once per game, after 4 h of run time, the curator reads
+the whole level and the agent gets its review), curator (``_maybe_curate``, off by default: it runs at level-ups), scheduler slot (``guardrails.end_turn``).
 The guardrails (refused moves, notes that push the model to act, tool-call checks, hard stops) are in guardrails.py.
 There is one tool, ipython: ``recall()`` and ``graph()`` are kernel functions, and the memory is five kernel variables
 (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS) copied after every call (``_read_memory``).
@@ -139,7 +139,7 @@ class AgentSession:
                       "memory_full": 0, "memory_updates": 0, "turn_yields": 0, "outer_turns": 0,
                       "turn_requests_max": 0,
                       "surprises": 0, "surprise_turns": 0, "stuck_notes": 0, "wall_hits": 0, "auto_resets": 0,
-                      "model_resets": 0, "revisits": 0}
+                      "model_resets": 0, "revisits": 0, "reviews": 0, "review_errors": 0, "review_tokens": 0}
         self._usage_tokens: int | None = None  # prompt tokens of the last call
         self._usage_at = 0                   # messages after this index are estimated at chars/4
         # Measured tokens per chars/4 estimate. Upstream assumes chars/4; ARC grids are digit text and these
@@ -208,6 +208,10 @@ class AgentSession:
         # won, a note says to question the goal and the least tested rule. 0 = off.
         self.stuck_note_tokens = int(cfg.get("stuck_note_tokens") or 0)
         self._stuck_level, self._level_tokens, self._stuck_notes = 0, 0, 0
+        self._reviewed = False   # the stuck review ran in this game (config memory.review_at_s)
+        # When the run started (the notebook clock, set by run.main); the review is timed from it. Not set (local
+        # runs, tests): this session's start.
+        self.run_start = float(cfg.get("run_start") or time.time())
         self._shown: dict[str, str] | None = None
         self._states_since_full = 0
         self.memory = GameMemory(memory_root, arc.game.game_id, cfg.get("memory") or {})
@@ -973,6 +977,42 @@ class AgentSession:
         self._log_event({"event": "curator", "duration_s": round(time.time() - t0, 1),
                          "action_count": self.arc.game.action_count, **rec})
         return rec
+
+    def _maybe_review(self) -> None:
+        """The stuck review, once per game: at the first turn end after memory.review_at_s of run time (counted from the
+        notebook start, config run_start), the curator reads the whole level the agent is on with thinking on and its
+        review is pushed as a user message. The turn waits for it; a failure is logged and the agent goes on. Called
+        from guardrails.end_turn."""
+        mc = self.cfg.get("memory") or {}
+        at = float(mc.get("review_at_s") or 0)
+        level = self.arc.game.state.levels_completed
+        if at <= 0 or self._reviewed or self.arc.finished or time.time() < self.run_start + at:
+            return
+        if level != self._stuck_level:   # a level-up this turn: wait for the next turn end, on the new level
+            return
+        left = self.deadline - time.time()
+        if left < 300:   # not worth the game's last minutes
+            return
+        self._reviewed = True
+        t0 = time.time()
+        try:
+            rev = curator.review(llm=self.llm, memory=self.memory, level=level,
+                                 legal=[a for a in self.arc.game.state.available_actions if a != 0],
+                                 objects=self._objects, tokens=self._level_tokens, moves_left=self.arc.budget_left,
+                                 max_tokens=int(mc.get("review_max_tokens", 24000)), overflow=ContextOverflow,
+                                 timeout_s=max(60.0, min(self.cfg["request_timeout_s"], left - 120)),
+                                 template_kwargs=self._effort(),
+                                 code_graph=codegraph.render(self._graph) if self._graph else "")
+        except Exception as exc:  # noqa: BLE001 - the review must never kill the session
+            self.stats["review_errors"] += 1
+            self._log_event({"event": "review", "level": level + 1, "tokens": self._level_tokens,
+                             "duration_s": round(time.time() - t0, 1), "error": f"{type(exc).__name__}: {exc}"[:500]})
+            return
+        moves = sum(1 for r in self.memory.timeline.steps() if r.get("level") == level)
+        self.stats["reviews"] += 1
+        self.stats["review_tokens"] += int(rev.get("reply_tokens") or 0)
+        self._log_event({"event": "review", "level": level + 1, "tokens": self._level_tokens, "moves": moves, "duration_s": round(time.time() - t0, 1), **rev})
+        self._push({"role": "user", "content": curator.review_message(rev, moves=moves)})
 
     # --- context: system prompt, drain ----------------------------------------------------------------------
     def _system_prompt(self) -> str:

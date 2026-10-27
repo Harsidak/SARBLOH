@@ -397,6 +397,10 @@ def analyze_game(events: list[dict[str, Any]], rows: list[dict[str, Any]], run: 
            "curator_s": round(sum(c.get("duration_s") or 0 for c in curations), 1),
            "skills_written": sorted({s for c in curations for s in c.get("skills") or []}),
            "skills_loaded_by_curator": sorted({s for c in curations for s in c.get("loaded") or []}),
+           "reviews": len([r for r in by_kind["review"] if not r.get("error")]),
+           "review_errors": len([r for r in by_kind["review"] if r.get("error")]),
+           "review_s": round(sum(r.get("duration_s") or 0 for r in by_kind["review"]), 1),
+           "review_levels": sorted({r.get("level") for r in by_kind["review"] if not r.get("error")}),
            "surprises": len(by_kind["surprise"]), "stuck_notes": len(by_kind["stuck_note"]),
            "cut_off_notes": len(by_kind["cut_off_note"]), "tail_pictures": len(by_kind["tail"]),
            "stored_pictures": sum(1 for e in by_kind["message"] if e.get("_kind") == "picture"),
@@ -491,6 +495,8 @@ def render_report(a: dict[str, Any]) -> str:
             f"- curator: passes {json.dumps(c.get('curator_runs'))} (errors {c.get('curator_errors')}), "
             f"{c.get('curator_s')} s in all, skills written {c.get('skills_written')}, loaded "
             f"{c.get('skills_loaded_by_curator')}",
+            f"- stuck reviews: {c.get('reviews')} on levels {c.get('review_levels')} (errors {c.get('review_errors')}), "
+            f"{c.get('review_s')} s in all",
             f"- notes: stuck {c.get('stuck_notes')}, cut off {c.get('cut_off_notes')}; repeated (state, action) share "
             f"{c.get('repeated_share')}"]
     for d in c.get("drains") or []:
@@ -500,7 +506,7 @@ def render_report(a: dict[str, Any]) -> str:
 
 
 _MAP_EVENTS = ("hypothesis", "finding", "goal", "memory_removed", "memory_error", "recall", "code_graph", "level_up",
-               "curator", "memory_init", "tool_error", "surprise", "stuck_note", "cut_off_note")
+               "curator", "review", "memory_init", "tool_error", "surprise", "stuck_note", "cut_off_note")
 _MAP_MARKS = ("drain", "context_trim", "context_reset", "context_overflow", "crash", "llm_error", "end")
 
 

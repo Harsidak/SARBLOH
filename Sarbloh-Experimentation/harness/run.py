@@ -259,6 +259,7 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
     """Kaggle entry point."""
     start = notebook_start or time.time()
     cfg = build_config(overrides)
+    cfg["agent"]["run_start"] = start   # the stuck review is timed from the notebook start (memory.review_at_s)
     rerun = is_competition_rerun()
     os.environ["ONLY_RESET_LEVELS"] = "true"
     run_dir = working_dir / "prime_run"
