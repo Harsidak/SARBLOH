@@ -98,8 +98,10 @@ How to read it:
 
 PICTURE_HELP = """{picture_where}
 The picture is a map of the board. Open floor is light, walls are dark and hatched, and the HUD at the edge is drawn again, larger, on the right. 
-Each object has a box and a tag with its id and its guessed role, for example `10: YOU?`. Use the picture to see the layout and understanding, and your code for exact cells.
+Each object has a box and a tag with its id and its guessed role, for example `10: YOU?`. Use the picture to see the layout and understanding, and your code for exact cells.{plain_note}
 """
+PLAIN_NOTE = ("\nA second picture comes right after the map: the same board plain, exactly as the game draws it, with "
+              "nothing drawn on it. Look at it when a tag or a box on the map hides something.")
 
 TOOLS_DETAILED = """
 How to use tools:
@@ -129,15 +131,17 @@ frame_diff():
 `frame_diff(before, after)` compares two boards and returns what changed as objects: `changed` (the number of cells that differ) and the lists `moved`, `rotated`, `changed_color`, `appeared` and `disappeared`, at most 30 entries each. Each entry has the `letter`, `size` and its boxes [r0, c0, r1, c1]; `moved` also has `by` [rows, columns] and `rotated` has `turn` (degrees clockwise). `frame_diff()` with no arguments compares `obs.before` with the board now. It is free.
 
 geo:
-`geo` holds geometry for boards and pieces of boards. A board is `obs.board` or any list of strings; a piece is a cropped board or an object dict from `obs.objects`. Positions are (row, column) and boxes are [r0, c0, r1, c1]. All of it is free.
-- Transforms that return a new board: `geo.rotate(b, turns)` (90 degrees clockwise per turn), `geo.flip(b, "h")` (left-right) or `"v"` (top-bottom), `geo.transpose(b)`, `geo.shift(b, dr, dc)`, `geo.crop(b, r0, c0, r1, c1)`, `geo.paste(b, piece, r, c)`, `geo.scale(b, 2)` or `geo.scale(b, 1/2)`, `geo.recolor(b, {{"R": "B"}})`. A `step()` model built from them stays short and correct.
+`geo` holds geometry for boards and pieces of boards. A board is `obs.board`, a list of lists or a numpy array, and you get back the same kind (numbers stay numbers); a piece is part of a board or an object dict from `obs.objects`. Positions are (row, column) and boxes are [r0, c0, r1, c1]. All of it is free.
+- `geo.rotate(b, turns)` turns a board or piece 90 degrees clockwise per turn; `geo.flip(b, "h")` mirrors it left-right, `"v"` top-bottom.
 - `geo.relate(a, b)`: which turn, mirror, scale and colour change turns piece a into piece b, and how many cells agree (`match` 1.0 is exact); for two objects also how far it moved (`by`).
 - `geo.find(piece, board)`: every place the piece is on the board, turned and mirrored copies too; `min_match=0.8` finds near copies. Use it to see where a piece fits or where a pattern repeats.
-- `geo.symmetry(b)`: how well a board or piece mirrors and turns onto itself, and the cells that break it. Crop the region first.
-- `geo.camera(before, after)`: whether the whole view scrolled and by how much; then compare `geo.shift(before, *by)` with `after` to see what really changed.
-- `geo.line(r0, c0, r1, c1)` the cells on a straight line; `geo.ray(b, r, c, dr, dc)` walks from a cell until something is hit; `geo.reach(b, start, passable, goal, step=1, size=(1, 1))` the shortest path (as "up", "down", "left", "right") for a block of that size, and the distance to every reachable place.
+- `geo.symmetry(b)`: how well a board or piece mirrors and turns onto itself, and the cells that break it.
+- `geo.camera(before, after)`: whether the whole view scrolled, and by how much (`by`).
+- `geo.ray(b, r, c, dr, dc)` walks from a cell until something is hit (beams, sliding); `geo.reach(b, start, passable, goal, step=1, size=(1, 1))` the shortest path (as "up", "down", "left", "right") for a block of that size to a place or to a color ("Y"), and the distance to every reachable place.
 - `geo.counters()`: the colors whose number of cells changes move after move on this level (bars, counters, lives), with the usual change per move and the moves that broke the pattern.
-- `geo.search(start, step, is_goal, moves)`: breadth-first search over your own `step(state, move)` model; returns the shortest `path` of moves, or None.
+- `geo.track("R")`: where the areas of a color were after each of your last moves, next to the move you sent. Use it to see whether something chases you, runs away, copies or mirrors your moves, or moves only on some moves.
+- `geo.undo_pairs()`: which moves put the board back the way it was (safe to try) and which changed it for good on this level.
+- `geo.search(start, step, is_goal, moves)`: breadth-first search over your own `step(state, move)` model; any state works (a board, a numpy array, a tuple, a dict). Returns the shortest `path` of moves, or None.
 
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
@@ -396,7 +400,7 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
                 board_text: bool = False, memory_shown: bool = False, short_objects: bool = True,
                 observe_view: bool = True, segmentation: bool = True, briefing: bool = True, code_kept: bool = False,
                 reasoning_kept: bool = True, reset_move: bool = False, revisit_stop: bool = False,
-                wall_edge_band: int = 0, replay_stop: bool = False, **_: Any) -> str:
+                wall_edge_band: int = 0, replay_stop: bool = False, plain_picture: bool = False, **_: Any) -> str:
     """The system prompt (one tool, ipython, with observe(), play(), recall() and graph()), the same for every game.
     ``vision`` says whether pictures are sent and ``picture_last`` whether the picture of the board now is the last
     message of every request (config ``perception.old_images`` off); ``code_graph`` adds the note on the code-graph
@@ -407,11 +411,13 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
     whether "reset" is a move the agent may send (config ``reset_move``); ``revisit_stop`` whether a path stops at a
     board seen before in this try (config ``revisit_stop``); ``wall_edge_band`` how many edge rows and columns the wall
     rule leaves out (config ``wall_edge_band``); ``replay_stop`` whether a path that repeats a lost try is refused (config
-    ``replay_stop``);
+    ``replay_stop``); ``plain_picture`` whether the plain board comes after the map (config
+    ``perception.plain_picture``, with the briefing on);
     ``code_kept`` and ``reasoning_kept`` whether stored replies keep their code and their thinking (config ``keep_code``,
     ``keep_reasoning``). Other arguments
     (``game_id``, ``win_levels``, ``cwd``) are accepted and not used: they would make the prompt differ between games."""
-    help_text = _fill(PICTURE_HELP, {"picture_where": PICTURE_LAST if picture_last else ""})
+    help_text = _fill(PICTURE_HELP, {"picture_where": PICTURE_LAST if picture_last else "",
+                                     "plain_note": PLAIN_NOTE if plain_picture and briefing else ""})
     pictures = {"picture_after": ", and a picture of the whole board", "picture_start": ", and the picture",
                 "picture_ids": " and on the picture", "picture_help": help_text} if vision else \
         {"picture_after": "", "picture_start": "", "picture_ids": "", "picture_help": ""}

@@ -1,24 +1,31 @@
-"""Geometry on boards, pre-imported by the kernel: turn, mirror, shift, crop, paste and scale a board or a piece of
-one, find what transform turns one shape into another, find a shape on the board, check symmetry, spot a scrolled
-view, walk lines and rays, find paths, track the numbers on screen, and search the agent's own ``step()`` model.
+"""Geometry on boards, pre-imported by the kernel: turn and mirror a board or a piece of one, find what transform
+turns one shape into another, find a shape on the board, check symmetry, spot a scrolled view, walk rays, find paths,
+track the numbers on screen and the other movers, find the moves that undo each other, and search the agent's own
+``step()`` model.
 
-A board is what ``obs.board`` holds (a list of strings, one letter per cell) or a list of lists; a function that
-returns a board returns the same kind it was given. Positions are (row, column), boxes are [r0, c0, r1, c1]
-inclusive, as in ``obs.objects``. An object dict from ``obs.objects`` (with its ``cells``) is accepted wherever a
-piece is. Nothing here spends a move.
+A board is what ``obs.board`` holds (a list of strings, one letter per cell), a list of lists or a numpy array; a
+function that returns a board returns the same kind it was given (numbers stay numbers). Positions are (row, column),
+boxes are [r0, c0, r1, c1] inclusive, as in ``obs.objects``. An object dict from ``obs.objects`` (with its ``cells``)
+is accepted wherever a piece is. Nothing here spends a move.
 
-    rotate(b, 1); flip(b, "h"); shift(b, 0, 3); crop(b, 2, 2, 9, 9); paste(b, piece, r, c); scale(b, 2)
+Offered in the prompt (the axes the games are built from: transforms, reversibility, propagation, other agents,
+goals):
+    rotate(b, 1); flip(b, "h")
     relate(a, b)          # which turn / mirror / scale / recolour turns a into b, and how well
     find(piece, board)    # where a piece is on the board, turned and mirrored copies too
     symmetry(b)           # mirror and turn symmetry, and the cells that break it
     camera(before, after) # did the whole view scroll, and by how much
-    line(r0, c0, r1, c1); ray(b, r, c, dr, dc); reach(b, start, passable, goal)
+    ray(b, r, c, dr, dc); reach(b, start, passable, goal)
     counters()            # the letters whose cell count changes move after move (bars, counters, lives)
+    track(letter)         # where each object of a letter was after every move, next to the move sent
+    undo_pairs()          # which moves brought the board back to an earlier one, and which never did
     search(start, step, is_goal, moves)   # breadth-first search over your own step() model
+Kept for the tools above and the curator, not offered: transpose, shift, crop, paste, scale, recolor, line.
 """
 
 from __future__ import annotations
 
+import copy
 import time
 from collections import Counter, deque
 from typing import Any, Callable, Iterable
@@ -45,7 +52,11 @@ def _arr(g: Any) -> np.ndarray:
     if isinstance(g, dict):
         raise ValueError("this object has no cells (objects over 256 cells have cells=None): crop it from the board")
     if isinstance(g, np.ndarray):
-        return g.astype("<U1") if g.ndim == 2 else np.array([list(str(x)) for x in g], dtype="<U1")
+        if g.ndim != 2:
+            return np.array([list(str(x)) for x in g], dtype="<U1")
+        if g.dtype.kind in "iub":   # numbers: one character each, 10.. as letters, so 12 never becomes "1"
+            return np.vectorize(_cell, otypes=["<U1"])(g) if g.size else np.zeros(g.shape, "<U1")
+        return g.astype("<U1")
     rows = list(g)
     if not rows:
         return np.zeros((0, 0), dtype="<U1")
@@ -65,10 +76,30 @@ def _cell(v: Any) -> str:
     return s[:1]
 
 
+def _uncell(s: str) -> int:
+    """The number ``_cell`` wrote as one character ("7" -> 7, "c" -> 12)."""
+    return int(s) if s.isdigit() else ord(s) - ord("a") + 10
+
+
+def _numbers(like: Any) -> bool:
+    """Whether ``like`` is a grid of numbers 0..35 (a numeric numpy array, or lists of ints), the ones that go
+    through one character each and come back."""
+    if isinstance(like, np.ndarray):
+        return like.ndim == 2 and like.dtype.kind in "iu" and (like.size == 0 or (like.min() >= 0 and like.max() <= 35))
+    if isinstance(like, (list, tuple)) and like and isinstance(like[0], (list, tuple, np.ndarray)):
+        return bool(any(len(r) for r in like)) and all(
+            isinstance(v, (int, np.integer)) and not isinstance(v, bool) and 0 <= v <= 35 for r in like for v in r)
+    return False
+
+
 def _out(a: np.ndarray, like: Any) -> Any:
-    """``a`` back in the kind of ``like``: a list of strings for a list of strings or an object, else lists."""
+    """``a`` back in the kind of ``like``: a list of strings for a list of strings or an object, numbers for a grid
+    of numbers, else lists."""
     if isinstance(like, dict) or (isinstance(like, (list, tuple)) and like and isinstance(like[0], str)):
         return ["".join(r) for r in a.tolist()]
+    if _numbers(like):
+        n = np.vectorize(_uncell, otypes=[int])(a) if a.size else np.zeros(a.shape, int)
+        return n.astype(like.dtype) if isinstance(like, np.ndarray) else n.tolist()
     if isinstance(like, np.ndarray):
         return a
     return a.tolist()
@@ -320,11 +351,15 @@ def reach(g: Any, start: tuple[int, int], passable: Any, goal: Any = None, step:
           size: tuple[int, int] = (1, 1)) -> dict[str, Any]:
     """Shortest paths on the board for a block of ``size`` (rows, columns) whose top-left corner is at ``start``,
     moving ``step`` cells up, down, left or right, onto cells whose letters are in ``passable`` (letters, or a function
-    letter -> bool). ``goal``: a corner (r, c), a list of corners, or a function (r, c) -> bool. Returns ``path``
-    (direction names, None when the goal cannot be reached, [] with no goal), ``corners`` along it, ``reachable``
-    (how many corners can be reached) and ``dist`` (corner -> moves, for every reachable corner)."""
+    letter -> bool). ``goal``: a corner (r, c), a list of corners, a function (r, c) -> bool, or letters ("Y"): the
+    block covers a cell of one of them (those letters count as passable). Returns ``path`` (direction names, None
+    when the goal cannot be reached, [] with no goal), ``corners`` along it, ``reachable`` (how many corners can be
+    reached) and ``dist`` (corner -> moves, for every reachable corner)."""
     a = _arr(g)
+    goal_letters = {_cell(x) for x in goal} if isinstance(goal, str) else None
     ok = passable if callable(passable) else (lambda x, s={_cell(p) for p in passable}: x in s)
+    if goal_letters:
+        ok = (lambda x, base=ok: x in goal_letters or bool(base(x)))
     h, w = a.shape
     bh, bw = int(size[0]), int(size[1])
     free = np.vectorize(lambda x: bool(ok(x)), otypes=[bool])(a) if a.size else np.zeros((0, 0), bool)
@@ -334,6 +369,8 @@ def reach(g: Any, start: tuple[int, int], passable: Any, goal: Any = None, step:
 
     if goal is None:
         is_goal = lambda r, c: False
+    elif goal_letters is not None:
+        is_goal = lambda r, c: bool(np.isin(a[r:r + bh, c:c + bw], list(goal_letters)).any())
     elif callable(goal):
         is_goal = goal
     else:
@@ -402,46 +439,195 @@ def counters(rows: list[dict[str, Any]] | None = None, min_share: float = 0.3) -
     return out
 
 
+# --- other movers and undoing --------------------------------------------------------------------------------------
+
+def _level_moves(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if rows is None:
+        from observation import moves
+        rows = moves()
+    return [r for r in rows if r.get("before") and r.get("after")]
+
+
+def _boxes(board: list[str], letter: str) -> list[list[int]]:
+    """The boxes of the 4-connected areas of ``letter`` on the board, top to bottom."""
+    cells = {(r, c) for r, row in enumerate(board) for c, x in enumerate(row) if x == letter}
+    out = []
+    while cells:
+        stack = [cells.pop()]
+        rs, cs = [], []
+        while stack:
+            r, c = stack.pop()
+            rs.append(r)
+            cs.append(c)
+            for n in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
+                if n in cells:
+                    cells.remove(n)
+                    stack.append(n)
+        out.append([min(rs), min(cs), max(rs), max(cs)])
+    return sorted(out)
+
+
+def track(letter: str, rows: list[dict[str, Any]] | None = None, last: int = 30) -> list[dict[str, Any]]:
+    """Where the areas of ``letter`` were after each of the last ``last`` moves of this level, next to the move sent:
+    the way to see whether something chases you, runs away, copies your moves (or mirrors them) or moves only on some
+    moves. ``rows``: the moves to read (default ``moves()``). Each entry: ``i``, ``move``, ``boxes`` (the areas after
+    the move) and ``by`` [rows, columns] the area nearest to where one was before moved (None when none moved or the
+    number of areas changed)."""
+    letter = _cell(letter)
+    out = []
+    for r in _level_moves(rows)[-max(1, int(last)):]:
+        if r.get("move") == "reset":
+            continue
+        before, after = _boxes(r["before"], letter), _boxes(r["after"], letter)
+        by = None
+        if before and len(before) == len(after):
+            for a in before:   # the first area that is not where it was: its nearest area after the move
+                if a in after:
+                    continue
+                b = min(after, key=lambda x: abs(x[0] - a[0]) + abs(x[1] - a[1]))
+                by = [b[0] - a[0], b[1] - a[1]]
+                break
+        out.append({"i": r.get("i"), "move": r.get("move"), "boxes": after[:10], "by": by})
+    return out
+
+
+def undo_pairs(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Which moves of this level brought the board back to an earlier one, and which changes never came back: the way
+    to see which moves are safe to try (they can be undone) and which are one-way. The letters of the bars and counters
+    (``counters()``) are left out, so a bar that shrinks every move does not make every board new. ``rows``: the moves
+    to read (default ``moves()``). Returns ``pairs`` [{"first", "then", "times"}] (a move right after another that
+    put the board back as it was before the first), ``returns`` (up to 10 longer runs of moves [i, ...] that came back
+    to an earlier board) and ``one_way`` [{"move", "times"}] (moves that changed the board, where the board before
+    them was never seen again on that try)."""
+    rows = _level_moves(rows)
+    bars = {c["letter"] for c in counters(rows)}
+    flat = Counter("".join(rows[0]["before"])) if rows else Counter()
+    bg = flat.most_common(1)[0][0] if flat else "."
+    table = str.maketrans({x: bg for x in bars}) if bars else None
+    key = (lambda b: "\n".join(b).translate(table)) if table else (lambda b: "\n".join(b))
+    tries: list[list[dict[str, Any]]] = [[]]
+    for r in rows:   # a reset or a lost level starts a new try: its boards are not compared with the old ones
+        if r.get("move") == "reset":
+            tries.append([])
+            continue
+        tries[-1].append(r)
+        if str(r.get("state") or "").upper().startswith("GAME_OVER"):
+            tries.append([])
+    pairs: Counter = Counter()
+    returns: list[list[Any]] = []
+    sent: Counter = Counter()
+    back: Counter = Counter()
+    for t in tries:
+        befores = [key(r["before"]) for r in t]
+        afters = [key(r["after"]) for r in t]
+        first_seen: dict[str, int] = {}
+        for j, b in enumerate(befores):
+            first_seen.setdefault(b, j)
+        for j, r in enumerate(t):
+            if befores[j] == afters[j]:
+                continue   # nothing changed: neither undone nor one-way
+            sent[r.get("move")] += 1
+            if afters[j] in first_seen and first_seen[afters[j]] <= j or any(a == befores[j] for a in afters[j + 1:]):
+                back[r.get("move")] += 1   # it went back to an earlier board, or its board came back later
+            if j > 0 and afters[j] == befores[j - 1] and befores[j - 1] != afters[j - 1]:
+                pairs[(t[j - 1].get("move"), r.get("move"))] += 1
+            k = first_seen.get(afters[j])
+            if k is not None and k < j - 1 and len(returns) < 10:
+                returns.append([x.get("i") for x in t[k:j + 1]])
+    return {"pairs": [{"first": a, "then": b, "times": n} for (a, b), n in pairs.most_common(20)],
+            "returns": returns,
+            "one_way": [{"move": m, "times": n} for m, n in sent.most_common() if back[m] == 0]}
+
+
 # --- search over a model -------------------------------------------------------------------------------------------
+
+_PLAIN = frozenset((str, int, float, bool, type(None)))
+
+
+def freeze(s: Any) -> Any:
+    """A hashable value that is equal for equal states and different for different ones: numpy arrays by their bytes
+    (their repr shortens big arrays, so two boards could look the same), lists and tuples as tuples, dicts and sets
+    sorted, an object by its fields. ``search`` keys its states with it."""
+    if isinstance(s, np.ndarray):
+        return ("ndarray", s.shape, s.dtype.str, s.tobytes())
+    if isinstance(s, (list, tuple)):
+        if all(map(_PLAIN.__contains__, map(type, s))):   # a row of letters or numbers, or a board as strings
+            return s if type(s) is tuple else tuple(s)
+        return tuple(freeze(x) for x in s)
+    if isinstance(s, dict):
+        return ("dict", tuple(sorted(((freeze(k), freeze(v)) for k, v in s.items()), key=repr)))
+    if isinstance(s, (set, frozenset)):
+        return ("set", tuple(sorted((freeze(x) for x in s), key=repr)))
+    if isinstance(s, (str, bytes, int, float, bool, type(None), np.generic)):
+        return s
+    if hasattr(s, "__dict__") and (type(s).__hash__ in (None, object.__hash__)):
+        return (type(s).__name__, freeze(vars(s)))   # a class without its own hash: equal fields, same state
+    try:
+        hash(s)
+        return s
+    except TypeError:
+        return repr(s)
+
+
+class _StepChangedInput(Exception):
+    pass
+
 
 def search(start: Any, step: Callable[[Any, Any], Any], is_goal: Callable[[Any], bool], moves: Iterable[Any],
            key: Callable[[Any], Any] | None = None, max_states: int = 200000, max_s: float = 20.0) -> dict[str, Any]:
     """Breadth-first search over your own model: ``step(state, move)`` returns the next state (or None when the
     move is not possible), ``is_goal(state)`` says when it is won, ``moves`` are the moves to try from every state.
-    ``key(state)`` must give a hashable value (default: the state itself, or its repr if it cannot be hashed).
+    Any state works (a board, numpy array, tuple, dict, set, object); two states are the same when their contents
+    are equal, or when ``key(state)`` gives the same value. A ``step()`` that changes the state it was given is
+    noticed: the search starts again and gives ``step()`` a copy of the state every time (``copied`` True).
     Returns ``path`` (the shortest list of moves, None if not found), ``states`` (how many were seen), ``reason``
-    ("found", "exhausted", "max_states" or "max_s") and ``end`` (the goal state)."""
+    ("found", "exhausted", "max_states" or "max_s"), ``end`` (the goal state) and ``copied``."""
     moves = list(moves)
-
-    def k(s: Any) -> Any:
-        if key is not None:
-            return key(s)
-        try:
-            hash(s)
-            return s
-        except TypeError:
-            return repr(s)
-
+    k = key if key is not None else freeze
     t0 = time.time()
-    seen = {k(start): None}
-    q = deque([(start, [])])
-    if is_goal(start):
-        return {"path": [], "states": 1, "reason": "found", "end": start}
-    while q:
-        if len(seen) >= max_states:
-            return {"path": None, "states": len(seen), "reason": "max_states", "end": None}
-        if time.time() - t0 > max_s:
-            return {"path": None, "states": len(seen), "reason": "max_s", "end": None}
-        state, path = q.popleft()
-        for m in moves:
-            nxt = step(state, m)
-            if nxt is None:
-                continue
-            kk = k(nxt)
-            if kk in seen:
-                continue
-            seen[kk] = None
-            if is_goal(nxt):
-                return {"path": path + [m], "states": len(seen), "reason": "found", "end": nxt}
-            q.append((nxt, path + [m]))
-    return {"path": None, "states": len(seen), "reason": "exhausted", "end": None}
+
+    def call(fn: Callable[..., Any], *args: Any) -> Any:
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 - the error goes on, with the move that raised it
+            if hasattr(exc, "add_note"):
+                exc.add_note(f"search: raised by step(state, {args[1]!r})" if fn is step else
+                             "search: raised by is_goal(state)")
+            raise
+
+    def run(copied: bool) -> dict[str, Any]:
+        start = copy.deepcopy(pristine)   # the caller's state is never handed to step()
+        seen = {k(start): None}
+        if call(is_goal, start):
+            return {"path": [], "states": 1, "reason": "found", "end": start, "copied": copied}
+        q = deque([(start, [], k(start))])
+        while q:
+            if len(seen) >= max_states:
+                return {"path": None, "states": len(seen), "reason": "max_states", "end": None, "copied": copied}
+            if time.time() - t0 > max_s:
+                return {"path": None, "states": len(seen), "reason": "max_s", "end": None, "copied": copied}
+            state, path, sk = q.popleft()
+            for m in moves:
+                nxt = call(step, copy.deepcopy(state) if copied else state, m)
+                if nxt is None:
+                    continue
+                kk = k(nxt)
+                if kk in seen:
+                    continue
+                seen[kk] = None
+                if call(is_goal, nxt):
+                    if not copied and k(state) != sk:
+                        raise _StepChangedInput
+                    return {"path": path + [m], "states": len(seen), "reason": "found", "end": nxt, "copied": copied}
+                q.append((nxt, path + [m], kk))
+            if not copied and k(state) != sk:   # step() wrote into the state it was given: start again with copies
+                raise _StepChangedInput
+        return {"path": None, "states": len(seen), "reason": "exhausted", "end": None, "copied": copied}
+
+    pristine = copy.deepcopy(start)   # the start as given, for a second try if step() changes its input
+    try:
+        return run(False)
+    except _StepChangedInput:
+        print("search: your step() changes the state it is given, so every state was copied before step() "
+              "(slower). Build a new state in step() instead.")
+        return run(True)

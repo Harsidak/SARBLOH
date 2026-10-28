@@ -157,7 +157,10 @@ DEFAULT: dict[str, Any] = {
             # (terrain, panels, tile grid, HUD panel) the system prompt describes; off, the plain frame (one colour per
             # cell). Off from 10-19 to 10-25 in Sarbloh, until 10-27 here.
             "briefing": True,
-            "briefing_lines": 20,      # most briefing lines shown (the rest: `observe().briefing` in ipython)
+            # With the briefing on, the plain frame (one colour per cell, nothing drawn on it) is sent right after the
+            # labelled map, in the same message: two images per new state. Off: the map only.
+            "plain_picture": True,
+            "briefing_lines": 20,     # most briefing lines shown (the rest: `observe().briefing` in ipython)
             "crop_margin": 3,          # cells around the changed region
             "max_objects": 35,         # object rows shown per observation (the rest: `observe().objects`)
             "observation_tokens": 600,  # cap on the short view's text (chars / 4)

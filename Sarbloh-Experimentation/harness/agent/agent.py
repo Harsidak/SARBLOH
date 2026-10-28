@@ -79,6 +79,7 @@ def system_prompt(cfg: dict[str, Any]) -> str:
                                short_objects=bool(p.get("short_objects", True)) and bool(p.get("segmentation", True)),
                                segmentation=bool(p.get("segmentation", True)),
                                briefing=bool(p.get("briefing", True)),
+                               plain_picture=bool(p.get("plain_picture", False)),
                                observe_view=bool(p.get("observe_view", True)),
                                memory_shown=bool(cfg.get("append_only", True))
                                and bool((cfg.get("memory") or {}).get("in_context", True)))
@@ -729,16 +730,25 @@ class AgentSession:
         _request step 5 and _observation."""
         if not self.vision or self.picture_last or isinstance(msg.get("content"), list):
             return msg
-        png, name = self._picture()
-        out = perception.image_message(str(msg.get("content") or ""), png, msg.get("_step"))
+        pngs, names = self._picture()
+        out = perception.image_message(str(msg.get("content") or ""), pngs, msg.get("_step"))
         out.update({"_full": msg.get("_full"), "_step": msg.get("_step")})
-        if name:
-            out["_image_file"] = name
+        self._name_images(out, names)
         return out
 
-    def _picture(self) -> tuple[bytes, str | None]:
-        """The picture of the current frame (the briefing picture, or the plain frame if the briefing failed) and the
-        file it was saved to under frames/ (None if saving failed)."""
+    @staticmethod
+    def _name_images(msg: dict[str, Any], names: list[str | None]) -> None:
+        """Puts the saved files of a message's pictures on it: ``_image_file`` the first, ``_image_files`` all of them
+        in order (None for one that could not be saved)."""
+        if names and names[0]:
+            msg["_image_file"] = names[0]
+        if len(names) > 1:
+            msg["_image_files"] = names
+
+    def _picture(self) -> tuple[list[bytes], list[str | None]]:
+        """The pictures of the current frame: the briefing picture (the map), and with config
+        ``perception.plain_picture`` the plain frame after it; only the plain frame if the briefing failed. Also the
+        files they were saved to under frames/ (None for one whose saving failed)."""
         rows = self._frame()
         b = self._briefing(rows)
         cell = int(self.perception.get("cell", 10))
@@ -750,19 +760,22 @@ class AgentSession:
                 self.stats["perception_errors"] += 1
                 self._log_event({"event": "perception_error", "where": "picture", "error": repr(exc)[:300],
                                  "traceback": traceback.format_exc()[-2000:]})
-        if png is None:
-            png = perception.render(rows, cell)
-        self.stats["images_sent"] += 1
+        pngs = [png, perception.render(rows, cell)] if png is not None and self.perception.get("plain_picture") \
+            else [png if png is not None else perception.render(rows, cell)]
+        self.stats["images_sent"] += len(pngs)
         self._frames += 1
-        name: str | None = f"frames/img_{self._frames:05d}.png"
-        try:
-            path = self.session_dir / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(png)
-        except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
-            self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
-            name = None
-        return png, name
+        names: list[str | None] = []
+        for i, data in enumerate(pngs):
+            name: str | None = f"frames/img_{self._frames:05d}{'_plain' if i else ''}.png"
+            try:
+                path = self.session_dir / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            except Exception as exc:  # noqa: BLE001 - the trace must never fail an act
+                self._log_event({"event": "frame_write_error", "error": repr(exc)[:300]})
+                name = None
+            names.append(name)
+        return pngs, names
 
     def _add_picture(self) -> None:
         """With ``picture_last``, stores the picture of the board now as a user message at the end of the history, once
@@ -774,12 +787,11 @@ class AgentSession:
         newest = next((m for m in reversed(self.messages) if m.get("_kind") == context.PICTURE_KIND), None)
         if newest is not None and newest.get("_picture_key") == key and context.has_image(newest):
             return
-        png, name = self._picture()
+        pngs, names = self._picture()
         where = f"after step #{self._last_step}" if self._last_step is not None else "at the start"
-        msg = perception.image_message(f"[picture of current state(board), {where}]", png, self._last_step)
+        msg = perception.image_message(f"[picture of current state(board), {where}]", pngs, self._last_step)
         msg.update({"_kind": context.PICTURE_KIND, "_picture_key": key})
-        if name:
-            msg["_image_file"] = name
+        self._name_images(msg, names)
         self._append(msg)
 
     def _observe_called(self) -> str:

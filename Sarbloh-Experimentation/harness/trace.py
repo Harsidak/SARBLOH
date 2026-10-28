@@ -582,10 +582,17 @@ BAD_FLAGS = ("cut_off", "tool_error", "cell_error", "repeat", "game_over")
 def _stored(m: dict[str, Any], prefix: str) -> dict[str, Any]:
     """A logged message as the agent stored it, with its picture's file (``_image_file``) in the image part."""
     m = {k: v for k, v in m.items() if k not in _EVENT_KEYS}
-    if m.get("_image_file") and isinstance(m.get("content"), list):
-        url = f"{prefix}/{m['_image_file']}"
-        m["content"] = [{"type": "image_url", "image_url": {"url": url}} if p.get("type") == "image_url" else p
-                        for p in m["content"]]
+    files = m.get("_image_files") or ([m["_image_file"]] if m.get("_image_file") else [])
+    if files and isinstance(m.get("content"), list):
+        parts, k = [], 0
+        for p in m["content"]:
+            if p.get("type") == "image_url":   # each picture its own file, in order (the map, then the plain board)
+                f = files[min(k, len(files) - 1)]
+                k += 1
+                if f:
+                    p = {"type": "image_url", "image_url": {"url": f"{prefix}/{f}"}}
+            parts.append(p)
+        m["content"] = parts
     return m
 
 

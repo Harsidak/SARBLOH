@@ -228,6 +228,8 @@ def play(append_only, turns=36):
     # every thinking kept (keep_reasoning on): the thinking sent back and the drains are what this suite tests
     c = build_config({"agent": {"append_only": append_only, "vision": True, "limits": {"max_turns": turns},
                                 "chain_reasoning_tokens": 16000, "keep_reasoning": True,
+                                # one picture per state, as these checks count (the plain board: test_plain_picture)
+                                "perception": {"plain_picture": False},
                                 "memory": {"curator": False, "in_context": True},   # the memory messages
                                 "compaction": {"reserve_tokens": 4096,
                                                "trigger_tokens": 16000, "cap_tokens": 24000}}})

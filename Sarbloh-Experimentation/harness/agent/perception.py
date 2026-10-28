@@ -21,7 +21,7 @@ Three layers:
     brief(grid, objects, actions) -> Briefing             the briefing analysis
     picture(briefing, cell) -> PNG;  render(grid, cell) -> PNG of the plain frame
     Scene(...).text(full=...)                             what the agent reads; Scene.to_json() feeds ``observe()``
-    image_message(text, png, step)                        the user message that carries text and picture
+    image_message(text, png, step)                        the user message that carries text and picture(s)
 
 Deviations from the lab version, each for correctness or to bound the output on busy frames: facts name things by id; repeated
 facts are dropped; "share one open space" is checked with a flood fill; alignment skips overlapping pairs; a line
@@ -1532,8 +1532,17 @@ def data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
-def image_message(text: str, png: bytes, step: int | None) -> dict[str, Any]:
-    """A user message: the observation text, then the picture. ``_image_step`` marks it for the context builder,
-    which keeps only the newest picture."""
-    return {"role": "user", "_kind": "observation", "_image_step": step,
-            "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": data_url(png)}}]}
+PLAIN_LABEL = "[the same board, plain: nothing drawn on it]"
+
+
+def image_message(text: str, png: bytes | list[bytes], step: int | None) -> dict[str, Any]:
+    """A user message: the observation text, then the picture; with two pictures (the map and the plain board) the
+    second has its label before it. ``_image_step`` marks it for the context builder, which keeps only the newest
+    pictures."""
+    pngs = [png] if isinstance(png, (bytes, bytearray)) else list(png)
+    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for i, p in enumerate(pngs):
+        if i == 1:
+            content.append({"type": "text", "text": PLAIN_LABEL})
+        content.append({"type": "image_url", "image_url": {"url": data_url(p)}})
+    return {"role": "user", "_kind": "observation", "_image_step": step, "content": content}

@@ -304,6 +304,8 @@ def main(overrides: dict[str, Any] | None = None, notebook_start: float | None =
             print(f"[server] WARNING: tool mode {server.tool_mode!r}: the agent needs native tool calls to act, so "
                   "this run can only answer in ```python blocks and will not move", flush=True)
         cfg["agent"]["vision"] = server.vision  # images only when the served profile passed the image smoke test
+        if getattr(server, "images_per_prompt", 1) < 2:   # the plain board needs a second image per message
+            cfg["agent"].setdefault("perception", {})["plain_picture"] = False
         fit_context(cfg["agent"], server.max_model_len)  # fit context handling to the profile that started
         if cfg["server"]["bench"] and not rerun:
             try:

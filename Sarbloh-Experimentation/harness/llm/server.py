@@ -150,6 +150,7 @@ class LlmServer:
         self.freezes: dict[str, int] = {}
         self.startup_s: float | None = None
         self.image_probe: str | None = None  # the model's answer to the image smoke test (vision profiles)
+        self.images_per_prompt = 1           # 2 when the server took two images in one message (image_smoke)
         self.backend = "vllm"                # "sglang" when the running profile's runtime says so
         self._stop = threading.Event()
         self._lock = threading.RLock()
@@ -467,6 +468,19 @@ class LlmServer:
         log(f"image smoke ok in {time.time() - t:.1f}s: prompt_tokens={(out.get('usage') or {}).get('prompt_tokens')} "
             f"answer={answer!r}")
         self.image_probe = answer
+        # Two images in one message (the map and the plain board): a server that refuses them keeps the profile,
+        # and the agent then sends the map only (run.py turns perception.plain_picture off).
+        two = json.loads(json.dumps(body))
+        two["messages"][0]["content"] += [{"type": "text", "text": "And this one?"},
+                                          {"type": "image_url", "image_url": {"url": data_url(render([[3] * 16] * 16, 4))}}]
+        two["max_tokens"] = 64
+        try:
+            out2 = request_json(f"{self.base_url}/chat/completions", two, timeout=600)
+            self.images_per_prompt = 2
+            log(f"two-image smoke ok: prompt_tokens={(out2.get('usage') or {}).get('prompt_tokens')}")
+        except Exception as exc:  # noqa: BLE001
+            self.images_per_prompt = 1
+            log(f"two-image smoke failed (the map only will be sent): {exc!r}"[:800])
         return answer
 
     def _start_profile(self, profile: str, smoke: bool = True) -> bool:
