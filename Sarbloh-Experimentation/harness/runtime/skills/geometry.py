@@ -1,7 +1,8 @@
 """Geometry on boards, pre-imported by the kernel: turn and mirror a board or a piece of one, find what transform
 turns one shape into another, find a shape on the board, check symmetry, spot a scrolled view, walk rays, find paths,
-track the numbers on screen and the other movers, find the moves that undo each other, and search the agent's own
-``step()`` model.
+track the numbers on screen and the other movers, find the moves that undo each other, check and search the agent's
+own ``step()`` model, map what this level has tried and the world of a scrolling level, show how earlier levels were
+won and rank what makes something happen.
 
 A board is what ``obs.board`` holds (a list of strings, one letter per cell), a list of lists or a numpy array; a
 function that returns a board returns the same kind it was given (numbers stay numbers). Positions are (row, column),
@@ -12,13 +13,18 @@ Offered in the prompt (the axes the games are built from: transforms, reversibil
 goals):
     rotate(b, 1); flip(b, "h")
     relate(a, b)          # which turn / mirror / scale / recolour turns a into b, and how well
-    find(piece, board)    # where a piece is on the board, turned and mirrored copies too
+    find(piece, board)    # where a piece is on the board, turned and mirrored copies too (recolour=True: any colours)
     symmetry(b)           # mirror and turn symmetry, and the cells that break it
     camera(before, after) # did the whole view scroll, and by how much
     ray(b, r, c, dr, dc); reach(b, start, passable, goal)
     counters()            # the letters whose cell count changes move after move (bars, counters, lives)
     track(letter)         # where each object of a letter was after every move, next to the move sent
     undo_pairs()          # which moves brought the board back to an earlier one, and which never did
+    verify(step)          # how many of this level's moves your step() model gets right, and where it is wrong
+    atlas()               # the boards this level has seen, the moves tried and never tried from each, paths back
+    world(you)            # a scrolling level as one map, with you on it
+    wins()                # the board before each earlier level's winning move
+    cause(what, you)      # the conditions that tell the moves that changed something from those that did not
     search(start, step, is_goal, moves)   # breadth-first search over your own step() model
 Kept for the tools above and the curator, not offered: transpose, shift, crop, paste, scale, recolor, line.
 """
@@ -62,8 +68,11 @@ def _arr(g: Any) -> np.ndarray:
         return np.zeros((0, 0), dtype="<U1")
     if len({len(r) for r in rows}) > 1:
         raise ValueError("every row of a board or piece must have the same length; use '.' for an empty cell")
-    if isinstance(rows[0], str):
-        return np.array([list(r) for r in rows], dtype="<U1")
+    if all(isinstance(r, str) for r in rows):   # rows of letters: read the text straight in, one cell per letter
+        w = len(rows[0])
+        if w == 0:
+            return np.zeros((len(rows), 0), dtype="<U1")
+        return np.frombuffer("".join(rows).encode("utf-32-le"), dtype="<U1").reshape(len(rows), w).copy()
     return np.array([[_cell(v) for v in r] for r in rows], dtype="<U1")
 
 
@@ -231,12 +240,17 @@ def relate(a: Any, b: Any, recolour: bool = True, top: int = 3) -> list[dict[str
     return found[:max(1, int(top))]
 
 
-def find(piece: Any, board: Any, turns: bool = True, min_match: float = 1.0, limit: int = 20) -> list[dict[str, Any]]:
+def find(piece: Any, board: Any, turns: bool = True, min_match: float = 1.0, limit: int = 20,
+         recolour: bool = False) -> list[dict[str, Any]]:
     """Where ``piece`` is on ``board``: every place where at least ``min_match`` of its cells agree (cells equal to "."
-    match anything), also turned and mirrored copies when ``turns``. Returns dicts ``at`` [r, c] (top-left corner),
-    ``bbox``, ``transform`` and ``match``, best first, at most ``limit``."""
+    match anything), also turned and mirrored copies when ``turns``. With ``recolour`` a copy drawn in other colours
+    counts too (each colour of the piece one other colour, never the background): the way to find a target, a key or
+    a panel that shows the shape you control. Returns dicts ``at`` [r, c] (top-left corner), ``bbox``, ``transform``
+    and ``match`` (and ``colors``, the colour changes, with ``recolour``), best first, at most ``limit``."""
     from numpy.lib.stride_tricks import sliding_window_view
     bd, p0 = _arr(board), _arr(piece)
+    if recolour:
+        return _find_recoloured(p0, bd, turns, min_match, limit)
     out, seen = [], set()
     for name, p in (_variants(p0) if turns else [("same", p0)]):
         h, w = p.shape
@@ -253,6 +267,47 @@ def find(piece: Any, board: Any, turns: bool = True, min_match: float = 1.0, lim
             out.append({"at": [int(r), int(c)], "bbox": [int(r), int(c), int(r) + h - 1, int(c) + w - 1],
                         "transform": name, "match": round(float(score[r, c]), 3)})
     out.sort(key=lambda d: (-d["match"], _TURNS.index(d["transform"]), d["at"]))
+    return out[:max(1, int(limit))]
+
+
+def _find_recoloured(p0: np.ndarray, bd: np.ndarray, turns: bool, min_match: float,
+                     limit: int) -> list[dict[str, Any]]:
+    """``find`` with each colour of the piece free to be one other colour: per colour, the share of its cells that
+    agree with the colour under its first cell."""
+    from numpy.lib.stride_tricks import sliding_window_view
+    names, codes = np.unique(bd, return_inverse=True)
+    codes = codes.reshape(bd.shape)
+    bg = _background(bd)
+    out, seen = [], set()
+    for name, p in (_variants(p0) if turns else [("same", p0)]):
+        h, w = p.shape
+        if h == 0 or w == 0 or h > bd.shape[0] or w > bd.shape[1] or (p.shape, p.tobytes()) in seen:
+            continue
+        seen.add((p.shape, p.tobytes()))
+        letters = [x for x in np.unique(p).tolist() if x != EMPTY]
+        n = int((p != EMPTY).sum())
+        if not letters:
+            continue
+        win = sliding_window_view(codes, (h, w))
+        agree = np.zeros(win.shape[:2])
+        firsts = []
+        for x in letters:
+            rr, cc = np.nonzero(p == x)
+            vals = win[:, :, rr, cc]
+            agree += (vals == vals[:, :, :1]).sum(axis=2)
+            firsts.append(vals[:, :, 0])
+        score = agree / n
+        ok = score >= min_match - 1e-9
+        for i, x in enumerate(letters):   # one colour per piece colour, and the background only for itself
+            if x != bg:
+                ok &= names[firsts[i]] != bg
+            for j in range(i):
+                ok &= firsts[i] != firsts[j]
+        for r, c in zip(*np.nonzero(ok)):
+            colors = {x: str(names[f[r, c]]) for x, f in zip(letters, firsts) if str(names[f[r, c]]) != x}
+            out.append({"at": [int(r), int(c)], "bbox": [int(r), int(c), int(r) + h - 1, int(c) + w - 1],
+                        "transform": name, "match": round(float(score[r, c]), 3), "colors": colors})
+    out.sort(key=lambda d: (-d["match"], len(d["colors"]), _TURNS.index(d["transform"]), d["at"]))
     return out[:max(1, int(limit))]
 
 
@@ -275,7 +330,8 @@ def symmetry(g: Any, limit: int = 20) -> dict[str, Any]:
 def camera(before: Any, after: Any, max_shift: int = 16, shifts: Iterable[Any] | None = None) -> dict[str, Any]:
     """Did the whole view move? The shift (rows, columns) that makes ``after`` agree best with ``before`` moved by it,
     counted over the cells that are not background in either; every shift up to ``max_shift`` cells is tried, or only
-    the (rows, columns) pairs in ``shifts``. Returns ``by`` [rows, columns] ([0, 0] when no shift explains the change
+    the (rows, columns) pairs in ``shifts``, as long as the part that still overlaps holds at least half of those
+    cells. Returns ``by`` [rows, columns] ([0, 0] when no shift explains the change
     better than none), ``match`` (share of those cells that agree after the shift) and ``still`` (the share with no
     shift). Board ``after`` = ``shift(before, *by)`` where the view scrolled."""
     a, b = _arr(before), _arr(after)
@@ -289,9 +345,13 @@ def camera(before: Any, after: Any, max_shift: int = 16, shifts: Iterable[Any] |
         pb = b[max(dr, 0):h + min(dr, 0), max(dc, 0):w + min(dc, 0)]
         care = (pa != bg) | (pb != bg)
         n = int(care.sum())
+        if n < need:   # a shift that leaves only a sliver of the view overlapping proves nothing
+            return 0.0
         return float(((pa == pb) & care).sum()) / n if n else 0.0
 
+    need = 0
     still = score(0, 0)
+    need = 0.5 * int(((a != bg) | (b != bg)).sum())
     best, by = still, (0, 0)
     m = max(0, min(int(max_shift), h - 1, w - 1))
     tries = [(dr, dc) for dr in range(-m, m + 1) for dc in range(-m, m + 1)] if shifts is None else \
@@ -491,6 +551,65 @@ def track(letter: str, rows: list[dict[str, Any]] | None = None, last: int = 30)
     return out
 
 
+def _masked_key(rows: list[dict[str, Any]]) -> Callable[[list[str]], str]:
+    """A board as one string with the bars and counters (``counters()``) turned into the background, so a bar that
+    shrinks every move does not make every board new. A letter is masked only inside the box where it changed, and
+    only when that box is small: on a scrolling view every letter's count changes, and the scenery must stay. And
+    only a bar: a letter whose count changes on most moves, nearly always the same way (it shrinks or it fills),
+    not one that goes up and down as things are switched on and off."""
+    bars = set()
+    for c in counters(rows, min_share=0.6):
+        ups = downs = 0
+        for r in rows:
+            d = "".join(r["after"]).count(c["letter"]) - "".join(r["before"]).count(c["letter"])
+            ups, downs = ups + (d > 0), downs + (d < 0)
+        if max(ups, downs) >= 0.9 * (ups + downs):
+            bars.add(c["letter"])
+    if not rows or not bars:
+        return lambda b: "\n".join(b)
+    a0 = _arr(rows[0]["before"])
+    bg, (h, w) = _background(a0), a0.shape
+    hit = {x: np.zeros((h, w), bool) for x in bars}
+    for r in rows:
+        a, b = _arr(r["before"]), _arr(r["after"])
+        if a.shape == b.shape == (h, w):
+            for x in bars:
+                hit[x] |= (a == x) != (b == x)
+    boxes = {}
+    for x, m in hit.items():
+        if m.any():
+            rs, cs = np.nonzero(m)
+            r0, c0, r1, c1 = int(rs.min()), int(cs.min()), int(rs.max()), int(cs.max())
+            if (r1 - r0 + 1) * (c1 - c0 + 1) <= h * w / 8:
+                boxes[x] = (r0, c0, r1, c1)
+
+    def key(b: list[str]) -> str:
+        out = list(b)
+        for x, (r0, c0, r1, c1) in boxes.items():
+            for r in range(r0, min(r1 + 1, len(out))):
+                s = out[r]
+                out[r] = s[:c0] + s[c0:c1 + 1].replace(x, bg) + s[c1 + 1:]
+        return "\n".join(out)
+    return key
+
+
+def _is_over(r: dict[str, Any]) -> bool:
+    return str(r.get("state") or "").upper().startswith("GAME_OVER")
+
+
+def _tries(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """The moves split into tries: a reset or a lost level starts a new one."""
+    tries: list[list[dict[str, Any]]] = [[]]
+    for r in rows:
+        if r.get("move") == "reset":
+            tries.append([])
+            continue
+        tries[-1].append(r)
+        if _is_over(r):
+            tries.append([])
+    return [t for t in tries if t]
+
+
 def undo_pairs(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Which moves of this level brought the board back to an earlier one, and which changes never came back: the way
     to see which moves are safe to try (they can be undone) and which are one-way. The letters of the bars and counters
@@ -500,19 +619,8 @@ def undo_pairs(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     to an earlier board) and ``one_way`` [{"move", "times"}] (moves that changed the board, where the board before
     them was never seen again on that try)."""
     rows = _level_moves(rows)
-    bars = {c["letter"] for c in counters(rows)}
-    flat = Counter("".join(rows[0]["before"])) if rows else Counter()
-    bg = flat.most_common(1)[0][0] if flat else "."
-    table = str.maketrans({x: bg for x in bars}) if bars else None
-    key = (lambda b: "\n".join(b).translate(table)) if table else (lambda b: "\n".join(b))
-    tries: list[list[dict[str, Any]]] = [[]]
-    for r in rows:   # a reset or a lost level starts a new try: its boards are not compared with the old ones
-        if r.get("move") == "reset":
-            tries.append([])
-            continue
-        tries[-1].append(r)
-        if str(r.get("state") or "").upper().startswith("GAME_OVER"):
-            tries.append([])
+    key = _masked_key(rows)
+    tries = _tries(rows)   # a new try's boards are not compared with the old ones
     pairs: Counter = Counter()
     returns: list[list[Any]] = []
     sent: Counter = Counter()
@@ -537,6 +645,444 @@ def undo_pairs(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {"pairs": [{"first": a, "then": b, "times": n} for (a, b), n in pairs.most_common(20)],
             "returns": returns,
             "one_way": [{"move": m, "times": n} for m, n in sent.most_common() if back[m] == 0]}
+
+
+# --- checking a model and reading the record of this level ---------------------------------------------------------
+
+def _plain_rows(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [r for r in _level_moves(rows) if r.get("move") != "reset"]
+
+
+def _areas(board: list[str], skip: Iterable[str] = ()) -> list[tuple[str, set[tuple[int, int]]]]:
+    """The 4-connected one-letter areas of the board, the letters in ``skip`` left out, top to bottom."""
+    skip = set(skip)
+    h = len(board)
+    seen: set[tuple[int, int]] = set()
+    out = []
+    for r0 in range(h):
+        for c0, x in enumerate(board[r0]):
+            if x in skip or (r0, c0) in seen:
+                continue
+            seen.add((r0, c0))
+            stack, cells = [(r0, c0)], set()
+            while stack:
+                r, c = stack.pop()
+                cells.add((r, c))
+                for n in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
+                    if 0 <= n[0] < h and 0 <= n[1] < len(board[n[0]]) and n not in seen and board[n[0]][n[1]] == x:
+                        seen.add(n)
+                        stack.append(n)
+            out.append((x, cells))
+    return out
+
+
+def _click_cell(m: Any) -> tuple[int, int] | None:
+    parts = str(m).split()
+    if len(parts) == 3 and parts[0] == "6":
+        try:
+            return int(parts[1]), int(parts[2])
+        except ValueError:
+            return None
+    return None
+
+
+def _middle(cells: set[tuple[int, int]]) -> tuple[int, int]:
+    mr = sum(r for r, _ in cells) / len(cells)
+    mc = sum(c for _, c in cells) / len(cells)
+    return min(cells, key=lambda p: ((p[0] - mr) ** 2 + (p[1] - mc) ** 2, p))
+
+
+def _cell_box(cells: set[tuple[int, int]]) -> list[int]:
+    return [min(r for r, _ in cells), min(c for _, c in cells), max(r for r, _ in cells), max(c for _, c in cells)]
+
+
+def verify(step: Callable[[Any, Any], Any], rows: list[dict[str, Any]] | None = None,
+           read: Callable[[Any], Any] | None = None, move: Callable[[Any], Any] | None = None,
+           limit: int = 10) -> dict[str, Any]:
+    """Check your ``step()`` model against every move of this level, the lost tries included: for each recorded move
+    it runs ``step(board before, move)`` and compares what comes back with the board after. ``step`` gets the board
+    as ``obs.board`` holds it (a list of strings) and the move as written in a ``play()`` path ("1", "6 12 30"); give
+    ``read(board)`` to turn a board into your own state (then it must return ``read(board after)``) and ``move(m)``
+    to turn the move into yours. The bars and counters (``counters()``) are left out of the board compares.
+    Returns ``moves`` (how many were checked), ``right``, ``by_move`` {move: [right, checked]}, ``wrong`` (up to
+    ``limit``: ``i``, ``move`` and ``cells`` [r, c, yours, real] up to 10, or ``yours`` and ``real`` for your own
+    state) and ``errors`` (up to ``limit`` moves where it raised, with the error)."""
+    rows = _plain_rows(rows)
+    key = _masked_key(rows)
+
+    def board(b: Any) -> np.ndarray:
+        a = _arr(b)
+        return _arr(key(["".join(x) for x in a]).split("\n")) if a.size else a
+
+    right, by_move, wrong, errors = 0, {}, [], []
+    for r in rows:
+        m = r.get("move")
+        tally = by_move.setdefault(str(m), [0, 0])
+        tally[1] += 1
+        try:
+            got = step(read(list(r["before"])) if read else list(r["before"]), move(m) if move else m)
+            want = read(list(r["after"])) if read else None
+        except Exception as exc:  # noqa: BLE001 - reported, the check goes on
+            if len(errors) < limit:
+                errors.append({"i": r.get("i"), "move": m, "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        if read:
+            good = freeze(got) == freeze(want)
+            miss = {"yours": got, "real": want}
+        elif got is None:
+            good, miss = False, {"cells": "step() returned None"}
+        else:
+            if isinstance(got, list) and all(isinstance(x, str) for x in got):   # rows of letters: compare as text
+                good = key(got) == key(list(r["after"]))
+            else:
+                ga, wa = board(got), board(r["after"])
+                good = ga.shape == wa.shape and bool((ga == wa).all())
+            miss = {}
+            if not good and len(wrong) < limit:
+                ga, wa = board(got), board(r["after"])
+                miss = {"cells": [[int(y), int(x), str(ga[y, x]), str(wa[y, x])]
+                                  for y, x in np.argwhere(ga != wa)[:10]]
+                        if ga.shape == wa.shape else f"your board is {ga.shape[0]}x{ga.shape[1]}, "
+                                                     f"the real one {wa.shape[0]}x{wa.shape[1]}"}
+        if good:
+            right += 1
+            tally[0] += 1
+        elif len(wrong) < limit:
+            wrong.append({"i": r.get("i"), "move": m, **miss})
+    return {"moves": len(rows), "right": right, "by_move": by_move, "wrong": wrong, "errors": errors}
+
+
+def atlas(rows: list[dict[str, Any]] | None = None, moves: Iterable[Any] | None = None, to: int | None = None,
+          limit: int = 10) -> dict[str, Any]:
+    """What this level has already tried, as a map: every different board seen on it (bars and counters left out)
+    is a place, numbered in the order first seen (0 = the level's first board), and every move sent from a place
+    is a road to where it led. ``moves``: the moves you can send (default: every move sent in this game, and the
+    spots clicked on this level). Returns ``places`` (how many), ``now`` (the place of the board now), ``tried_here`` {move: place it led to,
+    "same" when nothing changed, "GAME_OVER"}, ``untried_here`` (moves never sent from the board now), ``open`` (up to
+    ``limit`` places nearest the start with moves never sent from them: ``place``, ``untried``, ``path`` from the
+    level's first board), ``never_clicked`` (areas on the board now that no click on this level touched: ``letter``,
+    ``box`` and ``click`` "6 r c" at its middle) and ``losing`` (up to ``limit`` [place, move] that lost the level).
+    With ``to``: ``path`` (the moves from the level's first board to that place, None when no road leads there) and
+    ``board`` (that place's board)."""
+    given = rows is not None
+    rows = _plain_rows(rows)
+    if moves is None:
+        if given:
+            sent = [r.get("move") for r in rows]
+        else:
+            from observation import moves as all_moves
+            sent = [r.get("move") for r in all_moves(all_levels=True)]
+        moves = [m for m in dict.fromkeys(str(x) for x in sent) if m != "reset" and _click_cell(m) is None]
+        # and every spot clicked on this level, so "which clicks were never tried from here" is answered too
+        moves += list(dict.fromkeys(str(r.get("move")) for r in rows if _click_cell(r.get("move"))))[:60]
+    moves = [str(m) for m in moves]
+    if not rows:
+        return {"places": 0, "now": None, "tried_here": {}, "untried_here": moves, "open": [], "never_clicked": [],
+                "losing": []}
+    key = _masked_key(rows)
+    ids: dict[str, int] = {}
+    boards: list[list[str]] = []
+
+    def place(b: list[str]) -> int:
+        k = key(b)
+        if k not in ids:
+            ids[k] = len(boards)
+            boards.append(list(b))
+        return ids[k]
+
+    roads: dict[int, dict[str, Any]] = {}
+    losing: list[list[Any]] = []
+    clicks: set[tuple[int, int]] = set()
+    now = place(rows[0]["before"])
+    for r in rows:
+        a = place(r["before"])
+        m = str(r.get("move"))
+        if _click_cell(m):
+            clicks.add(_click_cell(m))
+        if _is_over(r):
+            roads.setdefault(a, {})[m] = "GAME_OVER"
+            if len(losing) < limit and [a, m] not in losing:
+                losing.append([a, m])
+            now = 0
+            continue
+        b = place(r["after"])
+        roads.setdefault(a, {}).setdefault(m, "same" if a == b else b)
+        now = b
+    dist: dict[int, int] = {0: 0}
+    back: dict[int, tuple[int, str]] = {}
+    q = deque([0])
+    while q:
+        a = q.popleft()
+        for m, b in roads.get(a, {}).items():
+            if isinstance(b, int) and b not in dist:
+                dist[b] = dist[a] + 1
+                back[b] = (a, m)
+                q.append(b)
+
+    def path_to(p: int) -> list[str] | None:
+        if p not in dist:
+            return None
+        out = []
+        while p != 0:
+            p, m = back[p]
+            out.append(m)
+        return out[::-1]
+
+    here = roads.get(now, {})
+    opened = sorted((p for p in range(len(boards)) if p in dist and any(m not in roads.get(p, {}) for m in moves)),
+                    key=lambda p: (dist[p], p))[:limit]
+    bg = _background(_arr(boards[now]))
+    never = [(x, cells) for x, cells in _areas(boards[now], skip={bg}) if not cells & clicks]
+    out = {"places": len(boards), "now": now, "tried_here": here, "untried_here": [m for m in moves if m not in here],
+           "open": [{"place": p, "untried": [m for m in moves if m not in roads.get(p, {})], "path": path_to(p)}
+                    for p in opened],
+           "never_clicked": [{"letter": x, "box": _cell_box(cells), "click": "6 %d %d" % _middle(cells)}
+                             for x, cells in sorted(never, key=lambda t: -len(t[1]))[:max(limit, 20)]],
+           "losing": losing}
+    if to is not None:
+        out["path"] = path_to(int(to))
+        out["board"] = boards[int(to)] if 0 <= int(to) < len(boards) else None
+    return out
+
+
+_CAMERA_SEEN: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+def _scroll_guesses(a: np.ndarray, b: np.ndarray, m: int, top: int = 3) -> list[tuple[int, int]]:
+    """The likeliest scrolls, cheaply: the row shifts that best line up the colour counts of each row, crossed with
+    the column shifts that best line up the counts of each column. ``camera`` then checks only these."""
+    a, b = a.view(np.uint32), b.view(np.uint32)   # one-letter strings as their code points: fast compares
+    letters = np.unique(np.concatenate([a.ravel(), b.ravel()]))
+    ha = np.stack([(a == x).sum(axis=1) for x in letters], 1)
+    hb = np.stack([(b == x).sum(axis=1) for x in letters], 1)
+    va = np.stack([(a == x).sum(axis=0) for x in letters], 1)
+    vb = np.stack([(b == x).sum(axis=0) for x in letters], 1)
+
+    def best(pa: np.ndarray, pb: np.ndarray) -> list[int]:
+        n = len(pa)
+        cost = {}
+        for d in range(-m, m + 1):   # after[i + d] lines up with before[i]
+            x, y = pa[max(-d, 0):n - max(d, 0)], pb[max(d, 0):n + min(d, 0)]
+            cost[d] = float(np.abs(x - y).sum()) / max(1, len(x))
+        return sorted(cost, key=lambda d: (cost[d], abs(d)))[:top]
+
+    return [(dr, dc) for dr in best(ha, hb) for dc in best(va, vb)]
+
+
+def world(you: str | None = None, rows: list[dict[str, Any]] | None = None, dark: str | None = None,
+          max_shift: int = 16) -> dict[str, Any]:
+    """The whole level as one map, for a game whose view scrolls or shows only the part near you: each board of this
+    level is placed where it belongs, using the scroll between moves (``camera``). Cells that stay put while the view
+    scrolls (a status bar) are left off the map from the second scroll on. ``dark``: the letter of the cells you
+    cannot see (the dark around a lit patch); they count as unseen, so the map keeps what was lit before. A board
+    that does not follow from the one before by a scroll (a teleport, a new room) starts a new piece of map, unless
+    that same board was seen before. ``you``: your letter, to put you on the map.
+    Returns ``pieces`` (how many separate maps), ``piece`` (the one the view is on now), ``map`` (that piece as rows
+    of letters, "?" where never seen, each cell as last seen), ``origin`` [row, column] (where the top-left of the
+    view is on that map now), ``scrolls`` (moves that scrolled the view), ``you`` (your box on the map now) and
+    ``visited`` (how many different places on this piece your box has had)."""
+    rows = _plain_rows(rows)
+    if not rows:
+        return {"pieces": 0, "piece": None, "map": [], "origin": None, "scrolls": 0, "you": None, "visited": 0}
+    key = _masked_key(rows)
+    letter = _cell(you) if you is not None else None
+    unseen = _cell(dark) if dark is not None else None
+    pieces: list[dict[str, Any]] = []
+    screens: dict[str, tuple[int, tuple[int, int]]] = {}
+    fixed = None
+    cur: dict[str, Any] = {}
+    scrolls = 0
+    visits: dict[int, set[tuple[int, int]]] = {}
+
+    def paint(b: list[str]) -> None:
+        a = _arr(b)
+        h, w = a.shape
+        pc = pieces[cur["piece"]]
+        R, C = cur["origin"]
+        g, (R0, C0) = pc["grid"], pc["off"]
+        top, left = min(R0, R), min(C0, C)
+        bottom, right = max(R0 + g.shape[0], R + h), max(C0 + g.shape[1], C + w)
+        if (top, left, bottom, right) != (R0, C0, R0 + g.shape[0], C0 + g.shape[1]):
+            big = np.full((bottom - top, right - left), "?", dtype="<U1")
+            big[R0 - top:R0 - top + g.shape[0], C0 - left:C0 - left + g.shape[1]] = g
+            pc["grid"], pc["off"] = big, (top, left)
+            g, (R0, C0) = big, (top, left)
+        view = g[R - R0:R - R0 + h, C - C0:C - C0 + w]
+        keep = fixed if fixed is not None and fixed.shape == a.shape else np.zeros(a.shape, bool)
+        if unseen is not None:
+            keep = keep | (a == unseen)
+        view[...] = np.where(keep, view, a)
+        screens.setdefault(key(b), (cur["piece"], cur["origin"]))
+        if letter is not None:
+            cells = np.argwhere(a == letter)
+            if len(cells):
+                visits.setdefault(cur["piece"], set()).add((int(cells[:, 0].min()) + R, int(cells[:, 1].min()) + C))
+
+    def jump(b: list[str]) -> None:
+        hit = screens.get(key(b))
+        if hit:
+            cur["piece"], cur["origin"] = hit
+        else:
+            a = _arr(b)
+            pieces.append({"grid": np.full(a.shape, "?", dtype="<U1"), "off": (0, 0)})
+            cur["piece"], cur["origin"] = len(pieces) - 1, (0, 0)
+        paint(b)
+
+    prev = None
+    for r in rows:
+        before, after = list(r["before"]), list(r["after"])
+        if prev is None or key(before) != key(prev):
+            jump(before)
+        if _is_over(r):
+            prev = None
+            continue
+        if before != after:
+            a, b = _arr(before), _arr(after)
+            ck = (hash("\n".join(before)), hash("\n".join(after)), int(max_shift), unseen)
+            if ck not in _CAMERA_SEEN:
+                if len(_CAMERA_SEEN) > 50000:
+                    _CAMERA_SEEN.clear()
+                same = a.shape == b.shape
+                diff = (a != b) if same else None
+                wide = False
+                if diff is not None and diff.mean() > 0.05:   # a scroll changes cells across most of the view
+                    rs, cs = np.nonzero(diff.any(axis=1))[0], np.nonzero(diff.any(axis=0))[0]
+                    wide = rs[-1] - rs[0] + 1 >= 0.75 * a.shape[0] or cs[-1] - cs[0] + 1 >= 0.75 * a.shape[1]
+                m = max(0, min(int(max_shift), a.shape[0] - 1, a.shape[1] - 1))
+                guesses = _scroll_guesses(a, b, m) if wide else [(0, 0)]
+                # a few cells changed, or nothing points to a scroll: something moved on a still view
+                cam = camera(before, after, shifts=guesses) if guesses[0] != (0, 0) else {"by": [0, 0]}
+                if not same:
+                    cam = {"by": [0, 0], "match": 0.0, "still": 0.0}
+                elif cam["by"] == [0, 0]:   # how much of the view stayed the same
+                    if unseen is not None:   # in the dark only the cells lit on both boards can disagree
+                        care = (a != unseen) & (b != unseen)
+                    else:
+                        bg = _background(a)
+                        care = (a != bg) | (b != bg)
+                    n = int(care.sum())
+                    still = round(float(((a == b) & care).sum()) / n, 3) if n else 1.0
+                    cam = {"by": [0, 0], "match": still, "still": still}
+                _CAMERA_SEEN[ck] = cam
+            cam = _CAMERA_SEEN[ck]
+            dr, dc = cam["by"]
+            if (dr, dc) != (0, 0):
+                scrolls += 1
+                moved = _arr(shift(before, dr, dc))
+                still = (a == b) & (moved != b) & (b != _background(b))
+                # cells that stayed put on every scroll so far (a status bar, you at the middle of the view)
+                fixed = still if fixed is None or fixed.shape != still.shape else fixed & still
+                cur["origin"] = (cur["origin"][0] - dr, cur["origin"][1] - dc)
+                paint(after)
+            elif cam["still"] < 0.5:
+                jump(after)
+            else:
+                paint(after)
+        prev = after
+    if "piece" not in cur:
+        jump(list(rows[-1]["after"]))
+    pc = pieces[cur["piece"]]
+    R, C = cur["origin"]
+    R0, C0 = pc["off"]
+    you_box = None
+    if letter is not None and prev is not None:
+        cells = np.argwhere(_arr(prev) == letter)
+        if len(cells):
+            you_box = [int(cells[:, 0].min()) + R - R0, int(cells[:, 1].min()) + C - C0,
+                       int(cells[:, 0].max()) + R - R0, int(cells[:, 1].max()) + C - C0]
+    return {"pieces": len(pieces), "piece": cur["piece"], "map": ["".join(x) for x in pc["grid"]],
+            "origin": [R - R0, C - C0], "scrolls": scrolls, "you": you_box,
+            "visited": len(visits.get(cur["piece"], ()))}
+
+
+def wins(rows: list[dict[str, Any]] | None = None, limit: int = 5) -> list[dict[str, Any]]:
+    """How the earlier levels of this game were won, to look for the same on this one. For each won level:
+    ``level`` (1 = the first), ``moves`` (moves sent on it, lost tries included), ``move`` (the winning move),
+    ``before`` (the board just before it), ``last`` (the ``limit`` moves before it: ``i``, ``move``, ``change``) and,
+    for a winning click, ``clicked`` (the letter and box of the area clicked). The board after the winning move is
+    already the next level, so line ``before`` up with this level's boards (``relate``, ``find``) to see what has to
+    be true here when you win. ``rows``: the whole game's moves (default ``moves(all_levels=True)``)."""
+    if rows is None:
+        from observation import moves
+        rows = moves(all_levels=True)
+    rows = [r for r in rows if r.get("before")]
+    out, start = [], 0
+    for j, r in enumerate(rows):
+        nxt = rows[j + 1] if j + 1 < len(rows) else None
+        won = str(r.get("state") or "").upper() == "WIN" or (
+            nxt is not None and (nxt.get("level") or 0) > (r.get("level") or 0))
+        if not won:
+            continue
+        mine = rows[start:j + 1]
+        win = {"level": (r.get("level") or 0) + 1, "moves": sum(1 for x in mine if x.get("move") != "reset"),
+               "move": r.get("move"), "before": list(r["before"]),
+               "last": [{"i": x.get("i"), "move": x.get("move"), "change": x.get("change")}
+                        for x in mine[-1 - max(0, int(limit)):-1]]}
+        cell = _click_cell(r.get("move"))
+        if cell and 0 <= cell[0] < len(r["before"]) and 0 <= cell[1] < len(r["before"][cell[0]]):
+            x = r["before"][cell[0]][cell[1]]
+            area = next((cells for y, cells in _areas(r["before"]) if cell in cells), {cell})
+            win["clicked"] = {"letter": x, "box": _cell_box(area)}
+        out.append(win)
+        start = j + 1
+    return out
+
+
+def cause(what: Any, you: str | None = None, rows: list[dict[str, Any]] | None = None,
+          limit: int = 10) -> list[dict[str, Any]]:
+    """What makes something happen: this level's moves are split into those that changed ``what`` and those that did
+    not, and simple conditions are ranked by how well they tell the two apart. ``what``: a box [r0, c0, r1, c1] (a
+    cell in it changed) or a letter (where its cells are changed). The conditions: the move sent; the letters in the
+    box before the move (when ``what`` is a box); and with ``you`` (your letter): each letter next to you before the
+    move, each letter on the cells you moved onto (as they were before the move), and whether you moved. Returns up to
+    ``limit`` dicts, best first: ``if`` (the condition), ``changed`` [moves with it that changed it, all moves that
+    changed it], ``not_changed`` [moves with it that did not, all moves that did not] and ``score`` (the share of
+    changes that had it minus the share of non-changes that had it; 1.0 = it explains every change)."""
+    rows = _plain_rows(rows)
+    box = [int(x) for x in what] if isinstance(what, (list, tuple)) and len(what) == 4 else None
+    letter = None if box else _cell(what)
+    me = _cell(you) if you is not None else None
+    pos: Counter = Counter()
+    neg: Counter = Counter()
+    n_pos = n_neg = 0
+    for r in rows:
+        a, b = _arr(r["before"]), _arr(r["after"])
+        if a.shape != b.shape:
+            continue
+        if box:
+            ra, rb = a[box[0]:box[2] + 1, box[1]:box[3] + 1], b[box[0]:box[2] + 1, box[1]:box[3] + 1]
+            hit = bool((ra != rb).any())
+        else:
+            hit = bool(((a == letter) != (b == letter)).any())
+        feats = {f"move {r.get('move')}"}
+        if box:
+            feats |= {f"box had {x}" for x in np.unique(ra)}
+        if me is not None:
+            mine_a, mine_b = a == me, b == me
+            if mine_a.any():
+                ring = np.zeros_like(mine_a)
+                ring[1:] |= mine_a[:-1]
+                ring[:-1] |= mine_a[1:]
+                ring[:, 1:] |= mine_a[:, :-1]
+                ring[:, :-1] |= mine_a[:, 1:]
+                feats |= {f"next to {x}" for x in np.unique(a[ring & ~mine_a])}
+            onto = mine_b & ~mine_a
+            feats |= {f"moved onto {x}" for x in np.unique(a[onto]) if x != me}
+            feats.add("you moved" if (mine_a != mine_b).any() else "you did not move")
+        if hit:
+            n_pos += 1
+            pos.update(feats)
+        else:
+            n_neg += 1
+            neg.update(feats)
+    if not n_pos:
+        return []
+    ranked = []
+    for f in set(pos) | set(neg):
+        score = pos[f] / n_pos - (neg[f] / n_neg if n_neg else 0.0)
+        ranked.append({"if": f, "changed": [pos[f], n_pos], "not_changed": [neg[f], n_neg], "score": round(score, 3)})
+    ranked.sort(key=lambda d: (-d["score"], -d["changed"][0], d["if"]))
+    return ranked[:max(1, int(limit))]
 
 
 # --- search over a model -------------------------------------------------------------------------------------------

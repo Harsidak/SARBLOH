@@ -250,13 +250,138 @@ ok("undo_pairs_found", {("4", "3"), ("2", "1")} <= pairs, str(u))
 ok("undo_one_way", [o["move"] for o in u["one_way"]] == ["5"], str(u))
 ok("undo_bar_ignored", "B" not in str(u["pairs"]) and u["pairs"], str(u))
 
+# --- verify: a model checked against the record ---------------------------------------------------------------------
+def strip(c, w=6, extra=""):
+    row = ["."] * w
+    row[c] = "R"
+    return ["".join(row), ("KK" + extra).ljust(w, ".")]
+
+
+def mv(i, move, before, after, state="NOT_FINISHED", level=0):
+    return {"i": i, "level": level, "move": move, "before": before, "after": after, "change": "", "state": state}
+
+
+walk = [mv(0, "4", strip(0), strip(1)), mv(1, "4", strip(1), strip(2)), mv(2, "3", strip(2), strip(1)),
+        mv(3, "5", strip(1), strip(1))]
+
+
+def good_step(b, m):
+    c = b[0].index("R")
+    c = c + 1 if m == "4" else c - 1 if m == "3" else c
+    return strip(c)
+
+
+v = geo.verify(good_step, walk)
+ok("verify_all_right", v["right"] == 4 and v["moves"] == 4 and not v["wrong"] and v["by_move"]["4"] == [2, 2], str(v))
+v = geo.verify(lambda b, m: strip(b[0].index("R") + (m == "4")), walk)
+ok("verify_names_wrong_cells", v["right"] == 3 and v["wrong"][0]["move"] == "3"
+   and [0, 2, "R", "."] in v["wrong"][0]["cells"], str(v))
+v = geo.verify(lambda b, m: 1 / 0 if m == "5" else good_step(b, m), walk)
+ok("verify_reports_errors", v["right"] == 3 and "ZeroDivisionError" in v["errors"][0]["error"], str(v))
+v = geo.verify(lambda s, m: s + (m == "4") - (m == "3"), walk, read=lambda b: b[0].index("R"))
+ok("verify_own_state", v["right"] == 4, str(v))
+v = geo.verify(lambda s, m: s + 1, walk, read=lambda b: b[0].index("R"))
+ok("verify_own_state_wrong", v["right"] == 2 and v["wrong"][0]["yours"] == 3 and v["wrong"][0]["real"] == 1, str(v))
+
+# --- atlas: what this level has tried ---------------------------------------------------------------------------------
+path_rows = [mv(0, "4", strip(0), strip(1)), mv(1, "3", strip(1), strip(0)), mv(2, "4", strip(0), strip(1)),
+             mv(3, "4", strip(1), strip(2)), mv(4, "4", strip(2), strip(2), state="GAME_OVER"),
+             mv(5, "4", strip(0), strip(1)), mv(6, "4", strip(1), strip(2))]
+at = geo.atlas(path_rows)
+ok("atlas_places", at["places"] == 3 and at["now"] == 2, str(at))
+ok("atlas_tried_here", at["tried_here"] == {"4": "GAME_OVER"} and at["untried_here"] == ["3"], str(at))
+ok("atlas_open_with_path", [(o["place"], o["path"]) for o in at["open"]] == [(0, []), (2, ["4", "4"])], str(at))
+ok("atlas_losing", at["losing"] == [[2, "4"]], str(at))
+at = geo.atlas(path_rows, to=2, moves=["3", "4", "5"])
+ok("atlas_path_to", at["path"] == ["4", "4"] and at["board"] == strip(2) and at["untried_here"] == ["3", "5"], str(at))
+clicks = [mv(0, "6 0 0", ["AB", ".."], ["AB", ".."])]
+at = geo.atlas(clicks)
+ok("atlas_never_clicked", [n["letter"] for n in at["never_clicked"]] == ["B"]
+   and at["never_clicked"][0]["click"] == "6 0 1", str(at))
+pad = ["......"] * 6   # a bar is masked only where it is a small part of the board
+bar_rows = [mv(0, "4", strip(0, extra="KK") + pad, strip(1, extra="K.") + pad),
+            mv(1, "3", strip(1, extra="K.") + pad, strip(0, extra="..") + pad)]
+ok("atlas_bar_ignored", geo.atlas(bar_rows)["places"] == 2, str(geo.atlas(bar_rows)))
+
+blank = ["........"] * 8
+lamp_on = ["T......."] + blank[1:]
+toggles = [mv(k, "5", lamp_on if k % 2 else blank, blank if k % 2 else lamp_on) for k in range(6)]
+ok("atlas_toggle_not_a_bar", geo.atlas(toggles)["places"] == 2, str(geo.atlas(toggles)))
+
+# --- world: a scrolling level as one map -----------------------------------------------------------------------------
+rng = np.random.default_rng(3)
+big = ["".join(rng.choice(list("..abc"), 24)) for _ in range(12)]
+view = lambda c0: [row[c0:c0 + 12] for row in big]
+scroll = [mv(k, "4", view(k), view(k + 1)) for k in range(4)]
+wd = geo.world(rows=scroll)
+ok("world_stitches", wd["pieces"] == 1 and wd["scrolls"] == 4 and wd["origin"] == [0, 4]
+   and wd["map"] == [row[:16] for row in big], str(wd))
+tele = scroll + [mv(4, "5", view(4), ["d" * 12] * 12)]
+wd = geo.world(rows=tele)
+ok("world_new_piece", wd["pieces"] == 2 and wd["piece"] == 1 and wd["map"] == ["d" * 12] * 12, str(wd))
+back = tele + [mv(5, "5", ["d" * 12] * 12, view(2))]
+wd = geo.world(rows=back)
+ok("world_seen_board_rejoins", wd["pieces"] == 2 and wd["piece"] == 0 and wd["origin"] == [0, 2], str(wd))
+withme = lambda c0: [r[:6] + "Y" + r[7:] if k == 3 else r for k, r in enumerate(view(c0))]
+wd = geo.world("Y", rows=[mv(k, "4", withme(k), withme(k + 1)) for k in range(4)])
+ok("world_you", wd["you"] == [3, 10, 3, 10] and wd["visited"] == 5 and "Y" not in "".join(wd["map"]), str(wd))
+
+land = ["".join(rng.choice(list("ac"), 12)) for _ in range(12)]
+
+
+def lit(r0, c0):   # only a 4x4 patch is lit; the rest of the screen is dark "B"
+    return ["".join(land[r][c] if r0 <= r < r0 + 4 and c0 <= c < c0 + 4 else "B" for c in range(12))
+            for r in range(12)]
+
+
+fog = [mv(k, "4", lit(4, 2 * k), lit(4, 2 * k + 2)) for k in range(4)]
+wd = geo.world(rows=fog, dark="B")
+ok("world_dark_keeps_seen", wd["pieces"] == 1 and wd["scrolls"] == 0
+   and all(wd["map"][r][c] == land[r][c] for r in range(4, 8) for c in range(12))
+   and set(wd["map"][0]) == {"?"}, str(wd))
+wd = geo.world(rows=fog)
+ok("world_without_dark_forgets", wd["map"][5][0] == "B", str(wd["map"][5]))
+
+# --- wins: how earlier levels were won --------------------------------------------------------------------------------
+game = [mv(0, "4", strip(0), strip(1)), mv(1, "4", strip(1), strip(2)),
+        mv(2, "6 0 2", strip(2), ["new..."], level=0), mv(3, "1", ["new..."], ["new..."], level=1)]
+w = geo.wins(game)
+ok("wins_found", len(w) == 1 and w[0]["level"] == 1 and w[0]["moves"] == 3 and w[0]["move"] == "6 0 2"
+   and w[0]["before"] == strip(2) and [x["i"] for x in w[0]["last"]] == [0, 1], str(w))
+ok("wins_clicked", w[0]["clicked"] == {"letter": "R", "box": [0, 2, 0, 2]}, str(w))
+ok("wins_last_level_win", len(geo.wins(game[:2] + [mv(2, "4", strip(2), strip(3), state="WIN")])) == 1)
+
+# --- cause: what makes something happen -------------------------------------------------------------------------------
+def lamp(c, on):
+    row = list(".K.K..")
+    row[c] = "R"
+    return ["".join(row), ("L" if on else ".") + "....."]
+
+
+lamp_rows = [mv(0, "4", lamp(0, False), lamp(1, True)), mv(1, "4", lamp(1, True), lamp(2, True)),
+             mv(2, "4", lamp(2, True), lamp(3, False)), mv(3, "4", lamp(3, False), lamp(4, False)),
+             mv(4, "3", lamp(4, False), lamp(3, True)), mv(5, "5", lamp(3, True), lamp(3, True))]
+cz = geo.cause([1, 0, 1, 0], you="R", rows=lamp_rows)
+ok("cause_moved_onto", cz[0]["if"] == "moved onto K" and cz[0]["score"] == 1.0 and cz[0]["changed"] == [3, 3], str(cz))
+cz = geo.cause("L", rows=lamp_rows)
+ok("cause_letter_and_moves", cz and cz[0]["changed"][1] == 3 and any(d["if"] == "move 5" and d["changed"][0] == 0
+                                                                        for d in cz), str(cz))
+
+# --- find with other colours ------------------------------------------------------------------------------------------
+fb = ["......", ".RR...", ".R....", "....BB", "....B.", "......"]
+hits = geo.find(["RR", "R."], fb, recolour=True)
+ok("find_recolour", [(h["at"], h["colors"]) for h in hits] == [([1, 1], {}), ([3, 4], {"R": "B"})], str(hits))
+ok("find_recolour_not_background", geo.find(["R"], ["...", "..."], recolour=True) == [], "")
+ok("find_plain_unchanged", [h["at"] for h in geo.find(["RR", "R."], fb)] == [[1, 1]])
+
 # --- what the prompt offers -------------------------------------------------------------------------------------------
 from harness.agent import prompts  # noqa: E402
 
 sysp = prompts.game_system(act_max=100)
 ok("prompt_offers_kept_tools", all(f"geo.{n}(" in sysp for n in
                                    ("rotate", "flip", "relate", "find", "symmetry", "camera", "ray", "reach",
-                                    "counters", "track", "undo_pairs", "search")), "")
+                                    "counters", "track", "undo_pairs", "verify", "atlas", "world", "wins", "cause",
+                                    "search")), "")
 ok("prompt_drops_tools", not any(f"geo.{n}(" in sysp for n in
                                  ("transpose", "shift", "crop", "paste", "scale", "recolor", "line")))
 
