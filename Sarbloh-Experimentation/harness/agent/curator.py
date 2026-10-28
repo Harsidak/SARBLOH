@@ -11,13 +11,18 @@ level-up, otherwise at most 2) and the names of up to five skills to load, which
 never sees the curator's turns or the lessons: it sees the level-up message (it names the new skills) and SKILLS. A
 reply that does not parse, or an item that does not validate, is dropped and logged; the rest is applied.
 
-Its second job is the stuck review (``review``). Once per game, at the first turn end after config ``review_at_s`` of
-run time (4 h), the agent's turn waits while the curator reads the whole level the agent is on: every move and what it
-changed (also the moves drained from the agent's context), the goals and hypotheses the agent dropped, the ones it holds
-now, and a few facts the host counts itself (moves never used, objects never clicked, moves that led back to a board
-already seen). With thinking on, it checks each belief against the moves, names the mistakes, lists what was never
-tried, proposes other goals and one next experiment. Unlike the lessons, the agent sees this: it comes back as a
-message (``review_message``). It writes nothing into the agent's memory; the agent decides what to change.
+Its second job is the stuck review (``review``), for a game stuck on a level after config ``review_at_s`` of run time
+(3 h). It runs in the review lane (harness/review_lane.py) beside the games, or, without a lane, at a turn end. It
+reads the evidence first: the board at the level's start and now, the board of the last won level before its winning
+move, every move of the level with what it did as objects (``move_change``: moved, turned, recoloured, appeared, gone,
+the whole view scrolled), also the moves drained from the agent's context, and a few facts the host counts itself
+(moves never used, objects never clicked, moves that led back to a board already seen). Then what the agent believes,
+with the hypotheses' ids, and what it dropped. With thinking on, it works out the rules from the moves alone, checks
+each belief against them, names the mistakes, lists what was never tried, proposes other goals and one next
+experiment. Unlike the lessons, the agent sees this, and it changes the agent's memory (``memory_from_review``): its
+goals become GOAL of the level, its next experiment PLAN, the hypotheses it judged move to FINDINGS as refuted or
+confirmed, and its rules are added to FINDINGS. The message (``review_message``) says what it changed, so the agent
+can change it back.
 """
 
 from __future__ import annotations
@@ -26,10 +31,12 @@ import json
 import re
 from typing import Any
 
-from harness.agent import guardrails
+from harness.agent import guardrails, perception
 from harness.memory.lessons import EDGE_TYPES, shape_id
 from harness.memory.lifecycle import LOADED_SKILLS
 from harness.memory.timeline import render_row
+from harness.memory.working import NO_WIN, level_key
+from harness.runtime.skills import geometry, observation
 
 _INTRO = """Your job is to review the memory of the agent that is playing a turn based game you need to return in json only.
 IMPORTANT: Don't think much and reason answer straight from the memory below.
@@ -169,18 +176,24 @@ def curate(*, llm: Any, memory: Any, objects: list[Any], reason: str, max_tokens
 # The stuck review
 # =====================================================================================================================
 
-REVIEW_SYSTEM = """You are reviewing the play of an agent that is stuck on one level of a turn-based game. It has spent a long time on this level without winning it. You did not play, so you are not tied to its ideas, and you can see every move it made on this level, also the early ones it has forgotten. Your job is to find where its thinking went wrong and to point it to a better way forward.
+REVIEW_SYSTEM = """You are reviewing the play of an agent that is stuck on one level of a turn-based game. It has spent a long time on this level without winning it. You did not play, so you are not tied to its ideas. You can see the board at the start of the level and the board now, every move it made on this level with what each move did to the objects on the board (also the early moves it has forgotten), and what it believes.
 
 Every level of these games can be won. If the agent has come to believe that the level cannot be won, or that the game is broken, that belief is the mistake to fix.
 
-Trust the moves, not the agent's words. Its goal, plan, hypotheses and findings are only what it believes. The moves, and what each move changed on the board, are what really happened. Check every belief against them. Do not repeat the agent's own conclusions back to it: if you agree with its goal, say which moves show it is right, and if no move shows it, say that it is untested.
+Work from first principles, in this order:
+1. Read the boards and the moves before you read what the agent believes. From the moves alone, work out what each move and each object does: what moves and by how much, what blocks it, what changes colour, what appears or disappears, what counts down, what ends in GAME_OVER. Cite the moves that show each rule.
+2. Compare the board now with the board at the start of the level, and with the board of the last level won just before its winning move. Work out what a winning board probably looks like.
+3. Only then check the agent's beliefs against your rules. Trust the moves, not the agent's words. If you agree with a belief, say which moves show it; if no move shows it, it is untested.
 
 Look for these common mistakes: a goal that was never tested; an idea kept after a move contradicted it; the same approach tried again and again with the same result; a move, an object or a part of the board that was never tried; a change on the board (a counter, a bar, a colour, the edge of the screen) that the agent never explained; a GAME_OVER whose cause it never found; a goal it dropped too early, or dropped for a reason the moves do not support.
+
+Your reply changes the agent's memory directly: your goals replace its goals for this level, your next experiment becomes its plan, a hypothesis you mark contradicted moves to its findings as refuted, one you mark supported moves there as confirmed, and your rules are added to its findings. So mark a belief contradicted or supported only when moves show it, and give each belief's id exactly as it is listed (such as h3, or goal).
 
 Write for the agent, briefly and plainly. Name objects by colour, shape and position, not by id. Cite moves by their number, such as #12.
 
 Reply with one JSON object and nothing else:
-{"beliefs": [{"belief": "the agent's goal or hypothesis, in short", "status": "one word: supported, contradicted or untested", "evidence": "the moves that show it, such as #12 and #40, and what they did"}],
+{"rules": ["what a move or an object does, worked out from the moves alone, with the moves that show it"],
+ "beliefs": [{"id": "the belief's id as listed, such as h3, or goal", "belief": "the agent's goal or hypothesis, in short", "status": "one word: supported, contradicted or untested", "evidence": "the moves that show it, such as #12 and #40, and what they did"}],
  "mistakes": ["one mistake in how the agent played, with the moves that show it"],
  "untried": ["a move, object or part of the board the agent has not tried, and why it is worth trying"],
  "goals": ["a goal that fits everything seen so far, most likely first; two or three of them, not ones the agent already dropped unless the moves never really tested them"],
@@ -188,18 +201,26 @@ Reply with one JSON object and nothing else:
 
 REVIEW_STEPS = 200          # move lines shown; above it the first REVIEW_HEAD and the last ones
 REVIEW_HEAD = 40
-REVIEW_LINE_CHARS = 180
+REVIEW_LINE_CHARS = 220
 REVIEW_OBJECTS = 30         # objects on screen listed
 REVIEW_NEVER_CLICKED = 15   # objects never clicked listed
-REVIEW_CAPS = {"beliefs": 12, "mistakes": 5, "untried": 6, "goals": 3}
+REVIEW_CAPS = {"rules": 6, "beliefs": 12, "mistakes": 5, "untried": 6, "goals": 3}
 REVIEW_ITEM_CHARS = 400
+REVIEW_DIFF_ITEMS = 4       # objects named per move line; the rest are counted
+REVIEW_SCROLL_SHARE = 0.1   # a move that changed more than this share of the board is checked for a scrolled view
+REVIEW_SCROLL_OBJECTS = 2   # ... and so is a move after which this many objects or more all moved by the same amount
+REVIEW_SCROLL_MAX = 8       # the largest scroll looked for, in cells
+REVIEW_OBJECT_HEAD = 50     # moves described as objects: the level's first ones ...
+REVIEW_OBJECT_TAIL = 400    # ... and its last ones
+REVIEW_RULES_KEPT = 4       # the reviewer's rules added to FINDINGS
+REVIEW_FINDING_CHARS = 240  # one finding the review writes
 # A reply that ran out of tokens while thinking has no JSON (run 10-27: 10 of 15 reviews, each stopped at exactly the
 # 24000-token cap). The tail of its thinking goes to a second call, thinking off, that writes the JSON from it.
 REVIEW_NOTES_CHARS = 24000
 REVIEW_FINISH_TOKENS = 4000
 REVIEW_FINISH = """You ran out of room before you wrote your reply. The end of your notes is above, in <your_notes>. Do not start over: write the JSON object now, from your notes and the moves. Reply with the JSON object and nothing else."""
 # The review as it stays in the agent's memory until the level is won (drains used to drop the review message
-# within 12 to 35 minutes, run 10-27).
+# within 12 to 35 minutes, run 10-27). Its goals and next experiment are in GOAL and PLAN, so only these stay here.
 REVIEW_MEMORY_ITEMS = 3
 REVIEW_MEMORY_CHARS = 2000
 _CLICK = re.compile(r"A6\(r(\d+),c(\d+)\)")
@@ -222,9 +243,72 @@ def _clip(text: Any, chars: int) -> str:
     return text if len(text) <= chars else text[:chars - 3] + "..."
 
 
-def _step_lines(steps: list[dict[str, Any]], max_steps: int) -> list[str]:
-    """One line per move; a run of the same move with the same change becomes one line; above ``max_steps`` lines the
-    first REVIEW_HEAD and the last ones are kept."""
+def _letters(grid: Any) -> list[str]:
+    return ["".join(perception.letter(v) for v in r) for r in perception.rows_of(grid)]
+
+
+def _board_text(board: list[str]) -> str:
+    """A board with row and column labels, as ``obs.ascii()`` prints it."""
+    w = len(board[0]) if board else 0
+    head = ["    " + "".join(str(c // 10 % 10) for c in range(w)), "    " + "".join(str(c % 10) for c in range(w))]
+    return "\n".join(head + [f"{r:>3} {row}" for r, row in enumerate(board)])
+
+
+def _box(b: list[int]) -> str:
+    return f"r{b[0]}-{b[2]} c{b[1]}-{b[3]}"
+
+
+def move_change(before: list[str], after: list[str]) -> str:
+    """What one move did, as objects (``frame_diff``): what moved and by how much, turned, changed colour, appeared or
+    disappeared. A move that changed much of the board, or moved several objects by the same amount, is checked for a
+    scrolled view (``geometry.camera``); then the objects are compared with the view moved back."""
+    changed = sum(1 for ra, rb in zip(before, after) for x, y in zip(ra, rb) if x != y)
+    if not changed:
+        return "no change"
+    parts = []
+    d = observation.frame_diff(before, after)
+    common = {tuple(m["by"]) for m in d["moved"]}
+    together = len(d["moved"]) >= REVIEW_SCROLL_OBJECTS and len(common) == 1
+    if changed > REVIEW_SCROLL_SHARE * len(before) * len(before[0]) or together:
+        # Objects that all moved together: only their shift can be the scroll (the full search is ~30 ms a move).
+        cam = geometry.camera(before, after, max_shift=REVIEW_SCROLL_MAX,
+                              shifts=None if changed > REVIEW_SCROLL_SHARE * len(before) * len(before[0]) else common)
+        if cam["by"] != [0, 0]:
+            parts.append(f"the whole view scrolled {cam['by'][0]:+d} rows {cam['by'][1]:+d} columns")
+            d = observation.frame_diff(geometry.shift(before, *cam["by"]), after)
+    items = [f"{m['letter']} {m['size']}px moved {m['by'][0]:+d},{m['by'][1]:+d} to {_box(m['to'])}"
+             for m in d["moved"]]
+    items += [f"{m['letter']} {m['size']}px turned {m['turn']} to {_box(m['to'])}" for m in d["rotated"]]
+    items += [f"{m['from_letter']}->{m['to_letter']} {m['size']}px at {_box(m['bbox'])}" for m in d["changed_color"]]
+    items += [f"{m['letter']} {m['size']}px appeared at {_box(m['bbox'])}" for m in d["appeared"]]
+    items += [f"{m['letter']} {m['size']}px gone from {_box(m['bbox'])}" for m in d["disappeared"]]
+    parts += items[:REVIEW_DIFF_ITEMS]
+    if len(items) > REVIEW_DIFF_ITEMS:
+        parts.append(f"+{len(items) - REVIEW_DIFF_ITEMS} more")
+    return "; ".join(parts) if parts else f"{d['changed']} cells changed"
+
+
+def _object_changes(transitions: list[dict[str, Any]], level: int) -> dict[Any, str]:
+    """Step index -> what the move did as objects, for the moves of ``level``; a move that cannot be read is left
+    out (its line keeps the timeline's change). Only the first REVIEW_OBJECT_HEAD and the last REVIEW_OBJECT_TAIL moves
+    (the lines shown are near the start and the end; a busy move takes up to ~50 ms)."""
+    out = {}
+    mine = [t for t in transitions if t.get("level") == level and t.get("frames")]
+    if len(mine) > REVIEW_OBJECT_HEAD + REVIEW_OBJECT_TAIL:
+        mine = mine[:REVIEW_OBJECT_HEAD] + mine[-REVIEW_OBJECT_TAIL:]
+    for t in mine:
+        try:
+            out[t["i"]] = move_change(_letters(t["before"]), _letters(t["frames"][-1]))
+        except Exception:  # noqa: BLE001 - one odd frame never fails the review
+            continue
+    return out
+
+
+def _step_lines(steps: list[dict[str, Any]], max_steps: int, changes: dict[Any, str] | None = None) -> list[str]:
+    """One line per move (its change as objects when ``changes`` has it); a run of the same move with the same change
+    becomes one line; above ``max_steps`` lines the first REVIEW_HEAD and the last ones are kept."""
+    if changes:
+        steps = [{**r, "change": changes.get(r.get("i"), r.get("change"))} for r in steps]
     runs: list[list[dict[str, Any]]] = []
     for r in steps:
         prev = runs[-1][-1] if runs else None
@@ -277,14 +361,38 @@ def host_facts(steps: list[dict[str, Any]], legal: list[int], objects: list[Any]
     return facts
 
 
+def _boards(transitions: list[dict[str, Any]], level: int) -> list[str]:
+    """The level's first board and the board now, and the board of the level before just before its winning move."""
+    mine = [t for t in transitions if t.get("level") == level]
+    won = [t for t in transitions if t.get("level") == level - 1 and t.get("level_up")]
+    out = []
+    try:
+        if mine:
+            out.append(f"<board_at_level_start>\n{_board_text(_letters(mine[0]['before']))}\n</board_at_level_start>")
+        if transitions and transitions[-1].get("frames"):
+            out.append(f"<board_now>\n{_board_text(_letters(transitions[-1]['frames'][-1]))}\n</board_now>")
+        if won:
+            t = won[-1]
+            move = f"A6(r{t.get('y')},c{t.get('x')})" if t["action"] == 6 else _move_name(int(t["action"]))
+            out.append(f"<last_won_level_before_its_winning_move>\nLevel {level} was won by {move} from this "
+                       f"board:\n{_board_text(_letters(t['before']))}\n</last_won_level_before_its_winning_move>")
+    except Exception:  # noqa: BLE001 - the boards are a help; the moves are still there
+        pass
+    return out
+
+
 def review_input(memory: Any, *, level: int, legal: list[int], objects: list[Any], tokens: int,
-                 moves_left: int | None, max_steps: int = REVIEW_STEPS, code_graph: str = "") -> str:
-    """The stuck review's input for ``level`` (0-based, as levels_completed counts)."""
+                 moves_left: int | None, max_steps: int = REVIEW_STEPS, code_graph: str = "",
+                 transitions: list[dict[str, Any]] | None = None) -> str:
+    """The stuck review's input for ``level`` (0-based, as levels_completed counts): the evidence first (the boards,
+    the host's counts, every move with what it did as objects, the objects now), then what the agent believes, with
+    the ids the review must use, and what it dropped. ``transitions`` is the host's record of every move
+    (``ArcHost.transitions``); without it there are no boards and the moves keep the timeline's change lines."""
     w = memory.working
     steps = _level_steps(memory, level)
     mine = lambda items: [x for x in items if x["level"] == level]
     goals = [g["text"] for g in mine(w.goals)]
-    hyps = [h["text"] for h in mine(w.hypotheses)]
+    hyps = [f"{h['id']}: {h['text']}" for h in mine(w.hypotheses)]
     finds = [f["text"] for f in mine(w.findings)]
     earlier = [f"L{f['level'] + 1}: {f['text']}" for f in w.findings if f["level"] < level][-15:]
     dropped = [f"{d['kind']} (dropped at turn {d['turn']}): {d['text']}" for d in mine(w.dropped)]
@@ -292,20 +400,25 @@ def review_input(memory: Any, *, level: int, legal: list[int], objects: list[Any
     shapes = [f"{o.label()} at {o.at()}{' (edge of screen)' if o.hud else ''}" for o in (objects or [])]
     graph = code_graph if len(code_graph) <= GRAPH_CHARS else code_graph[:GRAPH_CHARS].rsplit("\n", 1)[0] + "\n..."
     left = f", {moves_left} moves left in the game" if moves_left is not None else ""
+    transitions = list(transitions or [])
+    changes = _object_changes(transitions, level) if transitions else None
     return "\n\n".join([
         f"<level>\nLevel {level + 1}. The agent has made {len(steps)} moves on it and thought for about "
         f"{tokens // 1000}k tokens without winning it{left}. Legal moves: "
-        f"{', '.join(_move_name(a) for a in legal) or '(unknown)'}.\n</level>",
-        "<earlier_levels>\n" + bullet(w.goal_log) + "\n</earlier_levels>",
-        "<what_the_agent_believes_now>\nGOAL:\n" + bullet(goals) + "\nPLAN:\n" + (w.plan_for(level) or "(none)")
-        + "\nHYPOTHESES:\n" + bullet(hyps) + "\nFINDINGS on this level:\n" + bullet(finds)
-        + "\nFINDINGS from earlier levels:\n" + bullet(earlier) + "\n</what_the_agent_believes_now>",
-        "<what_the_agent_dropped_on_this_level>\n" + bullet(dropped) + "\n</what_the_agent_dropped_on_this_level>",
+        f"{', '.join(_move_name(a) for a in legal) or '(unknown)'}. Rows and columns count from 0 at the top left; "
+        f"each letter is one colour.\n</level>",
+        *_boards(transitions, level),
         "<counted_by_the_host>\n" + bullet(host_facts(steps, legal, objects)) + "\n</counted_by_the_host>",
-        "<moves_on_this_level>\n" + ("\n".join(_step_lines(steps, max_steps)) or "(none)")
+        "<moves_on_this_level>\n" + ("\n".join(_step_lines(steps, max_steps, changes)) or "(none)")
         + "\n</moves_on_this_level>",
         "<objects_on_screen_now>\n" + ("\n".join(shapes[:REVIEW_OBJECTS]) or "(none)")
         + ("\n..." if len(shapes) > REVIEW_OBJECTS else "") + "\n</objects_on_screen_now>",
+        "<earlier_levels>\n" + bullet(w.goal_log) + "\n</earlier_levels>",
+        "<what_the_agent_believes_now>\nGOAL (id goal):\n" + bullet(goals) + "\nPLAN:\n"
+        + (w.plan_for(level) or "(none)") + "\nHYPOTHESES (with their ids):\n" + bullet(hyps)
+        + "\nFINDINGS on this level:\n" + bullet(finds) + "\nFINDINGS from earlier levels:\n" + bullet(earlier)
+        + "\n</what_the_agent_believes_now>",
+        "<what_the_agent_dropped_on_this_level>\n" + bullet(dropped) + "\n</what_the_agent_dropped_on_this_level>",
         f"<code_graph>\n{graph or '(no functions yet)'}\n</code_graph>",
     ])
 
@@ -315,11 +428,11 @@ def _clean_review(out: dict[str, Any]) -> dict[str, Any]:
     nothing usable is left."""
     texts = lambda v: [_clip(x, REVIEW_ITEM_CHARS) for x in (v if isinstance(v, list) else [])
                        if isinstance(x, (str, int, float)) and str(x).strip()]
-    beliefs = [{k: _clip(b.get(k) or "", REVIEW_ITEM_CHARS) for k in ("belief", "status", "evidence")}
+    beliefs = [{k: _clip(b.get(k) or "", REVIEW_ITEM_CHARS) for k in ("id", "belief", "status", "evidence")}
                for b in (out.get("beliefs") if isinstance(out.get("beliefs"), list) else [])
                if isinstance(b, dict) and str(b.get("belief") or "").strip()]
     rev: dict[str, Any] = {"beliefs": beliefs[:REVIEW_CAPS["beliefs"]]}
-    for k in ("mistakes", "untried", "goals"):
+    for k in ("rules", "mistakes", "untried", "goals"):
         rev[k] = texts(out.get(k))[:REVIEW_CAPS[k]]
     nxt = out.get("next_experiment")
     rev["next_experiment"] = _clip(nxt, REVIEW_ITEM_CHARS) if isinstance(nxt, (str, int, float)) else ""
@@ -330,15 +443,16 @@ def _clean_review(out: dict[str, Any]) -> dict[str, Any]:
 
 def review(*, llm: Any, memory: Any, level: int, legal: list[int], objects: list[Any], tokens: int,
            moves_left: int | None, max_tokens: int, overflow: type[Exception], timeout_s: float | None = None,
-           template_kwargs: dict[str, Any] | None = None, code_graph: str = "") -> dict[str, Any]:
-    """One stuck review, thinking on (no retry: it costs the game's clock). Returns the cleaned review plus the input
-    size and reply tokens. A context overflow halves the move lines once. A reply with no JSON (it ran out of tokens
-    while thinking) gets one short call with thinking off that writes the JSON from the tail of its notes
-    (``finished``); if that has no usable JSON either, it raises (the caller logs it and the agent goes on)."""
+           template_kwargs: dict[str, Any] | None = None, code_graph: str = "",
+           transitions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """One stuck review, thinking on (no retry). Returns the cleaned review plus the input size and reply tokens. A
+    context overflow halves the move lines once. A reply with no JSON (it ran out of tokens while thinking) gets one
+    short call with thinking off that writes the JSON from the tail of its notes (``finished``); if that has no usable
+    JSON either, it raises (the caller logs it and the agent goes on)."""
     steps = REVIEW_STEPS
     for _ in range(2):
         user = review_input(memory, level=level, legal=legal, objects=objects, tokens=tokens, moves_left=moves_left,
-                            max_steps=steps, code_graph=code_graph)
+                            max_steps=steps, code_graph=code_graph, transitions=transitions)
         try:
             reply = llm.chat([{"role": "system", "content": REVIEW_SYSTEM}, {"role": "user", "content": user}],
                              tools=None, max_tokens=max_tokens, timeout_s=timeout_s, thinking=True,
@@ -364,16 +478,81 @@ def review(*, llm: Any, memory: Any, level: int, legal: list[int], objects: list
     raise ValueError("review input too long even with half the move lines")
 
 
-def review_message(rev: dict[str, Any], *, moves: int) -> str:
-    """The review as the agent reads it (a user message)."""
+def memory_from_review(values: dict[str, Any], level: int, rev: dict[str, Any],
+                       hypothesis_ids: dict[str, str]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The agent's memory variables (``values``, as ``WorkingMemory.kernel_values`` gives them) rewritten by a review of
+    ``level`` (0-based): GOAL of that level becomes the review's goals (a goal saying the level cannot be won is left
+    out; with none left, the old goals stay), PLAN becomes its next experiment, a hypothesis it marked contradicted or
+    supported (found by its id in ``hypothesis_ids``, id -> text) moves to FINDINGS as refuted or confirmed with the
+    evidence, and its first rules are added to FINDINGS. Returns the new GOAL, PLAN, HYPOTHESES and FINDINGS, and what
+    changed: ``goals``, ``old_goals``, ``plan``, ``refuted`` and ``confirmed`` (ids) and ``rules`` (how many)."""
+    key = level_key(level)
+    new = {k: {lk: list(v) if isinstance(v, list) else v for lk, v in (values.get(k) or {}).items()}
+           for k in ("GOAL", "PLAN", "HYPOTHESES", "FINDINGS")}
+    changed: dict[str, Any] = {"goals": [], "old_goals": list(new["GOAL"].get(key) or []), "plan": "",
+                               "refuted": [], "confirmed": [], "rules": 0}
+    goals = [g for g in rev.get("goals") or [] if not NO_WIN.search(g)]
+    if goals:
+        new["GOAL"][key] = goals
+        changed["goals"] = goals
+    if rev.get("next_experiment"):
+        new["PLAN"][key] = rev["next_experiment"]
+        changed["plan"] = rev["next_experiment"]
+    hyps = list(new["HYPOTHESES"].get(key) or [])
+    finds = list(new["FINDINGS"].get(key) or [])
+    ids = {str(k).strip().lower(): v for k, v in hypothesis_ids.items()}
+    for b in rev.get("beliefs") or []:
+        hid = str(b.get("id") or "").strip().lower()
+        text, status = ids.get(hid), str(b.get("status") or "").strip().lower()
+        how = "refuted" if status.startswith("contradict") else "confirmed" if status.startswith("support") else None
+        if text is None or text not in hyps or how is None:
+            continue
+        hyps.remove(text)
+        finds.append(_clip(f"{how.capitalize()} by the reviewer ({b.get('evidence') or 'the moves'}): {text}",
+                           REVIEW_FINDING_CHARS))
+        changed[how].append(hid)
+    for rule in (rev.get("rules") or [])[:REVIEW_RULES_KEPT]:
+        finds.append(_clip(f"The reviewer found: {rule}", REVIEW_FINDING_CHARS))
+        changed["rules"] += 1
+    new["HYPOTHESES"][key] = hyps
+    new["FINDINGS"][key] = finds
+    return new, changed
+
+
+def review_message(rev: dict[str, Any], *, moves: int, level: int | None = None,
+                   changed: dict[str, Any] | None = None) -> str:
+    """The review as the agent reads it (a user message); ``changed`` (from ``memory_from_review``) says what the
+    review already wrote into its memory for ``level`` (0-based)."""
     parts = [f"A reviewer has read everything you did on this level: all {moves} moves, also the early ones that are "
-             f"no longer in your context, and has checked your beliefs against what the moves did. Read it, decide "
-             f"what you agree with, and update GOAL, HYPOTHESES and PLAN before your next move. A move it cites, such "
-             f"as #12, can be read with `recall(\"#12\")`."]
+             f"no longer in your context, and has checked your beliefs against what the moves did."]
+    done = []
+    if changed is not None and level is not None:
+        key = level_key(level)
+        if changed.get("goals"):
+            done.append(f'GOAL["{key}"] now holds its goals (below)')
+        if changed.get("plan"):
+            done.append(f'PLAN["{key}"] is its next experiment')
+        if changed.get("refuted"):
+            done.append(f"{', '.join(changed['refuted'])} moved from HYPOTHESES to FINDINGS as refuted")
+        if changed.get("confirmed"):
+            done.append(f"{', '.join(changed['confirmed'])} moved from HYPOTHESES to FINDINGS as confirmed")
+        if changed.get("rules"):
+            done.append(f"{changed['rules']} rules it found added to FINDINGS")
+    if done:
+        parts.append("It has already updated your memory: " + "; ".join(done) + ".")
+        if changed.get("goals") and changed.get("old_goals"):
+            parts.append("Your goals before the review were:\n" + "\n".join(f"- {g}" for g in changed["old_goals"]))
+        parts.append("Start with the next experiment. If a move shows the reviewer is wrong, change your memory back. "
+                     "A move it cites, such as #12, can be read with `recall(\"#12\")`.")
+    else:
+        parts.append("Read it, decide what you agree with, and update GOAL, HYPOTHESES and PLAN before your next move. "
+                     "A move it cites, such as #12, can be read with `recall(\"#12\")`.")
+    if rev.get("rules"):
+        parts.append("What the moves show the game does:\n" + "\n".join(f"- {x}" for x in rev["rules"]))
     if rev.get("beliefs"):
         parts.append("Your beliefs, checked against the moves:\n" + "\n".join(
-            f"- {b['belief']}: {b['status'] or 'not judged'}" + (f" ({b['evidence']})" if b["evidence"] else "")
-            for b in rev["beliefs"]))
+            f"- {(b['id'] + ' ') if b.get('id') else ''}{b['belief']}: {b['status'] or 'not judged'}"
+            + (f" ({b['evidence']})" if b["evidence"] else "") for b in rev["beliefs"]))
     for key, title in (("mistakes", "Mistakes so far:"), ("untried", "Not tried yet:")):
         if rev.get(key):
             parts.append(title + "\n" + "\n".join(f"- {x}" for x in rev[key]))
@@ -386,14 +565,12 @@ def review_message(rev: dict[str, Any], *, moves: int) -> str:
 
 
 def review_memory(rev: dict[str, Any]) -> str:
-    """The short form of the review kept in the agent's memory until the level is won: the mistakes, what was not
-    tried, the goals and the next experiment (the checked beliefs are in the review message only)."""
+    """The short form of the review kept in the agent's memory until the level is won: the mistakes and what was not
+    tried (its goals, next experiment, rules and judged hypotheses are in GOAL, PLAN and FINDINGS)."""
     parts = []
-    for key, title in (("mistakes", "Mistakes"), ("untried", "Not tried"), ("goals", "Goals that fit, most likely first")):
+    for key, title in (("mistakes", "Mistakes"), ("untried", "Not tried")):
         if rev.get(key):
             parts.append(f"{title}:\n" + "\n".join(f"- {x}" for x in rev[key][:REVIEW_MEMORY_ITEMS]))
-    if rev.get("next_experiment"):
-        parts.append("Next experiment: " + rev["next_experiment"])
     return _clip_lines("\n".join(parts), REVIEW_MEMORY_CHARS)
 
 

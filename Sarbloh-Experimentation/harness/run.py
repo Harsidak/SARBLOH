@@ -62,7 +62,7 @@ def fit_context(agent: dict[str, Any], window: int) -> None:
 
 
 def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_event: threading.Event,
-              soft_end: float, scheduler: Any = None) -> dict[str, Any]:
+              soft_end: float, scheduler: Any = None, lane: Any = None) -> dict[str, Any]:
     from harness.game.arc_host import ArcHost
     from harness.agent.agent import AgentSession
 
@@ -87,10 +87,14 @@ def play_game(game: Any, cfg: dict[str, Any], llm: Any, run_dir: Path, stop_even
                            task=task, arc=host, deadline=deadline, stop_event=stop_event,
                            memory_root=run_dir / "memory", tracing=bool(cfg.get("tracing", True)))
     session_ref["s"] = session
+    if lane is not None:  # stuck reviews of this game run in the review lane, beside it
+        lane.register(game.game_id, session)
     t0 = time.time()
     try:
         session.run()
     finally:
+        if lane is not None:
+            lane.unregister(game.game_id)
         if scheduler is not None:
             llm.close()
         game.finish("cancelled" if stop_event.is_set() and not host.finished else None)
@@ -142,13 +146,24 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
                                       run_budget_s=max(0.0, soft_end - time.time()),
                                       tail_fade_fraction=float(sched_cfg.get("tail_fade_fraction", 0.2)))
         workers = max(1, len(started))
+    # The review lane (harness/review_lane.py): stuck reviews beside the games, from memory.review_at_s of run time.
+    mc = cfg["agent"].get("memory") or {}
+    lane = None
+    if float(mc.get("review_at_s") or 0) > 0 and (int(mc.get("review_lanes", 0)) or int(mc.get("review_borrow", 0))):
+        from harness.review_lane import ReviewLane
+
+        lane = ReviewLane(llm, start_at=float(cfg["agent"].get("run_start") or t0) + float(mc["review_at_s"]),
+                          lanes=int(mc.get("review_lanes", 0)), borrow=int(mc.get("review_borrow", 0)),
+                          scheduler=scheduler, log_path=run_dir / "review_lane.jsonl")
+        lane.start()
     print(f"[runner] started {len(started)}/{len(games)} games, concurrency={workers}"
-          + (f", scheduler slots={scheduler.slots}" if scheduler else ""), flush=True)
+          + (f", scheduler slots={scheduler.slots}" if scheduler else "")
+          + (f", review lanes={lane.lanes}+{lane.borrow} borrowed" if lane else ""), flush=True)
     sessions: dict[str, dict[str, Any]] = {}
 
     def job(g: Any) -> None:
         try:
-            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end, scheduler)
+            sessions[g.game_id] = play_game(g, cfg, llm, run_dir, stop_event, soft_end, scheduler, lane)
         except Exception:  # noqa: BLE001
             sessions[g.game_id] = {"end_reason": "crash", "traceback": traceback.format_exc()[-3000:]}
             g.finish("crashed")
@@ -173,6 +188,8 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
                     print(f"[scheduler] {scheduler.status()}", flush=True)
     finally:
         stop_event.set()
+        if lane is not None:
+            lane.close()
         if scheduler is not None:
             scheduler.close()
         for g in started:
@@ -181,6 +198,8 @@ def run_games(games: list[Any], cfg: dict[str, Any], llm: Any, run_dir: Path, so
     summary = summarize(started, sessions, cfg, llm, time.time() - t0)
     if scheduler is not None:
         summary["scheduler"] = scheduler.stats()
+    if lane is not None:
+        summary["review_lane"] = dict(lane.counts)
     (run_dir / "results.json").write_text(json.dumps(
         {"summary": summary, "config": cfg, "sessions": sessions,
          "runs": [g.run.to_json() for g in started if g.run]}, indent=1, default=str), encoding="utf-8")

@@ -53,8 +53,8 @@ for p in FL:
        and f["--moe-runner-backend"] == "auto")
     ok(f"{p}_memory", f["--mem-fraction-static"] == "0.96" and f["--kv-cache-dtype"] == "fp8_e4m3"
        and f["--mamba-ssm-dtype"] == "bfloat16" and f["--mamba-radix-cache-strategy"] == "extra_buffer")
-    ok(f"{p}_ten_requests", f["--max-running-requests"] == "10" and f["--cuda-graph-max-bs-decode"] == "10"
-       and max(map(int, f["--cuda-graph-bs-decode"])) == 10)
+    ok(f"{p}_eleven_requests", f["--max-running-requests"] == "11" and f["--cuda-graph-max-bs-decode"] == "11"
+       and max(map(int, f["--cuda-graph-bs-decode"])) == 11)
     ok(f"{p}_tools", spec.has_tool_parser(p) and f["--tool-call-parser"] == "qwen3_coder"
        and f["--reasoning-parser"] == "qwen3")
     if "--speculative-algorithm" in f:
@@ -98,7 +98,7 @@ finally:
     server._RUNTIMES.pop("flash_frspec", None)
 cmd = captured["cmd"]
 i = cmd.index("--cuda-graph-bs-decode")
-ok("graph_list_expanded", cmd[i + 1:i + 11] == [str(b) for b in range(1, 11)] and cmd[i + 11].startswith("--"))
+ok("graph_list_expanded", cmd[i + 1:i + 12] == [str(b) for b in range(1, 12)] and cmd[i + 12].startswith("--"))
 ok("bool_flags_alone", all(cmd[cmd.index(b) + 1].startswith("--") for b in ("--ple-offload-embedding",
                                                                              "--weight-loader-drop-cache-after-load")))
 ok("template_from_target", cmd[cmd.index("--chat-template") + 1] == f"{model_dir}/chat_template.jinja")

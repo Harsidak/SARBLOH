@@ -13,8 +13,13 @@ One request:
                     the output then gets the memory receipt and the code-graph change line (``_graph_delta``);
                     then the level-up note
 No tool call: a continuation message (or, if the reply was cut off, the "call the tool now" note) and the turn goes on.
-End of a turn: stuck note, stuck review (``_maybe_review``: once per game, after 4 h of run time, the curator reads
-the whole level and the agent gets its review; its short form stays a memory section until the level is won), curator (``_maybe_curate``, off by default: it runs at level-ups), scheduler slot (``guardrails.end_turn``).
+End of a turn: stuck note, stuck review (``_maybe_review``, only without the review lane), curator
+(``_maybe_curate``, off by default: it runs at level-ups), scheduler slot (``guardrails.end_turn``).
+The stuck review: after 3 h of run time, a game stuck on a level (``review_due``) is reviewed by the curator, in the
+review lane (harness/review_lane.py, its own thread and server request, while the game goes on) or at a turn end. The
+game's own thread applies it before its next request (``_apply_review``): it rewrites GOAL, PLAN, HYPOTHESES and
+FINDINGS of the level, the agent gets the review as a message, and its short form stays a memory section until the
+level is won.
 The guardrails (refused moves, notes that push the model to act, tool-call checks, hard stops) are in guardrails.py.
 There is one tool, ipython: ``recall()`` and ``graph()`` are kernel functions, and the memory is five kernel variables
 (GOAL, PLAN, HYPOTHESES, FINDINGS, SKILLS) copied after every call (``_read_memory``).
@@ -46,6 +51,9 @@ from harness.runtime.skills import codegraph, observation, recalling
 
 # The append-only estimate of one picture: the 640-pixel map plus its panel at 32 pixels per token (patch 16, merge 2).
 IMAGE_TOKENS = 500
+# A stuck review is not started with less than this left in the game: it takes up to 10 minutes, and then the agent
+# needs time to use it.
+REVIEW_MIN_LEFT_S = 900
 
 
 def _wire(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -215,7 +223,14 @@ class AgentSession:
         # won, a note says to question the goal and the least tested rule. 0 = off.
         self.stuck_note_tokens = int(cfg.get("stuck_note_tokens") or 0)
         self._stuck_level, self._level_tokens, self._stuck_notes = 0, 0, 0
-        self._reviewed = False   # the stuck review ran in this game (config memory.review_at_s)
+        # The stuck review (config memory.review_*): level (0-based) -> the level's reply tokens when its last review
+        # started; a level is reviewed again only after review_min_tokens more.
+        self._reviewed_at: dict[int, int] = {}
+        # Set by run.py when the review lane (harness/review_lane.py) reviews this game: no review at turn ends then.
+        self.review_lane = False
+        # A finished review waiting for this game's own thread (``offer_review`` -> ``_apply_review``).
+        self._review_ready: dict[str, Any] | None = None
+        self._review_lock = threading.Lock()
         # The review's short form and its level (0-based): a memory section until that level is won (_blocks).
         self._review: tuple[int, str] | None = None
         # When the run started (the notebook clock, set by run.main); the review is timed from it. Not set (local
@@ -289,6 +304,17 @@ class AgentSession:
         "looked" (code ran without moving, or no tool call), "retry" (overflow or LLM failure: nothing was stored) or
         "answered" (no tool call and the game is over). Called from _loop."""
         tools = self.tools
+        # 1b) Wait for the scheduler slot before building the request, so what arrived while waiting (a stuck review
+        # from the lane) is in it.
+        wait = getattr(self.llm, "wait_slot", None)
+        if callable(wait):
+            try:
+                wait()
+            except Exception as exc:  # noqa: BLE001 - stopped while waiting: the next should_stop ends the game
+                self._log_event({"event": "slot_wait_error", "error": repr(exc)[:300]})
+                time.sleep(1)
+                return "retry"
+        self._apply_review()
         # 2) Drain the old messages (no model call) when the context passes the trigger
         tokens = self._context_tokens()
         if self._wants_drain(tokens):
@@ -1001,46 +1027,113 @@ class AgentSession:
                          "action_count": self.arc.game.action_count, **rec})
         return rec
 
-    def _maybe_review(self) -> None:
-        """The stuck review, once per game: at the first turn end after memory.review_at_s of run time (counted from the
-        notebook start, config run_start), the curator reads the whole level the agent is on with thinking on and its
-        review is pushed as a user message. The turn waits for it; a failure is logged and the agent goes on. Called
-        from guardrails.end_turn."""
+    # --- the stuck review ----------------------------------------------------------------------------------
+    def review_due(self, now: float | None = None) -> int | None:
+        """How stuck this game is, when a stuck review is due now: the reply tokens spent on the current level since
+        its last review (or since the level started). None when it is not due: before memory.review_at_s of run time
+        (counted from the notebook start, config run_start), the game over or near its end (REVIEW_MIN_LEFT_S), a
+        review already running or waiting, or fewer than memory.review_min_tokens since the last one. Read by the
+        review lane (any thread) and by ``_maybe_review``."""
         mc = self.cfg.get("memory") or {}
+        now = time.time() if now is None else now
         at = float(mc.get("review_at_s") or 0)
-        level = self.arc.game.state.levels_completed
-        if at <= 0 or self._reviewed or self.arc.finished or time.time() < self.run_start + at:
-            return
-        if level != self._stuck_level:   # a level-up this turn: wait for the next turn end, on the new level
-            return
-        left = self.deadline - time.time()
-        if left < 300:   # not worth the game's last minutes
-            return
-        self._reviewed = True
+        if at <= 0 or now < self.run_start + at or self.end_reason or self.arc.finished:
+            return None
+        if self.deadline - now < REVIEW_MIN_LEFT_S or self._review_ready is not None:
+            return None
+        level = self._stuck_level
+        if level != self.arc.game.state.levels_completed:   # a level-up this turn: its tokens start at the next reply
+            return None
+        since = self._level_tokens - self._reviewed_at.get(level, 0)
+        return since if since >= int(mc.get("review_min_tokens", 100000)) else None
+
+    def review_job(self, llm: Any) -> dict[str, Any]:
+        """One stuck review of the current level with ``llm``. The lane calls it from its own thread with the shared
+        client (no game slot), so it only reads the game's state; the result goes back with ``offer_review`` and the
+        game's own thread applies it (``_apply_review``). Never raises: a failure is in ``error``."""
+        mc = self.cfg.get("memory") or {}
+        level, tokens = self._stuck_level, self._level_tokens
+        self._reviewed_at[level] = tokens
         t0 = time.time()
+        res: dict[str, Any] = {"level": level, "tokens": tokens}
         try:
-            rev = curator.review(llm=self.llm, memory=self.memory, level=level,
-                                 legal=[a for a in self.arc.game.state.available_actions if a != 0],
-                                 objects=self._objects, tokens=self._level_tokens, moves_left=self.arc.budget_left,
-                                 max_tokens=int(mc.get("review_max_tokens", 24000)), overflow=ContextOverflow,
-                                 timeout_s=max(60.0, min(self.cfg["request_timeout_s"], left - 120)),
-                                 template_kwargs=self._effort(),
-                                 code_graph=codegraph.render(self._graph) if self._graph else "")
+            res["rev"] = curator.review(
+                llm=llm, memory=self.memory, level=level,
+                legal=[a for a in self.arc.game.state.available_actions if a != 0], objects=list(self._objects),
+                tokens=tokens, moves_left=self.arc.budget_left, max_tokens=int(mc.get("review_max_tokens", 40000)),
+                overflow=ContextOverflow,
+                timeout_s=max(60.0, min(self.cfg["request_timeout_s"], self.deadline - time.time() - 120)),
+                template_kwargs=effort_kwargs(self.cfg, level + 1),
+                code_graph=codegraph.render(self._graph) if self._graph else "",
+                transitions=list(self.arc.transitions))
         except Exception as exc:  # noqa: BLE001 - the review must never kill the session
-            self.stats["review_errors"] += 1
-            self._log_event({"event": "review", "level": level + 1, "tokens": self._level_tokens,
-                             "duration_s": round(time.time() - t0, 1), "error": f"{type(exc).__name__}: {exc}"[:500]})
+            res["error"] = f"{type(exc).__name__}: {exc}"[:500]
+        res["duration_s"] = round(time.time() - t0, 1)
+        return res
+
+    def offer_review(self, res: dict[str, Any]) -> None:
+        """Hands a finished review (``review_job``) to this game; it is applied before its next request."""
+        with self._review_lock:
+            self._review_ready = res
+
+    def _apply_review(self) -> None:
+        """Applies a finished review in the game's own thread: the review rewrites the memory of its level
+        (``_write_review``), its message is pushed, and its short form becomes a memory section until the level is
+        won. A review of a level already won is only logged. Called from _request (before the request is built) and
+        _maybe_review."""
+        with self._review_lock:
+            res, self._review_ready = self._review_ready, None
+        if res is None:
             return
-        moves = sum(1 for r in self.memory.timeline.steps() if r.get("level") == level)
+        level = res["level"]
+        base = {"event": "review", "level": level + 1, "tokens": res.get("tokens"), "duration_s": res.get("duration_s"),
+                "lane": res.get("lane")}
+        if "error" in res:
+            self.stats["review_errors"] += 1
+            self._log_event({**base, "error": res["error"]})
+            return
+        rev = res["rev"]
         self.stats["reviews"] += 1
         self.stats["review_tokens"] += int(rev.get("reply_tokens") or 0)
-        self._log_event({"event": "review", "level": level + 1, "tokens": self._level_tokens, "moves": moves, "duration_s": round(time.time() - t0, 1), **rev})
-        self._push({"role": "user", "content": curator.review_message(rev, moves=moves)})
+        moves = sum(1 for r in self.memory.timeline.steps() if r.get("level") == level)
+        if level != self.arc.game.state.levels_completed or self.arc.finished:
+            self._log_event({**base, "moves": moves, "stale": True, **rev})
+            return
+        changed = self._write_review(level, rev)
+        self._log_event({**base, "moves": moves, **rev, "memory": changed})
+        self._push({"role": "user", "content": curator.review_message(rev, moves=moves, level=level, changed=changed)})
         # From now on the short form is a memory section, so a drain cannot drop it. It is marked as shown: the
         # message above already says it, and it goes out with the next full memory.
         self._review = (level, curator.review_memory(rev))
         if self._shown is not None:
             self._shown["review"] = self._review[1]
+
+    def _write_review(self, level: int, rev: dict[str, Any]) -> dict[str, Any]:
+        """The review rewrites GOAL, PLAN, HYPOTHESES and FINDINGS of its level (``curator.memory_from_review``): saved
+        in the game's memory, then put into the kernel. Returns what it changed (with ``errors`` if the memory refused
+        a part of it)."""
+        w = self.memory.working
+        new, changed = curator.memory_from_review(w.kernel_values(), level, rev,
+                                                  {h["id"]: h["text"] for h in w.hypotheses if h["level"] == level})
+        wrote = self.memory.sync(new, turn=self.stats["turns"], level=level)
+        if wrote["errors"]:
+            changed["errors"] = wrote["errors"]
+        values = {k: v for k, v in w.kernel_values().items() if k != "SKILLS"}
+        try:
+            ok = self.kernel.set_memory(values)
+        except Exception as exc:  # noqa: BLE001 - the memory is saved; the next cell's sync puts it back
+            ok = False
+            self._log_event({"event": "review_memory_error", "error": repr(exc)[:300]})
+        changed["kernel"] = bool(ok)
+        return changed
+
+    def _maybe_review(self) -> None:
+        """Without the review lane: the stuck review at a turn end, once due (``review_due``); the turn waits for it.
+        Called from guardrails.end_turn."""
+        if self.review_lane or self.review_due() is None:
+            return
+        self.offer_review(self.review_job(self.llm))
+        self._apply_review()
 
     # --- context: system prompt, drain ----------------------------------------------------------------------
     def _system_prompt(self) -> str:

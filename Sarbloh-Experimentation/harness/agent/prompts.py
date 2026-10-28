@@ -128,6 +128,17 @@ moves():
 frame_diff():
 `frame_diff(before, after)` compares two boards and returns what changed as objects: `changed` (the number of cells that differ) and the lists `moved`, `rotated`, `changed_color`, `appeared` and `disappeared`, at most 30 entries each. Each entry has the `letter`, `size` and its boxes [r0, c0, r1, c1]; `moved` also has `by` [rows, columns] and `rotated` has `turn` (degrees clockwise). `frame_diff()` with no arguments compares `obs.before` with the board now. It is free.
 
+geo:
+`geo` holds geometry for boards and pieces of boards. A board is `obs.board` or any list of strings; a piece is a cropped board or an object dict from `obs.objects`. Positions are (row, column) and boxes are [r0, c0, r1, c1]. All of it is free.
+- Transforms that return a new board: `geo.rotate(b, turns)` (90 degrees clockwise per turn), `geo.flip(b, "h")` (left-right) or `"v"` (top-bottom), `geo.transpose(b)`, `geo.shift(b, dr, dc)`, `geo.crop(b, r0, c0, r1, c1)`, `geo.paste(b, piece, r, c)`, `geo.scale(b, 2)` or `geo.scale(b, 1/2)`, `geo.recolor(b, {{"R": "B"}})`. A `step()` model built from them stays short and correct.
+- `geo.relate(a, b)`: which turn, mirror, scale and colour change turns piece a into piece b, and how many cells agree (`match` 1.0 is exact); for two objects also how far it moved (`by`).
+- `geo.find(piece, board)`: every place the piece is on the board, turned and mirrored copies too; `min_match=0.8` finds near copies. Use it to see where a piece fits or where a pattern repeats.
+- `geo.symmetry(b)`: how well a board or piece mirrors and turns onto itself, and the cells that break it. Crop the region first.
+- `geo.camera(before, after)`: whether the whole view scrolled and by how much; then compare `geo.shift(before, *by)` with `after` to see what really changed.
+- `geo.line(r0, c0, r1, c1)` the cells on a straight line; `geo.ray(b, r, c, dr, dc)` walks from a cell until something is hit; `geo.reach(b, start, passable, goal, step=1, size=(1, 1))` the shortest path (as "up", "down", "left", "right") for a block of that size, and the distance to every reachable place.
+- `geo.counters()`: the colors whose number of cells changes move after move on this level (bars, counters, lives), with the usual change per move and the moves that broke the pattern.
+- `geo.search(start, step, is_goal, moves)`: breadth-first search over your own `step(state, move)` model; returns the shortest `path` of moves, or None.
+
 play():
 `r = await play(path)` is the only call that changes the game. Each move in `path` counts as one action, except undo ("7"), which is not counted. A call without `await` builds a coroutine and makes no move.
 - `path` is a list of 1 to {act_max} moves made in order. A move is "1" up, "2" down, "3" left, "4" right, "5" the special action, "7" undo,{reset_in_path} or a click "6 r c" (row first: "6 12 40" clicks row 12, column 40; the tuple (6, 12, 40) is the same; rows and columns are 0 to 63). One move is a path of one: `await play(["5"])`.
@@ -207,8 +218,7 @@ ENVIRONMENT = """Python packages: `collections`, `heapq`, `itertools`, `functool
 # 3. Situation messages (user turns or notes sent by the harness at a given moment)
 # =====================================================================================================================
 
-TASK_GAME = """{levels}You have at most {max_actions} moves for the whole game.
-The first state is below. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and test that goal with one move. Use what changed to write your model."""
+TASK_GAME = """{levels}{moves}The first state is below. In your first `ipython` call, read `observe()`, find what you might control and what might be the goal, and test that goal with one move. Use what changed to write your model."""
 
 CONTINUE_GAME = ("You ended your reply without calling a tool, so nothing ran. Call `ipython` now: read the state with "
                  "`observe()` if you need it, then send your moves with `await play(path, predict=...)`.")
@@ -433,9 +443,10 @@ def game_system(*, act_max: int, vision: bool = True, picture_last: bool = True,
                            replay_refusal=REPLAY_REFUSAL if replay_stop else "")
 
 
-def task_message(*, game_id: str, max_actions: int, minutes: int, win_levels: int | None = None) -> str:
+def task_message(*, game_id: str, max_actions: int | None, minutes: int, win_levels: int | None = None) -> str:
     levels = f"It has {win_levels} levels. " if win_levels else ""
-    return event_message("start", game_id=game_id, max_actions=max_actions, minutes=minutes, level=1, levels=levels)
+    moves = f"You have at most {max_actions} moves for the whole game.\n" if max_actions is not None else ""
+    return event_message("start", game_id=game_id, moves=moves, minutes=minutes, level=1, levels=levels)
 
 
 def continuation(*, moves_left: int | None = None, minutes_left: int | None = None) -> str:

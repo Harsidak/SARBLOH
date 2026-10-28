@@ -19,7 +19,7 @@ DEFAULT: dict[str, Any] = {
     "notebook_budget_s": 3600.0,       # whole notebook wall clock, measured from its first cell
     "teardown_reserve_s": 300.0,       # games are stopped this long before the budget ends
     "game_wall_s": 1800.0,             # cap per game
-    "max_actions_per_game": 2000,       # hard action budget per game (host-enforced)
+    "max_actions_per_game": None,       # hard action budget per game (host-enforced); None = no cap
     "stop_after_levels": None,         # end each game after this many levels (local tests); None = play them all
     # ARC SDK recording (Arcade.make(save_recording=True)): one JSONL line per env step, with frames and the agent's
     # step ref (turn, tool call, and on an act's first action its thought and arguments). Off on the competition rerun.
@@ -176,15 +176,23 @@ DEFAULT: dict[str, Any] = {
             # turn once this many requests have gone by since its last pass.
             "curator_every_turns": 0,
             "curator_max_tokens": 4000,
-            # The stuck review, once per game: at the first turn end after this much run time (from the notebook
-            # start), the agent's turn waits while the curator reads the whole level it is on (every move, the beliefs
-            # held and dropped) with thinking on, and its review comes back to the agent as a message. By 4 h most
-            # games are stuck (owner, 10-27: ~120 of 183 levels by then). 0 = off.
-            "review_at_s": 4 * 3600,
-            "review_max_tokens": 24000,   # the review's reply, thinking included
+            # The stuck review: from this much run time (from the notebook start; owner 10-27: 3 h, so Submit's 5 h
+            # leaves time to use it), a game stuck on a level is reviewed by the curator with thinking on (the boards,
+            # every move as objects, the beliefs held and dropped). The review rewrites GOAL, PLAN, HYPOTHESES and
+            # FINDINGS of the level and comes back to the agent as a message. 0 = off.
+            "review_at_s": 3 * 3600,
+            # Stuck = this many reply tokens on the level since it started or since its last review (10-27: 90% of
+            # won levels took under 82k).
+            "review_min_tokens": 100000,
+            # The review lane (harness/review_lane.py, scheduler runs): reviews at once on their own server requests
+            # (the server takes the scheduler's slots plus these), and how many more may borrow scheduler slots no game
+            # is waiting for. Both 0: the review runs at the stuck game's turn end, and the turn waits for it.
+            "review_lanes": 1,
+            "review_borrow": 2,
+            "review_max_tokens": 40000,   # the review's reply, thinking included (24000 cut off 10 of 15 on 10-27)
             "recall_tokens": 1000,     # the most one recall() prints (chars / 4)
             # memory block sections, in tokens (chars / 4); a section over its cap is trimmed oldest first
-            "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 300},
+            "caps": {"goal": 150, "plan": 200, "skills": 200, "hypotheses": 400, "findings": 500},
         },
     },
     # --- model ---------------------------------------------------------------------------------------------

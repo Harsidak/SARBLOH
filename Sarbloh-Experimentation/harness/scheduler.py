@@ -212,6 +212,24 @@ class PriorityScheduler:
                 self._drop(key, reason)
             self._pump()
 
+    def borrow(self, key: str) -> bool:
+        """Takes a free slot for ``key`` (not a game: the stuck-review lane) when one is free and no game waits; False
+        otherwise. Give it back with ``give_back``."""
+        with self._cond:
+            if self._closed or key in self._holders or len(self._holders) >= self.slots or self._waiting_count():
+                return False
+            self._holders.add(key)
+            self._log({"event": "borrow", "key": key, "holders": sorted(self._holders)})
+            return True
+
+    def give_back(self, key: str) -> None:
+        """Returns a slot taken with ``borrow``: the best waiting game gets it."""
+        with self._cond:
+            if key in self._holders and key not in self._games:
+                self._holders.discard(key)
+                self._log({"event": "give_back", "key": key})
+            self._pump()
+
     def close(self) -> None:
         with self._cond:
             self._closed = True
@@ -267,7 +285,10 @@ class ScheduledLLM:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._llm, name)
 
-    def chat(self, *args: Any, **kwargs: Any) -> Any:
+    def wait_slot(self) -> None:
+        """Blocks until this game holds a slot (a level-up first sends it back to compete). The agent calls it before
+        it builds a request, so what changed while it waited (a stuck review) is in that request; ``chat`` calls it
+        too, and then it returns at once."""
         level = self._levels_won()
         if level != self._level:   # a level-up since the last call: a fresh, deeper level competes again at once
             self._level, self.tokens_on_level = level, 0
@@ -278,6 +299,9 @@ class ScheduledLLM:
             self._sched.handover(self._key, "cold")
         self._cold = False
         self._sched.acquire(self._key, self._should_stop)
+
+    def chat(self, *args: Any, **kwargs: Any) -> Any:
+        self.wait_slot()
         try:
             reply = self._llm.chat(*args, **kwargs)
             self.tokens_on_level += int(getattr(reply, "completion_tokens", 0) or 0)

@@ -297,7 +297,7 @@ class FakeGame:
         pass
 
 
-def fake_play_game(game, cfg, llm, run_dir, stop_event, soft_end, scheduler=None):
+def fake_play_game(game, cfg, llm, run_dir, stop_event, soft_end, scheduler=None, lane=None):
     w = ScheduledLLM(llm, scheduler, game.game_id, levels_won=lambda: 0, n_levels=7, should_stop=stop_event.is_set)
     with lock:
         seen["live"] += 1
@@ -327,7 +327,7 @@ try:
     ok("scheduler_log_written", (out / "scheduler.jsonl").exists())
     seen.update(max_live=0, live=0)
     cfg_off = build_config({"concurrency": 2, "scheduler": {"enabled": False}})
-    prime_run.play_game = lambda game, cfg, llm, run_dir, stop_event, soft_end, scheduler=None: (
+    prime_run.play_game = lambda game, cfg, llm, run_dir, stop_event, soft_end, scheduler=None, lane=None: (
         ok("off_passes_no_scheduler", scheduler is None) or {"end_reason": "fake"})
     summ_off = prime_run.run_games([FakeGame("u0")], cfg_off, llm, Path(tempfile.mkdtemp()), time.time() + 60)
     ok("off_no_scheduler_in_summary", "scheduler" not in summ_off)

@@ -54,6 +54,10 @@ ok("reset_move_on_taught", prompts.RESET_CONTROL_MOVE in on and '"7" undo, "rese
 start = prompts.task_message(game_id="g", max_actions=400, minutes=45, win_levels=7)
 ok("start_message", start.startswith("It has 7 levels. You have at most 400 moves") and "nothing is known" not in start
    and "probe" not in start and "level 1" not in start.lower().replace("this is level 1.", ""), start)
+uncapped = prompts.task_message(game_id="g", max_actions=None, minutes=45, win_levels=7)
+ok("start_message_uncapped", uncapped.startswith("It has 7 levels. The first state is below.") and "None" not in uncapped
+   and "at most" not in uncapped, uncapped)
+ok("no_action_cap_default", build_config()["max_actions_per_game"] is None)
 ok("stuck_note_no_recall", "recall" not in prompts.STUCK and "on this level for a long time" in prompts.STUCK)
 skill = (Path(_ROOT) / _PRIME / "harness" / "agent" / "skills" / "composition.md").read_text(encoding="utf-8")
 ok("composition_no_experiment_room", "room to experiment" not in skill)
