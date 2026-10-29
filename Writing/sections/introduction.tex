@@ -1,93 +1,16 @@
 \section{Introduction}
+\label{sec:intro}
 
-A person who opens an ARC-AGI-3 game for the first time does not read it. They look at it. Within a second they know
-which blob is probably them, that the bar along the bottom is probably a timer, and that the hollow square in the corner
-probably wants something put inside it. None of this is stated anywhere, and all of it can be wrong, but it is what
-lets a human clear a level in a couple of dozen moves. ARC-AGI-3 \citep{arcagi3} is built to measure exactly this kind
-of efficient skill acquisition \citep{chollet2019measure}. Every level is new, nothing is explained, and the score is
-the squared ratio of human to agent actions, so every exploratory move the agent spends shows up directly in its
-score.
+Human visual cognition exhibits remarkable inductive fluidity when navigating novel interactive environments. Within hundreds of milliseconds of observing an unfamiliar task, a human observer effortlessly abstracts fundamental physical and operational priors---identifying agent embodiment, demarcating spatial boundaries, recognizing temporal and resource gauges, and deducing goal affordances without requiring explicit procedural manuals \citep{spelke2007core}. While these perceptual abstractions are inductive and subject to revision, they provide the necessary structural scaffolding that enables humans to solve complex tasks within a minimal number of exploratory interactions. 
 
-A language model gets none of that first second for free. Shown the frame as numbers, it sees 4,096 integers and has to
-rebuild objectness, agency and goals from tokens. Our first measurement made this concrete (Section~\ref{sec:motivation}).
-Given only the integer grid and the action list, a frontier model needed 200--300 actions on the first level of
-\code{ls20} and lost the game. Given a picture of the same board, it needed 12--24. No change to the reasoning, the
-prompt or the model did more than that one change of input. On this benchmark perception is the first bottleneck, and
-it binds harder for the small open-weight models that Kaggle's offline rules require.
+The ARC-AGI-3 benchmark \citep{arcagi3} was established to rigorously quantify this core facet of artificial general intelligence: the efficiency of novel skill acquisition under strict epistemic uncertainty \citep{chollet2019measure}. Unlike static visual reasoning suites, ARC-AGI-3 situates an autonomous agent in a sequential environment comprising an undisclosed series of compositional levels. The agent receives no natural language directives, action semantic descriptions, or termination conditions. Crucially, the benchmark evaluates performance through Relative Human Action Efficiency (RHAE), where the earned score scales quadratically with the ratio of human baseline actions to agent actions. Consequently, each exploratory or misdirected action incurred by an agent penalizes its final score quadratically, rendering brute-force trial-and-error catastrophically inefficient.
 
-This paper describes \textsc{Sarbloh}, the agent we built for the offline Kaggle track of ARC Prize 2026, and the
-\emph{perception engine} at its centre. The constraints set the design. The rerun is offline. It gets one NVIDIA RTX
-PRO 6000 (96\,GB) and a hard limit of nine hours for every hidden game. Weights must be open. So the agent cannot think
-its way around a bad view of the world. It has to be shown the world well, and then act cheaply.
+When contemporary large language and vision-language models are deployed in this regime, their primary failure mode is rarely policy deduction or symbolic reasoning; rather, it is visual grounding and spatial representation. When an environment frame is serialized as an unparsed matrix of discrete integer tokens, a state-of-the-art reasoning model must expend tens of thousands of tokens reconstructing basic topological concepts---such as connectivity, containment, and coordinate alignment---from raw token IDs. In preliminary controlled investigations (Section~\ref{sec:motivation}), exposing a frontier model to raw $64{\times}64$ integer grids resulted in over 200--300 exploratory actions on an elementary navigation task, culminating in exhaustion of the action budget and task failure. In stark contrast, supplying the identical model with an aligned visual rendering and structural geometric briefing enabled direct task resolution in 6 to 12 actions. On interactive abstract reasoning benchmarks, perceptual structuring is the primary operational bottleneck.
 
-\paragraph{Contributions.}
-\begin{itemize}
-\item \textbf{A perception engine} (\S\ref{sec:perception}) that turns each frame into a picture, a lettered board with
-stable object ids and per-step change lines, and a briefing that keeps \emph{measured} facts apart from \emph{guessed}
-roles. Every guess carries a one-action test, so a wrong guess costs one move rather than a wrong plan. A perception
-lab with eight competing designs (\S\ref{sec:lab}) picked the design. The lab also showed where single-frame guessing
-stops working.
-\item \textbf{A code-as-action agent} (\S\ref{sec:acting}) with one tool, a persistent Python kernel. The agent models
-the game in code, searches its model, and sends whole move sequences with \code{play()}, which stops at the first move
-its model got wrong.
-\item \textbf{Systems engineering for a single GPU} (\S\ref{sec:systems}). An append-only context keeps 98.4\% of every
-prompt in the prefix cache of a hybrid-attention model. A priority scheduler gives the GPU to the games most likely to
-score next. A self-healing SGLang server serves a 125B MoE in 4-bit with speculative decoding.
-\item \textbf{An honest record} (\S\ref{sec:results}): the whole Kaggle trajectory from 0.00 to 16.53, the failed
-experiments included, and a same-server comparison with the Milestone~\#1 winning harness.
-\end{itemize}
+This visual bottleneck binds with acute severity under the rigorous constraints of the offline Kaggle ARC Prize track. In this setting, candidate agents are evaluated on undisclosed, held-out game environments without external network connectivity. Computation is strictly bounded to a single NVIDIA RTX PRO 6000 GPU (96\,GB VRAM) for a total execution window of nine hours across all evaluated games, and all model weights must be open-source. Under these stringent computational and temporal boundaries, an agent cannot afford iterative self-correction or excessive reflective generation over poorly formatted observations; it requires high-fidelity, deterministic perceptual abstractions that minimize token latency and preserve action efficiency.
 
-\begin{figure*}[t]
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-  font=\sffamily\footnotesize, >={Stealth[length=2.2mm]},
-  box/.style={draw=ink!70, rounded corners=2pt, fill=white, minimum height=7mm, inner sep=3pt, align=center, line width=0.5pt},
-  hot/.style={box, fill=soft, draw=ours, line width=0.8pt},
-  cool/.style={box, fill=softb, draw=base},
-  lab/.style={font=\sffamily\scriptsize, text=ink!80, align=center},
-  flow/.style={->, draw=ink!75, line width=0.6pt},
-  hotflow/.style={->, draw=ours, line width=0.9pt},
-]
-% --- one game session -------------------------------------------------------------------------------------------
-\node[cool, minimum width=20mm] (game) at (0,0) {\textbf{ArcHost}\\[-1pt]{\scriptsize game, action budget,}\\[-1pt]{\scriptsize lossless step log}};
-\node[hot, minimum width=27mm, right=9mm of game] (seg) {\textbf{1. Segment + track}\\[-1pt]{\scriptsize 4-connected objects,}\\[-1pt]{\scriptsize ids stable across steps}};
-\node[hot, minimum width=27mm, right=3mm of seg] (layout) {\textbf{2. Layout}\\[-1pt]{\scriptsize terrain, panels, HUD,}\\[-1pt]{\scriptsize composite things}};
-\node[hot, minimum width=27mm, right=3mm of layout] (measure) {\textbf{3. Measure}\\[-1pt]{\scriptsize reach, inside, tethers,}\\[-1pt]{\scriptsize align, look-alikes}};
-\node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Guess + test}\\[-1pt]{\scriptsize roles from priors,}\\[-1pt]{\scriptsize one action to check}};
-\node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Render}\\[-1pt]{\scriptsize map picture, letters,}\\[-1pt]{\scriptsize change line}};
-\begin{scope}[on background layer]
-\node[draw=ours, dashed, rounded corners=4pt, fill=ours!4, fit=(seg)(render), inner sep=5pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Perception engine} (host side, pure code, $\approx$35\,ms per frame on one CPU core)}] (pe) {};
-\end{scope}
+In this work, we present \textsc{Sarbloh}, an autonomous open-weight agent architecture designed specifically for resource-constrained, high-efficiency interactive reasoning on ARC-AGI-3. At the core of \textsc{Sarbloh} is a zero-parameter, host-side \emph{perception engine} that operates in $\mathcal{O}(HW)$ algorithmic time ($\approx$35\,ms per frame), transforming each raw grid state into three structurally synchronized modalities: (i) an object-centric symbolic representation with stable bipartite identity tracking across temporal transitions, (ii) a geometric briefing that isolates mathematically proven spatial invariants (BFS lattice reachability, topological containment, midpoint tethers, and dihedral symmetries under $D_4 \times \mathbb{Z}^+$) from affordance hypotheses paired with unit verification actions, and (iii) an affordance-annotated visual map. 
 
-\node[box, minimum width=34mm, below=13mm of render.south east, anchor=north east] (ctx) {\textbf{Context builder}\\[-1pt]{\scriptsize append-only, picture stored once,}\\[-1pt]{\scriptsize drain oldest turns at 118k}};
-\node[cool, minimum width=34mm, left=8mm of ctx] (llm) {\textbf{Qwen3.8-Flash-Next}\\[-1pt]{\scriptsize 125B MoE, 6B active, W4A16}\\[-1pt]{\scriptsize SGLang + EAGLE, 136k ctx}};
-\node[box, minimum width=44mm, left=8mm of llm] (kernel) {\textbf{IPython kernel} (the only tool)\\[-1pt]{\scriptsize \code{observe()} \quad \code{await play(path, predict)}}\\[-1pt]{\scriptsize \code{recall()} \quad \code{graph()} \quad GOAL / PLAN / HYPOTHESES / FINDINGS}};
+Surrounding this perceptual foundation, \textsc{Sarbloh} integrates an execution-grounded planning engine operating exclusively via a persistent Python REPL. Rather than issuing myopic primitive actions, the agent synthesizes programmatic world models, explores trajectory trees via algorithmic graph search, and commits multi-step speculative execution paths through a unified primitive (\code{await play()}) that continuously monitors environmental invariants and halts upon sensory prediction discrepancies. To maximize inference throughput on our single-GPU budget, we serve Qwen3.8-Flash-Next---a 125B parameter Mixture-of-Experts architecture activating 6B parameters per token---quantized via AutoRound W4A16 and served using SGLang with EAGLE speculative decoding. By enforcing a strictly monotonic, append-only context protocol, the runtime achieves a 98.4\% prompt prefix-cache hit rate across hybrid linear-recurrent and attention layers, while a utility-driven priority scheduler dynamically multiplexes the GPU across 25 concurrent games based on expected marginal RHAE gains.
 
-\draw[flow] (game) -- node[lab, above]{frame} (seg);
-\draw[flow] (seg) -- (layout);
-\draw[flow] (layout) -- (measure);
-\draw[flow] (measure) -- (guess);
-\draw[flow] (guess) -- (render);
-\draw[hotflow] (render.south) -- node[lab, right]{views} (render.south |- ctx.north);
-\draw[flow] (ctx) -- node[lab, above]{prompt} (llm);
-\draw[flow] (llm) -- node[lab, above]{code} (kernel);
-\draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{moves,\\one at a time} (game.south);
-
-% --- run level -------------------------------------------------------------------------------------------------
-\node[box, minimum width=34mm, below=9mm of llm] (sched) {\textbf{Priority scheduler}\\[-1pt]{\scriptsize 25 games, 10 GPU slots,}\\[-1pt]{\scriptsize gain $\times$ hope, quantum 20 calls}};
-\node[box, minimum width=34mm, right=8mm of sched] (cur) {\textbf{Curator} (at level-ups)\\[-1pt]{\scriptsize lessons graph + skill notes,}\\[-1pt]{\scriptsize loaded back by \code{recall()}}};
-\node[box, minimum width=44mm, left=8mm of sched] (srv) {\textbf{Server watchdog}\\[-1pt]{\scriptsize profile chain, freeze detection,}\\[-1pt]{\scriptsize restarts budgeted by wall clock}};
-\draw[flow, dashed] (sched) -- (llm);
-\draw[flow, dashed] (cur.north) -- ++(0,4.5mm) -| (kernel.south east);
-\draw[flow, dashed] (srv) -- (sched);
-\end{tikzpicture}}
-\caption{\textsc{Sarbloh} at a glance. The host owns the game. Every frame passes through the perception engine
-(orange), whose views go into an append-only context. The model's only tool is a Python kernel, from which it reads
-the state with \code{observe()} and moves with \code{play()}. Every move goes back through the host. Twenty-five such
-sessions share one GPU through the priority scheduler.}
-\label{fig:overview}
-\end{figure*}
-
-The code, the notebooks and the scripts that build every figure in this paper are public under Apache-2.0 at
-\url{https://github.com/Harsidak/SARBLOH}.
+The remainder of this paper is structured as follows. Section~\ref{sec:prelim} provides the mathematical formulation of the ARC-AGI-3 benchmark and situates our system within the related literature on static program synthesis, visual agents, and offline open-weight architectures. Section~\ref{sec:motivation} presents empirical ablations isolating the representation bottleneck and derives the design principles governing our perception engine. Section~\ref{sec:method} details the architecture of \textsc{Sarbloh}, including the perception engine, the perception lab evaluation, speculative code-as-action execution, context memory engineering, and single-GPU serving infrastructure. Section~\ref{sec:results} presents comprehensive empirical results on both public environments and the official hidden Kaggle leaderboard, accompanied by detailed hardware telemetry and error analyses. Finally, Section~\ref{sec:conclusion} concludes with architectural insights and future research directions.

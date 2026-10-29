@@ -8,7 +8,7 @@
 \usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
 \frenchspacing  % DO NOT CHANGE THIS
 
-% --- added for this paper (none of them is on the AAAI disallowed list) ---
+% --- Packages added for this paper ---
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
@@ -18,20 +18,23 @@
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.misc}
 \usepackage{newfloat}
 \usepackage{listings}
+\usepackage{fancyhdr}
 \DeclareCaptionStyle{ruled}{labelfont=normalfont,labelsep=colon,strut=off}
 \lstset{basicstyle={\scriptsize\ttfamily},aboveskip=2pt,belowskip=0pt,showstringspaces=false,
         breaklines=true,columns=fullflexible,keepspaces=true}
 
-\definecolor{ours}{HTML}{C2410C}
-\definecolor{base}{HTML}{2563EB}
-\definecolor{ink}{HTML}{1F2430}
-\definecolor{muted}{HTML}{9CA3AF}
-\definecolor{paper}{HTML}{FAF7F0}
-\definecolor{soft}{HTML}{FDEBDD}
-\definecolor{softb}{HTML}{E3ECFD}
+% Unified aesthetic color palette
+\definecolor{ours}{HTML}{C2410C}      % Deep Terracotta / Rust: SARBLOH
+\definecolor{base}{HTML}{2563EB}      % Slate Blue: Duck Baseline
+\definecolor{ink}{HTML}{0F172A}       % Slate 900: Primary Text
+\definecolor{muted}{HTML}{64748B}     % Slate 500: Neutral Muted
+\definecolor{paper}{HTML}{FAF7F0}     % Alabaster Paper
+\definecolor{soft}{HTML}{FFF7ED}      % Soft Orange Tint
+\definecolor{softb}{HTML}{EFF6FF}     % Soft Blue Tint
+
 \newcommand{\code}[1]{\texttt{#1}}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcommand{\algcomment}[1]{\footnotesize\itshape\textcolor{muted!70!ink}{#1}}
+\newcommand{\algcomment}[1]{\footnotesize\itshape\textcolor{muted}{#1}}
 \SetCommentSty{algcomment}
 \SetKwComment{Comment}{$\triangleright$\ }{}
 \SetKwProg{Fn}{function}{}{end}
@@ -43,23 +46,44 @@
 }
 
 \setcounter{secnumdepth}{2}
-\nocopyright   % an arXiv preprint, not an AAAI publication
+\copyrighttext{arXiv PrePrint}
 
-\title{Seeing Before Acting:\\A Perception Engine for an Offline, Open-Weight ARC-AGI-3 Agent}
+% Running footer setup
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[C]{\footnotesize\textcolor{muted}{arXiv PrePrint}}%
+}
+\pagestyle{plain}
+
+\title{\textsc{Sarbloh}: Structured Geometric Perception and Speculative Code Execution for Autonomous ARC-AGI-3 Agents}
 \author{
     Harsidak Singh Banwait
 }
 \affiliations{
     Independent Researcher\\
-    harsidak.singh.banwait.13@gmail.com\\
-    Code: \url{https://github.com/Harsidak/SARBLOH}
+    \texttt{harsidak.singh.banwait.13@gmail.com}
 }
 
 \begin{document}
 
 \maketitle
+\thispagestyle{plain}
 
 \input{sections/abstract}
+
+\vspace{0.4em}
+\noindent\textbf{Code:} \url{https://github.com/Harsidak/SARBLOH}
+\vspace{0.6em}
+
+% Headline empirical teaser figure placed after abstract (BAPO-style empirical teaser)
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/per_game.pdf}
+\caption{Comprehensive comparative evaluation across the 25 public ARC-AGI-3 environments under a fixed 9-hour single-GPU budget. \textsc{Sarbloh} (single pass, utility-driven priority scheduling) outperforms the Milestone~\#1 winning Duck harness (best of four passes) on 8 environments, matches it on 13, and completes 143 total levels in 8.2 hours compared to 129 distinct levels achieved by the baseline under identical server hardware and model weights.}
+\label{fig:pergame}
+\end{figure*}
+
 \input{sections/introduction}
 \input{sections/preliminaries}
 \input{sections/motivation}

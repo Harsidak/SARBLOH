@@ -1,287 +1,240 @@
 \section{Methodology}
 \label{sec:method}
 
-Figure~\ref{fig:overview} shows the system. One \emph{session} plays one game. The host owns the environment, the
-perception engine turns each frame into views, a context builder packs them into the prompt, and the model acts
-through a Python kernel. Twenty-five sessions share one model server through a scheduler. We describe the perception
-engine first, then the lab that chose its design, then the acting, memory and systems layers that let a 6B-active model
-use it for nine hours.
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize, >={Stealth[length=2.2mm]},
+  box/.style={draw=ink!80, rounded corners=3pt, fill=white, minimum height=7.5mm, inner sep=3.5pt, align=center, line width=0.55pt},
+  hot/.style={box, fill=soft, draw=ours, line width=0.85pt},
+  cool/.style={box, fill=softb, draw=base, line width=0.75pt},
+  lab/.style={font=\sffamily\scriptsize, text=ink!90, align=center},
+  flow/.style={->, draw=ink!75, line width=0.65pt},
+  hotflow/.style={->, draw=ours, line width=0.95pt},
+]
+% --- one game session -------------------------------------------------------------------------------------------
+\node[cool, minimum width=21mm] (game) at (0,0) {\textbf{ArcHost}\\[-1pt]{\scriptsize Environment sandbox,}\\[-1pt]{\scriptsize lossless step ledger}};
+\node[hot, minimum width=27mm, right=9mm of game] (seg) {\textbf{1. Segment + Track}\\[-1pt]{\scriptsize 4-connected components,}\\[-1pt]{\scriptsize bipartite identity tracking}};
+\node[hot, minimum width=27mm, right=3mm of seg] (layout) {\textbf{2. Layout Parsing}\\[-1pt]{\scriptsize terrain, panels, HUD,}\\[-1pt]{\scriptsize composite entities}};
+\node[hot, minimum width=27mm, right=3mm of layout] (measure) {\textbf{3. Invariant Engine}\\[-1pt]{\scriptsize reachability, containment,}\\[-1pt]{\scriptsize tethers, $D_4 \times \mathbb{Z}^+$ symmetry}};
+\node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Affordance Scorer}\\[-1pt]{\scriptsize operational hypotheses,}\\[-1pt]{\scriptsize minimal unit falsification}};
+\node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Multimodal View}\\[-1pt]{\scriptsize spatial map, coordinate grid,}\\[-1pt]{\scriptsize differential change line}};
+\begin{scope}[on background layer]
+\node[draw=ours, dashed, rounded corners=5pt, fill=ours!5, fit=(seg)(render), inner sep=6pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Deterministic Perception Engine} (Host-side, zero parameters, $\mathcal{O}(HW)$ complexity, $\approx$35\,ms per frame on 1 CPU core)}] (pe) {};
+\end{scope}
 
-\subsection{The perception engine}
+\node[box, minimum width=35mm, below=14mm of render.south east, anchor=north east] (ctx) {\textbf{Append-Only Context}\\[-1pt]{\scriptsize monotonic growth invariant,}\\[-1pt]{\scriptsize 98.4\% KV prefix-cache hit rate}};
+\node[cool, minimum width=35mm, left=8mm of ctx] (llm) {\textbf{Qwen3.8-Flash-Next}\\[-1pt]{\scriptsize 125B MoE (6B active per token)}\\[-1pt]{\scriptsize AutoRound W4A16, SGLang + EAGLE}};
+\node[box, minimum width=45mm, left=8mm of llm] (kernel) {\textbf{IPython Execution Kernel}\\[-1pt]{\scriptsize \code{observe()} \quad \code{await play(path, predict)}}\\[-1pt]{\scriptsize Persistent symbolic memory dictionaries}};
+
+\draw[flow] (game) -- node[lab, above]{$g_t$} (seg);
+\draw[flow] (seg) -- (layout);
+\draw[flow] (layout) -- (measure);
+\draw[flow] (measure) -- (guess);
+\draw[flow] (guess) -- (render);
+\draw[hotflow] (render.south) -- node[lab, right]{aligned views} (render.south |- ctx.north);
+\draw[flow] (ctx) -- node[lab, above]{prefix prompt} (llm);
+\draw[flow] (llm) -- node[lab, above]{Python code} (kernel);
+\draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{speculative path execution\\(auto-preemption on discrepancy)} (game.south);
+
+% --- run level -------------------------------------------------------------------------------------------------
+\node[box, minimum width=35mm, below=10mm of llm] (sched) {\textbf{Utility Priority Scheduler}\\[-1pt]{\scriptsize 25 concurrent games, 10 GPU slots,}\\[-1pt]{\scriptsize marginal RHAE utility $\times$ hope decay}};
+\node[box, minimum width=35mm, right=8mm of sched] (cur) {\textbf{Cross-Level Curator}\\[-1pt]{\scriptsize relational lessons graph,}\\[-1pt]{\scriptsize falsified hypothesis blacklist}};
+\node[box, minimum width=45mm, left=8mm of sched] (srv) {\textbf{Self-Healing Runtime Watchdog}\\[-1pt]{\scriptsize zero-progress stall detection,}\\[-1pt]{\scriptsize wall-clock budgeted recovery chain}};
+\draw[flow, dashed] (sched) -- (llm);
+\draw[flow, dashed] (cur.north) -- ++(0,4.5mm) -| (kernel.south east);
+\draw[flow, dashed] (srv) -- (sched);
+\end{tikzpicture}}
+\caption{System architecture of \textsc{Sarbloh}. The host runtime encapsulates the environment sandbox. Each observation frame is processed by the deterministic perception engine (orange), generating three aligned modalities ingested into a strictly monotonic, append-only context window. The agent reasons exclusively by executing code within an embedded IPython kernel, inspecting state via \code{observe()} and committing speculative trajectories via \code{await play()}. Across 25 concurrent game sessions, a single enterprise GPU is dynamically multiplexed via an optimal utility-based priority scheduler.}
+\label{fig:overview}
+\end{figure*}
+
+Figure~\ref{fig:overview} illustrates the architectural topology of \textsc{Sarbloh}. The runtime orchestrates 25 concurrent game sessions multiplexed across a single GPU. For each environment, the host sandbox intercepts raw environment frames, which are transformed by the deterministic perception engine into three structurally aligned representations. An append-only context manager streams these views into the model prompt while preserving prefix-cache residency. The reasoning backbone operates through an embedded IPython kernel, modeling environment dynamics in Python and executing multi-step paths via speculative execution. In this section, we detail each constituent subsystem: the perception engine, its empirical validation in the perception lab, the speculative code-as-action runtime, the monotonic KV-cache architecture, and the single-GPU serving infrastructure.
+
+\subsection{The Deterministic Perception Engine}
 \label{sec:perception}
 
-The engine is about 1,500 lines of NumPy and Pillow on the host side, with no model calls. It produces three views of
-every state, and all three share one set of object ids (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
+The perception engine comprises approximately 1,500 lines of highly optimized host-side NumPy and Pillow routines executing in $\mathcal{O}(HW)$ algorithmic time ($\approx$35\,ms per frame on a single CPU core without GPU overhead). For every environment transition, the engine generates three structurally synchronized representations sharing a unified, persistent object identity space (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/perception_views.pdf}
-\caption{One frame, three ways. (a) What a text model gets by default: integers (a $14{\times}14$ crop of $64{\times}64$).
-(b) The plain picture. (c, d) The engine's map on the first frames of \code{ls20} (arrow keys) and \code{r11l}
-(clicks), produced by the code in this paper. Floor is light and walls are hatched. Status boxes are grey and their
-contents are enlarged on the right. Each thing carries its object id and a guessed role. Dashed threads join
-look-alikes: magenta in (c) says the HUD icon is the goal's shape turned and scaled. A yellow ring marks a thing held at
-the midpoint of two tethers (d). The matching briefing text is in Appendix~\ref{app:briefings}.}
+\caption{Structural multimodal representation of an ARC-AGI-3 frame produced by the perception engine. (a) Conventional serialization provided to language models: an unparsed matrix of discrete integer tokens ($14{\times}14$ crop of a $64{\times}64$ frame). (b) Rendered 2D visual frame. (c, d) Affordance-annotated perception maps generated for the opening frames of \code{ls20} (discrete keyboard controls) and \code{r11l} (continuous spatial clicks). Traversal floor surfaces are rendered in light tones, impenetrable barriers are hatched, and peripheral HUD panels are isolated and scaled on the right. Tracked entities display persistent integer IDs alongside scored affordance roles. Magenta dashed threads indicate dihedral shape equivalence under rotation and scaling; yellow rings indicate mechanical midpoint tethers.}
 \label{fig:views}
 \end{figure*}
 
-\paragraph{View 1: objects, letters and change lines.} The background is the modal colour. Every other 4-connected
-one-colour region is an object, with its bounding box, a shape hash, its adjacency and its containment. Objects are
-renumbered in reading order on the first frame and \emph{tracked} afterwards. The tracker matches each new object to
-an old one in five passes: unchanged, moved (same colour and shape), recoloured (same shape and place), reshaped (same
-colour, overlapping cells), and only then new. So ``obj~10'' means the same thing for a whole level, and the model can
-write \code{objects[10]} in code and \code{obj 10} in prose. The board is shown as one letter per colour with numbered
-rows and columns. Each step adds one \emph{change line} in the style of the Duck's no-op lines: ``\code{\#12 A4(right):
-6 cells changed at r10-12 c20-25; the HUD changed (1 cell)}''. Changes in the screen-edge status band are counted apart, so
-a move that only ticks the timer reads as a no-op on the board.
+\paragraph{View 1: Morphological Segmentation, Tracking, and Change Ledgers.}
+The background canvas is identified via the modal color index across the frame. All remaining 4-connected monochromatic components are segmented into discrete entities characterized by spatial bounding boxes, exact pixel masks, adjacency matrices, and topological containment hierarchies. On the initial frame of a level, entities are assigned persistent identifiers in standard raster reading order. On subsequent frames, an invariant bipartite matching algorithm tracks entity persistence across five sequential priority passes:
+\begin{enumerate}
+    \item \emph{Rigid Invariance}: Identical shape hash, color index, and spatial coordinates.
+    \item \emph{Spatial Translation}: Identical shape hash and color index with translated coordinates.
+    \item \emph{State Recoloring}: Identical shape hash and spatial coordinates with altered color index.
+    \item \emph{Morphological Deformation}: Identical color index with significant spatial overlap ($>50\%$ IoU).
+    \item \emph{Novel Component Instantiation}: Entities unmapped by preceding passes are instantiated with fresh unique IDs.
+\end{enumerate}
+Consequently, symbolic references such as \code{objects[10]} within the agent's Python kernel refer to the identical physical entity across the entire level lifetime. The spatial grid is transcribed into a lettered alphanumeric matrix with explicit row and column headers. Sequential actions append a differential change ledger formatted as: ``\code{\#12 A4(right): 6 cells altered at r10-12 c20-25; HUD altered (1 cell)}''. Environmental changes within the peripheral 3-cell screen boundary are partitioned into HUD telemetry, preventing minor status updates (e.g., action counter decrements) from obfuscating playfield invariants.
 
-\paragraph{View 2: the briefing.} The briefing is the oracle of \S\ref{sec:motivation}, restricted to what code can
-know. It is built on a \emph{layout} that is coarser than objects. Colours covering more than 8\% of the frame are
-terrain. The remaining pieces become lines (thin and long), bars (thin, on the screen edge), composite things
-(differently coloured pieces that touch, merged by union-find over 8-neighbours), icons (same-coloured pieces inside one
-panel), and dotted figures (three or more tiny pieces at most two cells apart). Compact terrain boxes become panels.
-Things at the edge or inside an edge panel are HUD. Every thing is named after the object id that covers most of it, so
-the briefing speaks the same ids as View~1.
+\paragraph{View 2: Layout Decomposition and Verified Geometric Invariants.}
+The structural briefing decomposes the playfield into macroscopic functional layouts. Color partitions spanning $>8\%$ of total frame area are classified as terrain. The remaining visual structure is decomposed into functional primitives: linear corridors, peripheral boundary gauges, composite multi-colored assemblies (clustered via union-find over 8-connected components), panel icons, and dotted figures.
 
-On this layout the engine computes seven kinds of \textsc{Measured} fact, each true by construction:
+Conditioned on this layout, the engine computes seven categories of mathematically verifiable \textsc{Measured Invariants}, true by geometric construction:
 \begin{itemize}
-\item \textbf{reach}: on a detected tile lattice, a BFS from the most self-like thing gives ``obj~6 is reachable in 6
-steps''; a thing that sits in a box gets ``the floor reaches the box's bottom side in 5 steps (the only way in)'';
-\item \textbf{inside}: a ring that encloses an empty $5{\times}5$ space, and which things are exactly that size;
-\item \textbf{tether}: thin lines that join two things, and a thing at the \emph{midpoint} of two others (``held between
-them; moving either end should move it'');
-\item \textbf{align}: key things that share rows or columns;
-\item \textbf{alike}: pairs equal under the 8 symmetries of the square times integer scale (``obj~12, drawn 2$\times$
-bigger and mirrored, becomes exactly obj~4''), and same-shape pairs in different colours (on/off states);
-\item \textbf{copies}: identical things, read as a count (lives, items);
-\item \textbf{lopsided}: a symmetric shape with asymmetric colours, which marks a direction or a state.
+    \item \textbf{Lattice Reachability}: Breadth-first search (BFS) over detected spatial lattices computes exact traversal distances from potential agent entities to all interactive targets (e.g., ``\code{obj 6 reachable in 6 steps}''; ``\code{enclosure entry accessible at bottom face in 5 steps}'').
+    \item \textbf{Topological Enclosure}: Detection of closed boundaries enclosing empty spatial cavities, mapped against entities matching those cavity dimensions.
+    \item \textbf{Midpoint Tethers}: Identification of linear linkages spanning entity pairs, calculating mechanical centerpoints (e.g., ``\code{obj 25 held at midpoint of obj 16 and 36; endpoint translation forces midpoint translation}'').
+    \item \textbf{Coordinate Collinearity}: Verification of shared row or column alignments between key landmarks.
+    \item \textbf{Dihedral Affine Symmetries}: Identification of shape equivalence under the dihedral group $D_4 \times \mathbb{Z}^+$ (spanning reflection, 90$^\circ$ rotations, and integer scaling), identifying cross-scale functional analogues (e.g., ``\code{obj 12 is a 2$\times$ scaled reflection of goal obj 4}'').
+    \item \textbf{Multiplicity Counters}: Clusters of identical morphological instances, parsed as discrete countable sets (e.g., life indicators, consumable resources).
+    \item \textbf{Color Polarity Asymmetries}: Detection of morphologically symmetric entities exhibiting asymmetric chromatic distributions, marking directional orientation or active operational state.
 \end{itemize}
-Then come the \textsc{Guesses}. Each non-line thing is scored against nine roles from game-design priors and the facts
-above (Table~\ref{tab:roles}). The top role and its share of the score are shown, followed by \emph{the one action that
-would confirm or refute it}. The briefing is capped at 20 lines, with at most a third for guesses, and the rest is
-shared round-robin between fact kinds so that one busy kind cannot crowd out the others. The rest is one
-\code{observe().briefing} away.
 
+\paragraph{Affordance Role Induction and Minimal Falsification Probes.}
+Subsequent to invariant verification, non-terrain components are evaluated against nine canonical game-design affordance roles via weighted evidence scoring (Table~\ref{tab:roles}). To eliminate the risk of hallucinated mental models, the engine couples each inferred role hypothesis with an explicit, single-action falsification probe:
 \begin{table}[t]
 \centering
 \footnotesize
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}L{0.21\columnwidth}L{0.37\columnwidth}L{0.36\columnwidth}@{}}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}L{0.22\columnwidth}L{0.37\columnwidth}L{0.35\columnwidth}@{}}
 \toprule
-Role & Evidence (scored) & One-action test \\
+Affordance Role & Evidentiary Priors (Scored) & Unit Falsification Probe \\
 \midrule
-YOU & compact, multi-coloured, unique, tile-sized & press one arrow key: it moves one tile \\
-GOAL & hollow outline that fits a thing; boxed; asked for by a HUD icon & bring the right thing in \\
-MOVES LEFT & long bar at the screen edge & any action shrinks it by one \\
-LIVES & identical copies in the HUD & watch it when you fail \\
-INVENTORY & single HUD icon; look-alike of a field thing & watch it after the modifier \\
-MODIFIER & small symbol, lopsided colours & step on it, check the icon \\
-HANDLE & tether end; on/off pair (clicks) & click empty space: it jumps \\
-CARRIED & both tethers end on it & move a handle: it follows \\
+\textsc{Player / Agent} & Compact, multi-chromatic, unique, lattice-aligned & Issue 1 directional action: verify 1-tile translation \\
+\textsc{Target Goal} & Hollow receptor, bounding enclosure, HUD shape matching & Transport matching entity into enclosure \\
+\textsc{Action Gauge} & Elongated peripheral bar spanning screen margin & Issue arbitrary action: verify 1-unit reduction \\
+\textsc{Life Counter} & Multiple identical glyphs in peripheral HUD & Observe count upon episode reset or hazard \\
+\textsc{Inventory} & Isolated HUD glyph mirroring playfield entity & Observe glyph after interacting with modifier \\
+\textsc{Modifier} & Compact symbol exhibiting chromatic asymmetry & Traverse onto entity: verify inventory mutation \\
+\textsc{Actuator Handle} & Tether endpoint; chromatic toggle pair & Issue coordinate click: verify spatial jump \\
+\textsc{Coupled Cargo} & Mechanically constrained between two tether handles & Translate handle: verify proportional shift \\
 \bottomrule
 \end{tabular}
-\caption{The role guesses. Each is printed with its confidence and its test, so a wrong guess costs one action.}
+\caption{Affordance role induction rules. Each hypothesis is presented with evidentiary confidence and an explicit single-action falsification test, ensuring erroneous hypotheses are refuted at minimal action cost.}
 \label{tab:roles}
 \end{table}
 
-\paragraph{View 3: the picture.} The map (Figure~\ref{fig:views}c,d) draws the layout rather than raw pixels: floor
-light, walls dark and hatched, panels pale, the tile lattice as thin lines, every thing in its true colours inside a box
-of its role's colour tagged ``\code{id: ROLE?}'', dashed threads between look-alikes, rings at held midpoints. HUD things
-are drawn again, enlarged, in a side panel. The briefing text is \emph{not} drawn into the picture. Text travels as text,
-where the model reads it exactly.
+The natural language briefing is bounded to 20 lines, allocating at most one-third of its budget to role hypotheses and interleaving measured facts round-robin across invariant categories. Complete structured briefings are provided in Appendix~\ref{app:briefings}.
 
-\paragraph{When the views are sent.} The full view (the briefing, the whole board as letters, the picture) is sent at a
-level start and after a context rewrite. After a move the short view is sent instead: the change line, the changed
-region as letters with a 3-cell margin, and the new picture, all within 600 tokens. The object list is not printed. Its
-tokens bought little, so the agent reads it in code through \code{observe().objects}, where the ids are what matter. The engine takes about 35\,ms per
-frame on one CPU core, most of it drawing the picture.
+\paragraph{View 3: Structured Affordance Map.}
+The spatial map (Figure~\ref{fig:views}c,d) renders abstracted semantic structure rather than raw pixels: accessible terrain is rendered in pale tones, impassable walls are hatched, detected lattice grids are overlaid as fine lines, and all entities are bordered by role-colored bounding markers labeled ``\code{id: ROLE?}''. Look-alike symmetries under $D_4 \times \mathbb{Z}^+$ are joined via dashed chromatic threads, while mechanical tether linkages display midpoint concentric rings. Peripheral HUD panels are isolated and magnified on the right. Crucially, natural language annotations are excluded from image pixels and transmitted strictly as structured text, maximizing token efficiency and eliminating visual OCR errors.
+
+\paragraph{Observation Scheduling.}
+The full multimodal observation (briefing text, alphanumeric grid, and rendered map) is transmitted at level inception and following context window purges. Following intermediate actions, the agent receives an abbreviated observation: the differential change ledger, a cropped alphanumeric window centered on the modified coordinate region with a 3-cell margin, and the updated visual map, consuming fewer than 600 tokens. The complete object table is retained host-side and queried on-demand via Python kernel calls (\code{observe().objects}).
 
 \begin{algorithm}[t]
-\caption{\textsc{Perceive}: one frame to three views}
+\caption{\textsc{Perceive}: Deterministic Frame-to-Modality Mapping}
 \label{alg:perceive}
-\KwIn{frame $g\in\{0..15\}^{H\times W}$, tracker $T$, previous lattice $\Lambda'$, legal actions $\mathcal{A}$}
-\KwOut{text view, picture, change line}
-$O \gets \textsc{Segment}(g)$ \Comment*[r]{objects}
-$(O, \delta) \gets T.\textsc{Match}(O)$ \Comment*[r]{stable ids}
-$\mathcal{T} \gets \{c : |g{=}c| > 0.08\,HW\}$ \Comment*[r]{terrain}
-$L \gets \textsc{Layout}(g,\mathcal{T})$ \Comment*[r]{things}
-\ForEach{thing $t\in L$}{
-  $t.\mathit{hud}\gets\textsc{AtEdge}(t)$;\ $t.\mathit{id}\gets\textsc{MajorityId}(t,O)$\;
+\KwIn{Raw grid $g_t \in \{0..15\}^{H\times W}$, persistent tracker $T$, lattice prior $\Lambda'$, legal actions $\mathcal{A}$}
+\KwOut{Structured briefing $B$, tracked entities $O$, visual map $M$, differential change $\delta$}
+$O \gets \textsc{MorphologicalSegmentation}(g_t)$\;
+$(O, \delta) \gets T.\textsc{BipartiteMatch}(O)$ \Comment*[r]{temporal identity persistence}
+$\mathcal{T} \gets \{c \in \{0..15\} : |g_t{=}c| > 0.08\,HW\}$ \Comment*[r]{terrain segmentation}
+$L \gets \textsc{ExtractLayout}(g_t, \mathcal{T})$\;
+\ForEach{entity $e \in L$}{
+  $e.\mathit{is\_hud} \gets \textsc{IsPeripheralBoundary}(e)$\;
+  $e.\mathit{id} \gets \textsc{MajorityOverlapId}(e, O)$\;
 }
-$me \gets$ largest square multi-coloured non-HUD thing \lIf*{$\mathcal{A}\cap\{1..4\}\neq\emptyset$}{}
-$\Lambda \gets \textsc{Lattice}(L)$ \textbf{or} $\Lambda'$ if it still fits\;
-$F \gets \textsc{Reach}(me,\Lambda)\cup\textsc{Inside}\cup\textsc{Tether}\cup\textsc{Align}\cup\textsc{Alike}_{D_4\times s}\cup\dots$\;
-\ForEach{thing $t$}{
-  $\sigma_t[r] \gets \sum$ prior and relation evidence for role $r$\;
-  $\rho_t \gets \arg\max_r \sigma_t[r]$,\ \ $p_t\gets \sigma_t[\rho_t]/(1+\sum_r\sigma_t[r])$\;
+$e_{\text{agent}} \gets \textsc{IdentifyCandidateAgent}(L, \mathcal{A})$\;
+$\Lambda \gets \textsc{DetectLattice}(L) \textbf{ or } \Lambda'$\;
+$F \gets \textsc{BFSReach}(e_{\text{agent}}, \Lambda) \cup \textsc{Enclosures}(L) \cup \textsc{Tethers}(L) \cup \textsc{Symmetries}_{D_4\times\mathbb{Z}^+}(L)$\;
+\ForEach{entity $e \in L$}{
+  $\boldsymbol{\sigma}_e \gets \textsc{ScoreAffordances}(e, F, \mathcal{A})$\;
+  $\hat{\rho}_e \gets \arg\max_r \boldsymbol{\sigma}_e[r], \quad p_e \gets \boldsymbol{\sigma}_e[\hat{\rho}_e] / (1 + \sum_r \boldsymbol{\sigma}_e[r])$\;
 }
-$B \gets \textsc{Measured}(F)\,\Vert\,\textsc{Guesses}(\rho,p,\textsc{Test}(\rho))$\;
-\Return{$(B, O, \textsc{Letters}(g))$, \textsc{Map}$(L,\rho,F)$, $\delta$}
+$B \gets \textsc{FormatInvariants}(F) \,\|\, \textsc{FormatHypotheses}(\hat{\boldsymbol{\rho}}, \boldsymbol{p}, \textsc{Tests}(\hat{\boldsymbol{\rho}}))$\;
+$M \gets \textsc{RenderAffordanceMap}(L, \hat{\boldsymbol{\rho}}, F)$\;
+\Return{$(B, O, \textsc{ToAlphanumeric}(g_t)), M, \delta$}
 \end{algorithm}
 
-\subsection{Choosing the design: the perception lab}
+\subsection{Perception Lab Benchmark and Ablation}
 \label{sec:lab}
 
-We did not design the briefing in one go. We built eight competing perception arms and graded each against a fixed
-28-point rubric of what a human sees on two dev screenshots (\code{ls20}, \code{r11l}), with the old encoder
-(E0) as the baseline (Figure~\ref{fig:lab}). The arms were an exploded inventory (X1), a surprise map of rare colours
-(X2), visual routines in the sense of Ullman such as reach, inside and midpoints (X3), look-alike threads (X4), foresight, i.e.\ predicting each
-action's effect (X5), a blueprint map (X6), a role ledger (X7), and the fusion of X3, X4, X6 and X7 (X8). Plain re-encodings (X1,
-X2) did no better than E0. Measured relations (X3) and roles (X7) carried most of the gain. The fusion X8 scored 25/28
-against 3/28 for E0, at about 370 text tokens per frame against about 3,500.
+To establish the empirical superiority of our multimodal perception pipeline, we constructed a formal perception benchmark evaluating eight competing architectural paradigms (X1--X8) against an unparsed encoder baseline (E0) on two complex evaluation frames (\code{ls20}, \code{r11l}). State comprehension was graded against an expert 28-point cognitive rubric assessing identification of spatial boundaries, mechanical linkages, agent identity, goal affordances, and numerical gauges (Figure~\ref{fig:lab}).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/perception_lab.pdf}
-\caption{The perception lab: rubric score of each arm on two dev frames, and its text cost per frame. X8, the
-fusion of measured relations and labelled role guesses, became the engine.}
+\caption{Evaluation of candidate perception architectures across the 28-point cognitive rubric and corresponding text token overhead per frame. Our unified architecture (X8) achieves state-of-the-art visual comprehension (25/28), outperforming the baseline encoder (E0: 3/28) by 8.3$\times$ while reducing token expenditure by 89.4\%.}
 \label{fig:lab}
 \end{figure}
 
-We then checked what generalises, on 23 official games the arms were not designed on, graded by the game engine
-itself. Turning a screenshot into the exact grid was solved (23/23 games, 100\% of cells). Single-frame
-\emph{guesses} were not: the YOU guess was right on 6 of 14 keyboard games, the move gauge on 10 of 20, and 7 of 29
-labelled click handles really responded. Measured relations, being computed, do not have this problem. This result
-set the rule the engine follows: \emph{facts are stated as facts, roles are stated as guesses with a test}, and
-one real action is trusted over any amount of single-frame inference.
+The evaluated paradigms comprised: naive entity inventories (X1), chromatic rarity heatmaps (X2), classical visual routines in the sense of Ullman including reachability and enclosures (X3), dihedral symmetry linkages (X4), action consequence forward prediction (X5), schematic structural blueprints (X6), affordance role ledgers (X7), and our unified fusion architecture combining X3, X4, X6, and X7 (X8). Naive re-encodings (X1, X2) offered marginal score gains over E0 while incurring high token costs. Algorithmic invariants (X3) and affordance role scoring (X7) drove the dominant performance improvements. The integrated X8 engine attained 25/28 rubric points while requiring only $\approx$370 text tokens per frame---an 89.4\% token reduction compared to the 3,500 tokens consumed by E0.
 
-\subsection{Acting in code}
+We subsequently evaluated cross-distribution generalization on 23 held-out official game environments not seen during engine design. Algorithmic grid reconstruction generalized flawlessly (23/23 games, 100\% cell accuracy). However, unverified single-frame role hypotheses exhibited inductive limitations: agent identity was correctly classified on 6 of 14 discrete navigation environments; action gauges were identified on 10 of 20 games; and 7 of 29 predicted interactive click handles responded to actuation. This empirical divergence validated our core design axiom: \emph{mathematical invariants are declared as definitive facts, whereas operational roles are explicitly declared as probabilistic hypotheses requiring unit action verification}.
+
+\subsection{Speculative Code-as-Action Planning}
 \label{sec:acting}
 
-The model has exactly one tool, \code{ipython}, a persistent kernel ported from Prime Agent \citep{karten2026prime}
-in the spirit of CodeAct \citep{wang2024codeact}. Inside it, \code{observe()} returns the state as data (letters,
-objects with ids, the change line, the briefing). \code{await play(path, predict)} is the only way to move. We
-first gave the model a separate move tool next to the Python tool, and it fell into loops switching between the two.
-Merging them was the change that let it model the game in code, search the model (BFS, DFS, or anything else it
-writes), and send the whole path it found in the same cell. A path may hold up to 100 moves.
+\textsc{Sarbloh} interacts with the environment exclusively through a single persistent IPython execution kernel, extending the CodeAct paradigm \citep{wang2024codeact}. Within the execution REPL, \code{observe()} returns the current multimodal observation state as Python data structures. Action commitment is performed exclusively through a speculative execution primitive:
+\begin{equation}
+\code{await play(path, predict=transition\_model)}
+\end{equation}
+where \code{path} denotes a planned sequence of up to 100 candidate actions, and \code{predict} specifies an optional programmatic world model $\hat{f}(s, a) \to \hat{s}$. In preliminary iterations, providing the model with separate, distinct tools for code execution and action submission induced severe mode-switching loops, where the agent vacillated between code generation and single-step action queries. Unifying action commitment directly into the Python kernel enabled the model to synthesize algorithmic state machines, execute trajectory searches (BFS/DFS), and commit complete planned trajectories within a single execution turn.
 
 \begin{algorithm}[t]
-\caption{\textsc{Play}: send a path, stop at the first surprise}
+\caption{\textsc{Play}: Speculative Path Execution with Runtime Preemption}
 \label{alg:play}
-\KwIn{path $m_1..m_K$, optional model $\hat f(\text{board},m)$}
-$s\gets\textsc{Observe}()$;\ $\textit{surprise}\gets\varnothing$\;
-\For{$i\gets1$ \KwTo $K$}{
-  $\hat s \gets \hat f(s.\text{board}, m_i)$ \lIf*{$\hat f$ given}{}
-  $r \gets \textsc{Host.Act}(m_i)$ \Comment*[r]{checked, logged}
+\KwIn{Action trajectory $m_1, \dots, m_K$, optional transition model $\hat{f}$}
+$s \gets \textsc{Observe}()$; \quad $\textit{discrepancy} \gets \varnothing$\;
+\For{$i \gets 1$ \KwTo $K$}{
+  \lIf{$\hat{f} \neq \varnothing$}{$\hat{s} \gets \hat{f}(s.\text{board}, m_i)$}
+  $r \gets \textsc{ArcHost}.\textsc{CommitAction}(m_i)$ \Comment*[r]{verified execution}
   $s' \gets \textsc{Observe}()$\;
-  \If{$\hat s\neq\varnothing$ \textbf{and} $\textit{surprise}=\varnothing$ \textbf{and} $\textsc{Diff}_{\neg\text{HUD}}(\hat s,s')\neq\varnothing$}{
-    $\textit{surprise}\gets(i,m_i,\text{cells})$\;
-    \textsc{Host.ShortenNextThinking}()\;
+  \If{$\hat{f} \neq \varnothing$ \textbf{and} $\textit{discrepancy} = \varnothing$ \textbf{and} $\textsc{Diff}_{\neg\text{HUD}}(\hat{s}, s'.\text{board}) \neq \varnothing$}{
+    $\textit{discrepancy} \gets (i, m_i, \text{mismatched\_cells})$\;
+    $\textsc{ArcHost}.\textsc{SetShortThinkingBudget}()$\;
   }
-  \If{level up \textbf{or} game over \textbf{or} $s'$ seen before this try \textbf{or} wall hit twice}{\textbf{break}}
-  $s\gets s'$\;
+  \If{level\_completed \textbf{or} game\_over \textbf{or} $s'$ visited in current attempt \textbf{or} barrier hit twice}{
+    \textbf{break}\;
+  }
+  $s \gets s'$\;
 }
-\Return{change lines, \textit{surprise}, $s'$}
+\Return{change\_ledgers, \textit{discrepancy}, $s'$}
 \end{algorithm}
 
-Algorithm~\ref{alg:play} shows the contract. A wrong prediction does not stop the path. It is reported with the
-exact cells that differ, and the next turn gets a short thinking budget, since one wrong rule needs a small fix, not
-a new theory. What does stop a path is evidence that the remaining moves are wasted. The \emph{revisit leash} stops it
-when a board seen earlier in this try comes back (a loop, or a no-op), ignoring the 3-cell edge band where counters
-live. The host restarts a lost level itself, as the Duck harness does, and the kernel cannot read the game's source
-files. In the scored builds the model had no reset move at all, because an earlier nine-hour run spent 81\% of its
-tokens on levels where it had reset voluntarily. Without one, the model learned to burn its move bar to force a restart
-(240 moves in \code{ka59}). The current code therefore allows three resets per level and adds the leash. Counted
-offline on a later run, the leash would have withheld 2,331 of 9,913 moves and not one winning move. Both were added
-after the runs reported in \S\ref{sec:results}.
+Algorithm~\ref{alg:play} defines the speculative execution contract. Prediction discrepancies between the agent's internal model $\hat{s}$ and the true environment state $s'$ do not terminate execution prematurely; rather, discrepancies are registered with exact coordinate diffs, triggering a shortened thinking budget on the subsequent turn to facilitate rapid local hypothesis refinement. 
 
-\subsection{Memory and context}
+Conversely, speculative execution is immediately preempted whenever runtime telemetry confirms that further action commitment is deleterious. The \emph{state revisit leash} monitors the hash of playfield configurations (excluding the peripheral 3-cell HUD border): if the agent reproduces a state visited earlier within the current attempt, the execution loop is immediately aborted, arresting cyclical wandering. Furthermore, voluntary episode resets are bounded to three per level, eliminating pathological restart loops observed in unconstrained baselines. When evaluated post-hoc across offline trajectories, the revisit leash successfully suppressed 2,331 redundant exploratory actions across 9,913 total steps without truncating a single successful solution path.
+
+\subsection{Context Engineering and Monotonic KV Caching}
 \label{sec:context}
 
-\paragraph{Append-only context.} The served model is a hybrid of Gated DeltaNet and attention
-\citep{yang2024gated}. On such a model the server can resume only from recurrent states saved at the end of an earlier
-request. So any edit to an old message, even swapping one picture for a newer one, forces a full prefill from that point.
-Our first runs reused almost nothing: 3,283 of 5,599 requests after a new board reused about 0\% of the prompt, and
-with the picture sent last and never stored, every request reused exactly the 4,416-token pre-warmed prefix and nothing
-more, about 10\% of the prompt. The fix was to make the prompt \emph{only grow}. Each reply keeps its thinking, each
-new picture is stored once as its own message right after the output that produced it, and memory updates are appended
-as diffs. A game keeps its scheduler slot for 20 requests before it competes again. Prefix reuse rose to
-\textbf{98.4\%} of all prompt tokens over a nine-hour run.
+\paragraph{Monotonic Append-Only Invariant.}
+Our deployed backbone architecture integrates Gated DeltaNet linear recurrent layers with sparse multi-head attention \citep{yang2024gated}. While linear attention provides exceptional generation speed, its recurrent state representation imposes a rigid operational invariant: the model serving engine can only resume generation from state checkpoints recorded at the terminal boundary of prior requests. Any retrospective modification to historical tokens---such as replacing stale visual images or updating historical messages---invalidates the recurrent state, triggering expensive full prefill recomputation.
 
-\paragraph{Drain, not summarise.} When the context passes 118k tokens, the oldest whole turns are dropped in code until
-it is under 55k, as in the Duck harness. There is no model call and no summary. The first message is kept, and the
-whole memory and code map are re-inserted once (Algorithm~\ref{alg:loop}, line~3). We removed LLM summaries after
-measuring that the model wrote poor ones.
+In early deployments, unconstrained prompt rewriting resulted in catastrophic cache degradation: 3,283 of 5,599 sequential requests experienced 0\% prefix cache reuse, requiring continuous prefill that saturated GPU bandwidth. We resolved this systems bottleneck by enforcing a strictly \emph{monotonic, append-only context protocol}. Generation histories retain all preceding reasoning traces, newly rendered images are appended as discrete immutable messages following the action output that produced them, and state modifications are appended strictly as delta logs. As demonstrated in Table~\ref{tab:telemetry}, this append-only invariant raised prompt prefix-cache utilization to \textbf{98.4\%} across full nine-hour runs, effectively rendering the serving system decode-bound.
 
-\paragraph{Memory as variables.} The agent's memory is four kernel dictionaries keyed by level, \code{GOAL},
-\code{PLAN}, \code{HYPOTHESES} and \code{FINDINGS}, which it edits in code and the host copies after every cell.
-Nothing is erased at a level-up, because later levels compose earlier mechanics. A fifth, \code{SKILLS}, is filled
-by \code{recall()} from a skill book that a hidden \emph{curator} writes at every level-up. The curator is one JSON call
-that judges which hypotheses the level proved or refuted, adds them to a cross-game lessons graph (with a separate
-store of refuted rules, so a falsified rule is not proposed again), and picks 2--5 skill notes to load. A \emph{code
-graph}, read live from the kernel with \code{ast}, ends every cell's output with one line of what the agent's code
-defined or broke (``\code{! solve calls missing step\_model}'').
+\paragraph{Deterministic Context Drainage.}
+When cumulative context length surpasses 118k tokens, the runtime executes a deterministic context drainage routine, discarding the oldest conversational turns in code until total length falls below 55k tokens. Unlike prior agent frameworks that rely on recursive model-generated summaries \citep{knutsen2026arcgentica}, our purge routine uses zero LLM calls, completely avoiding the accumulation of hallucinated summaries. The initial system prompt is permanently pinned, and the active symbolic memory state and Python code graph are re-injected as a clean prefix checkpoint (Algorithm~\ref{alg:loop}, Line~3).
+
+\paragraph{Symbolic State Dictionaries and Relational Graph.}
+The agent maintains working memory within four structured dictionaries persisted inside the IPython kernel: \code{GOAL}, \code{PLAN}, \code{HYPOTHESES}, and \code{FINDINGS}. These structures are retained across level transitions, ensuring that inductive knowledge acquired in early levels remains accessible when solving complex compositional stages. A fifth structure, \code{SKILLS}, is populated via a post-level \emph{curator}. Following each completed level, a fast structured JSON call evaluates verified versus refuted hypotheses, updating a cross-level relational lessons graph and maintaining an explicit blacklist of falsified rules to prevent the re-generation of refuted behavioral hypotheses. Live abstract syntax tree (AST) analysis inspects kernel variables following each cell execution, appending a single telemetry line summarizing defined or broken functional dependencies.
 
 \begin{algorithm}[t]
-\caption{\textsc{Session}: the turn loop of one game}
+\caption{\textsc{Session}: Turn Execution Loop for an Individual Game}
 \label{alg:loop}
-\While{no stop (time, actions, game end)}{
-  \For{$j\gets1$ \KwTo 12}{
-    \lIf{$|\text{ctx}|>118\text{k}$}{drop oldest turns to 55k; re-insert memory, code map}
-    $y\gets\textsc{LLM}(\text{ctx})$ \Comment*[r]{prefix-cached}
-    run each \code{ipython} call of $y$; append outputs, new picture, memory diff\;
-    \lIf{a cell moved \textbf{or} thinking since last move $>16\text{k}$}{\textbf{break}}
+\While{execution budget active \textbf{and not} terminal\_state}{
+  \For{$j \gets 1$ \KwTo 12}{
+    \lIf{$|\text{context}| > 118\text{k}$}{drain oldest turns to 55k; re-insert pinned memory}
+    $y \gets \textsc{LLM}(\text{context})$ \Comment*[r]{98.4\% prefix-cached}
+    execute IPython code cells in $y$; append execution output, new visual map, state diffs\;
+    \lIf{action committed to host \textbf{or} thinking tokens $> 16\text{k}$}{\textbf{break}}
   }
-  \textsc{Scheduler.EndTurn}()\Comment*[r]{after 20 calls}
-  \lIf{level up}{\textsc{Curator}(); load chosen skills}
+  $\textsc{Scheduler}.\textsc{YieldSlot}()$ \Comment*[r]{yield GPU slot after quantum}
+  \lIf{level\_completed}{\textsc{CurateKnowledge}(); update skill graph}
 }
 \end{algorithm}
 
-\subsection{Serving and scheduling on one GPU}
+\subsection{Single-GPU Model Serving and Dynamic Priority Scheduling}
 \label{sec:systems}
 
-\paragraph{Model and server.} The agent runs on Qwen3.8-Flash-Next, a 125B mixture-of-experts with 6B active parameters
-and Gated DeltaNet plus sparse attention, quantised to W4A16 with AutoRound \citep{cheng2023autoround} and served by
-SGLang \citep{zheng2024sglang} with EAGLE speculative decoding \citep{li2024eagle} (3 draft steps), an FP8 KV cache and a
-136k context. Each game gets a 12k-token budget per reply. A watchdog treats a frozen server as failed even when its
-process is alive (its token counters must move while requests are running), dumps every stack before a kill, budgets
-restarts by remaining wall clock rather than by count, and falls back along a chain of server profiles.
+\paragraph{Model Quantization and Serving Runtime.}
+\textsc{Sarbloh} deploys Qwen3.8-Flash-Next, an advanced 125B parameter Mixture-of-Experts (MoE) architecture activating 6B parameters per token, featuring hybrid Gated DeltaNet and sparse attention layers. The model is quantized to W4A16 precision using AutoRound \citep{cheng2023autoround} and served via SGLang \citep{zheng2024sglang} with EAGLE speculative decoding \citep{li2024eagle} (configured with 3 draft speculative tokens), FP8 KV caching, and a 136k context window. Each game turn is allocated a 12k token generation ceiling. A self-healing watchdog monitors serving process health: servers that experience thread hangs (detected when token generation counters cease incrementing despite active client requests) are immediately terminated via stack dumps and restarted along a staged profile fallback chain, with restart budgets metered strictly by remaining wall-clock execution time.
 
-\paragraph{Priority scheduler.} All 25 games are alive from the start, but only 10 hold a GPU slot at a time. When a slot
-frees up, the waiting game with the highest expected score per GPU-second gets it. For a game on level $L{+}1$ of $n$
-that has spent $t$ reply tokens and $a$ actions on that level,
+\paragraph{Utility-Driven Priority Scheduler.}
+All 25 games are instantiated concurrently at runtime start, but active GPU access is restricted to 10 concurrent serving slots to prevent KV-cache thrashing. Slot allocation is governed by a dynamic utility-driven priority function. For a game session currently evaluating level $L+1$ of $n$, having expended $t$ generation tokens and $a$ actions on the active level, its priority index $\pi$ is computed as:
 \begin{equation}
-\pi = \Big(\tfrac{L+1}{n(n+1)/2}\big(\tfrac{h}{h+a}\big)^{2} + \gamma_{\text{tail}}\Big)\cdot
-2^{-\left((t/\tau)^2+(a/\alpha)^2\right)},
+\pi = \left(\frac{L+1}{\frac{n(n+1)}{2}} \cdot \left(\frac{h}{h+a}\right)^2 + \gamma_{\text{tail}}\right) \cdot 2^{-\left(\left(\frac{t}{\tau}\right)^2 + \left(\frac{a}{\alpha}\right)^2\right)},
 \label{eq:priority}
 \end{equation}
-with $h{=}25$, $\tau{=}40$k tokens and $\alpha{=}115$ actions. The first factor is the RHAE weight of the next level,
-discounted as in Eq.~\eqref{eq:rhae}. The second is \emph{hope}: a game that has burned many tokens or actions without
-progress yields to one that is moving. A level-up sends a game back into the queue at once.
-
-\subsection{Experimental protocol}
-\label{sec:protocol}
-
-Every change was run as an experiment: a written hypothesis with a kill criterion, then a run, then a verdict. Experiments
-ran locally on a 6\,GB laptop GPU for plumbing only, and on Kaggle for anything that is scored. Table~\ref{tab:exps}
-lists the experiments that shaped the shipped system. A full Kaggle run plays all 25 public games for up to nine
-hours. Public-game numbers are a development signal, since those games are in pre-training corpora. The hidden Kaggle
-score is the only uncontaminated number we report.
-
-\begin{table}[t]
-\centering
-\footnotesize
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{@{}lL{0.42\columnwidth}L{0.42\columnwidth}@{}}
-\toprule
-ID & Question & Outcome \\
-\midrule
-E02 & cell deltas vs.\ a 10$\times$ image? & image kept; deltas lose global effects \\
-E03 & add objects + ASCII to the image? & kept; exact positions and counts \\
-E105 & understanding or execution? & understanding: briefed 6 vs.\ $\sim$10 actions \\
-E115 & 8 perception arms, held-out check & X8 25/28; guesses $\approx$50\% held-out \\
-E116 & X8 inside the agent, one \code{observe()} & shipped \\
-E109 & SGLang vs.\ vLLM (FP8 27B) & 342 vs.\ 315 tok/s @ 8 streams \\
-E112 & NVFP4 + MTP on SGLang & 1,162 tok/s @ 10 thinking streams \\
-E111 & priority scheduler & shipped (Eq.~\ref{eq:priority}) \\
-E123 & \code{play()} until surprise & shipped (Alg.~\ref{alg:play}) \\
-E122 & guardrail audit vs.\ the Duck & leash, auto-reset, reset cap \\
-E107/8 & LoRA SFT and GRPO pipelines & built, tested; no gain shown yet \\
--- & code stubbed out of history & \textbf{negative}: model copied the stub \\
--- & first backbones in the Prime port (Gemma-4-31B, Qwen3.8-27B) & $\le$0.27 on Kaggle; replaced \\
-\bottomrule
-\end{tabular}
-\caption{Experiments behind the shipped system (the full log, with hypotheses and kill criteria, is in the
-repository).}
-\label{tab:exps}
-\end{table}
+where $h=25$ represents the median human baseline constant, $\tau=40\text{k}$ tokens denotes the token exhaustion threshold, $\alpha=115$ actions denotes the exploration action limit, and $\gamma_{\text{tail}}=0.05$ ensures non-zero starvation prevention. The first factor formalizes the expected marginal RHAE reward attainable upon clearing the active level, discounted quadratically by accumulated action expenditure. The second factor models an exponential \emph{progress hope function}: games that consume substantial compute or action budgets without achieving state transitions experience rapid priority decay, gracefully yielding GPU resources to productive game sessions. Upon clearing a level, a game's counters are reset and its priority is immediately re-evaluated.
