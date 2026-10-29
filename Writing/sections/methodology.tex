@@ -136,12 +136,14 @@ $L \gets \textsc{ExtractLayout}(g_t, \mathcal{T})$\;
 }
 $e_{\text{agent}} \gets \textsc{IdentifyCandidateAgent}(L, \mathcal{A})$\;
 $\Lambda \gets \textsc{DetectLattice}(L) \textbf{ or } \Lambda'$\;
-$F \gets \textsc{BFSReach}(e_{\text{agent}}, \Lambda) \cup \textsc{Enclosures}(L) \cup \textsc{Tethers}(L) \cup \textsc{Symmetries}_{D_4\times\mathbb{Z}^+}(L)$\;
+$F \gets \textsc{BFSReach}(e_{\text{agent}}, \Lambda) \cup \textsc{Enclosures}(L)$\;
+$F \gets F \cup \textsc{Tethers}(L) \cup \textsc{Symmetries}_{D_4\times\mathbb{Z}^+}(L)$\;
 \ForEach{entity $e \in L$}{
   $\boldsymbol{\sigma}_e \gets \textsc{ScoreAffordances}(e, F, \mathcal{A})$\;
   $\hat{\rho}_e \gets \arg\max_r \boldsymbol{\sigma}_e[r], \quad p_e \gets \boldsymbol{\sigma}_e[\hat{\rho}_e] / (1 + \sum_r \boldsymbol{\sigma}_e[r])$\;
 }
-$B \gets \textsc{FormatInvariants}(F) \,\|\, \textsc{FormatHypotheses}(\hat{\boldsymbol{\rho}}, \boldsymbol{p}, \textsc{Tests}(\hat{\boldsymbol{\rho}}))$\;
+$B \gets \textsc{FormatInvariants}(F)$\;
+$B \gets B \,\|\, \textsc{FormatHypotheses}(\hat{\boldsymbol{\rho}}, \boldsymbol{p}, \textsc{Tests}(\hat{\boldsymbol{\rho}}))$\;
 $M \gets \textsc{RenderAffordanceMap}(L, \hat{\boldsymbol{\rho}}, F)$\;
 \Return{$(B, O, \textsc{ToAlphanumeric}(g_t)), M, \delta$}
 \end{algorithm}
@@ -166,9 +168,9 @@ We subsequently evaluated cross-distribution generalization on 23 held-out offic
 \label{sec:acting}
 
 \textsc{Sarbloh} interacts with the environment exclusively through a single persistent IPython execution kernel, extending the CodeAct paradigm \citep{wang2024codeact}. Within the execution REPL, \code{observe()} returns the current multimodal observation state as Python data structures. Action commitment is performed exclusively through a speculative execution primitive:
-\begin{equation}
-\code{await play(path, predict=transition\_model)}
-\end{equation}
+\begin{center}
+{\small\code{await play(path, predict=transition\_model)}}
+\end{center}
 where \code{path} denotes a planned sequence of up to 100 candidate actions, and \code{predict} specifies an optional programmatic world model $\hat{f}(s, a) \to \hat{s}$. In preliminary iterations, providing the model with separate, distinct tools for code execution and action submission induced severe mode-switching loops, where the agent vacillated between code generation and single-step action queries. Unifying action commitment directly into the Python kernel enabled the model to synthesize algorithmic state machines, execute trajectory searches (BFS/DFS), and commit complete planned trajectories within a single execution turn.
 
 \begin{algorithm}[t]

@@ -12,6 +12,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{colortbl}
 \usepackage{xcolor}
 \usepackage[ruled,vlined,linesnumbered]{algorithm2e}
 \usepackage{tikz}
@@ -29,6 +30,11 @@
 \definecolor{ink}{HTML}{0F172A}       % Slate 900: Primary Text
 \definecolor{muted}{HTML}{64748B}     % Slate 500: Neutral Muted
 \definecolor{paper}{HTML}{FAF7F0}     % Alabaster Paper
+\definecolor{oursTint}{HTML}{ECEEFF}  % table highlight for our column (pale periwinkle)
+\definecolor{indigo}{HTML}{5B50E6}    % table accent: hatched indigo
+\definecolor{periwinkle}{HTML}{939BFF}
+\definecolor{lavender}{HTML}{A090FF}
+\definecolor{gridc}{HTML}{D3D3D6}     % faint table rules
 \definecolor{soft}{HTML}{FFF7ED}      % Soft Orange Tint
 \definecolor{softb}{HTML}{EFF6FF}     % Soft Blue Tint
 
@@ -46,13 +52,15 @@
 }
 
 \setcounter{secnumdepth}{2}
-\copyrighttext{arXiv PrePrint}
 
-% Running footer setup
+\nocopyright  % no AAAI copyright slug on page 1; the running footer below carries the label
+
+% Running footer: "arXiv preprint" on every page, including the title page
 \fancypagestyle{plain}{%
   \fancyhf{}%
   \renewcommand{\headrulewidth}{0pt}%
-  \fancyfoot[C]{\footnotesize\textcolor{muted}{arXiv PrePrint}}%
+  \setlength{\footskip}{20pt}%
+  \fancyfoot[C]{\footnotesize\textcolor{muted}{arXiv preprint}}%
 }
 \pagestyle{plain}
 

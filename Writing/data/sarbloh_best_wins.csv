@@ -1,0 +1,17 @@
+game,score_pct,levels,of,actions,run,experiment,runs_won,runs_seen
+ar25,100.0,8,8,302,kaggle_sarbloh-experimentation_20261020_130421,flash_next_xhigh_9h_25games,5,14
+cd82,100.0,6,6,214,kaggle_sarbloh-experimentation_20261023_115157,flash_next_xhigh_9h_25games,4,14
+cn04,100.0,6,6,236,kaggle_sarbloh-experimentation_20261027_220914,flash_next_xhigh_6h_all,1,18
+ft09,100.0,6,6,94,Qwen_Latest_19,flash_next_medium_2h_5slots_15games,6,14
+lp85,100.0,8,8,178,kaggle_sarbloh-experimentation_20261022_091440,flash_next_xhigh_4h_25games,5,14
+ls20,100.0,7,7,323,kaggle_sarbloh-experimentation_20261020_130421,flash_next_xhigh_9h_25games,2,18
+m0r0,100.0,6,6,278,kaggle_sarbloh-experimentation_20261027_220914,flash_next_xhigh_6h_all,3,14
+r11l,100.0,6,6,137,kaggle_sarbloh-experimentation_20261023_115157,flash_next_xhigh_9h_25games,2,14
+s5i5,100.0,8,8,345,kaggle_sarbloh-experimentation_20261027_220914,flash_next_xhigh_6h_all,1,18
+sb26,100.0,8,8,916,kaggle_sarbloh-experimentation_20261020_130421,flash_next_xhigh_9h_25games,3,8
+sc25,57.09,6,6,625,kaggle_sarbloh-experimentation_20261027_220914,flash_next_xhigh_6h_all,3,8
+sk48,86.052,8,8,1282,kaggle_sarbloh-experimentation_20261023_115157,flash_next_xhigh_9h_25games,1,8
+su15,53.746,9,9,642,kaggle_sarbloh-experimentation_20261023_115157,flash_next_xhigh_9h_25games,1,8
+tr87,100.0,6,6,231,kaggle_sarbloh-experimentation_20261023_115157,flash_next_xhigh_9h_25games,2,8
+tu93,81.893,9,9,249,kaggle_sarbloh-experimentation_20261027_220914,flash_next_xhigh_6h_all,2,8
+vc33,100.0,7,7,272,kaggle_sarbloh-experimentation_20261020_130421,flash_next_xhigh_9h_25games,6,12

@@ -1,277 +1,271 @@
 """Every data figure of the paper, from Writing/data/*.json and Writing/figures/perception/.
-Writes publication-quality PDFs into Writing/figures/ and PNGs into Writing/figures/png/.
+Writes vector PDFs into Writing/figures/ and PNGs into Writing/figures/png/.
 
-Run:
     uv run python Writing/scripts/plot_results.py
+
+One palette for all figures (checked with the dataviz validator, light surface):
+hatched indigo = SARBLOH, grey = the Duck baseline, periwinkle / lavender = extra series, slate = text.
+Same stripe palette as Table 1. Grey is deliberately neutral (fails only the chroma floor); the pastels are
+always direct-labelled because they sit under 3:1 contrast on white.
 """
 
 import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib.dates import DateFormatter, date2num
-from matplotlib.patches import Patch
-from PIL import Image
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib import font_manager  # noqa: E402
+from matplotlib.dates import DateFormatter, date2num  # noqa: E402
+from matplotlib.patches import FancyBboxPatch, Patch  # noqa: E402
+from PIL import Image  # noqa: E402
 
 W = Path(__file__).resolve().parents[1]
-DATA = json.loads((W / 'data/paper_data.json').read_text(encoding='utf-8'))
-CURVES = json.loads((W / 'data/levels_vs_time.json').read_text(encoding='utf-8'))
-FIG = W / 'figures'
+DATA = json.loads((W / "data/paper_data.json").read_text(encoding="utf-8"))
+CURVES = json.loads((W / "data/levels_vs_time.json").read_text(encoding="utf-8"))
+FIG = W / "figures"
 
-# Refined Publication Color Palette
-INK = '#0F172A'         # Slate 900: primary text and axes
-OURS = '#C2410C'        # Deep Terracotta / Rust: SARBLOH
-OURS_LIGHT = '#EA580C'  # Warm Amber-Orange
-OURS_TINT = '#FFF7ED'   # Soft warm background tint
-BASE = '#2563EB'        # Slate Blue: Duck / baseline
-BASE_LIGHT = '#3B82F6'  # Medium blue
-BASE_TINT = '#EFF6FF'   # Soft blue tint
-MUTED = '#64748B'       # Slate 500: neutral muted elements
-MUTED_LIGHT = '#94A3B8' # Slate 400
-GRID = '#E2E8F0'        # Slate 200: subtle gridlines
-BG_BAR = '#F1F5F9'      # Slate 100: bar backgrounds / frames
-COL, FULL = 3.33, 7.0   # AAAI column and text widths in inches
+# ---- palette -----------------------------------------------------------------------------------
+OURS = "#5B50E6"      # series 1: SARBLOH (hatched indigo)
+BASE = "#8F8F99"      # series 2: Duck baseline / reference (grey)
+TEAL = "#7F8BFF"      # series 3: periwinkle
+VIOLET = "#A090FF"    # series 4: lavender
+INK = "#0F172A"       # text
+SOFT = "#475569"      # secondary text
+MUTED = "#C4C4CC"     # de-emphasised marks (light grey)
+GRID = "#E6E6EA"      # gridlines
+PANEL = "#F4F4F7"     # background fills
+OURS_TINT = "#ECEEFF"
+BASE_TINT = "#EEEEF1"
+plt.rcParams["hatch.linewidth"] = 0.9
+COL, FULL = 3.4, 7.1  # AAAI column and text width, inches
+
+_have = {f.name for f in font_manager.fontManager.ttflist}
+SANS = next((f for f in ("Inter", "Segoe UI", "Helvetica Neue", "Arial") if f in _have), "DejaVu Sans")
 
 plt.rcParams.update({
-    'font.family': 'serif',
-    'font.serif': ['STIX Two Text', 'STIXGeneral', 'Times New Roman', 'DejaVu Serif'],
-    'mathtext.fontset': 'stix',
-    'font.size': 8,
-    'axes.titlesize': 8.5,
-    'axes.labelsize': 8,
-    'xtick.labelsize': 7.2,
-    'ytick.labelsize': 7.2,
-    'legend.fontsize': 7.2,
-    'axes.edgecolor': INK,
-    'axes.labelcolor': INK,
-    'xtick.color': INK,
-    'ytick.color': INK,
-    'axes.spines.top': False,
-    'axes.spines.right': False,
-    'axes.linewidth': 0.65,
-    'xtick.major.width': 0.65,
-    'ytick.major.width': 0.65,
-    'pdf.fonttype': 42,
-    'savefig.bbox': 'tight',
-    'savefig.pad_inches': 0.03,
+    "font.family": "sans-serif", "font.sans-serif": [SANS, "DejaVu Sans"], "mathtext.fontset": "dejavusans",
+    "font.size": 8.5, "axes.titlesize": 9, "axes.labelsize": 8.5, "xtick.labelsize": 8, "ytick.labelsize": 8,
+    "legend.fontsize": 8, "text.color": INK, "axes.edgecolor": MUTED, "axes.labelcolor": SOFT,
+    "xtick.color": SOFT, "ytick.color": SOFT, "axes.spines.top": False, "axes.spines.right": False,
+    "axes.linewidth": 0.8, "xtick.major.width": 0.8, "ytick.major.width": 0.8, "xtick.major.size": 3,
+    "ytick.major.size": 3, "figure.facecolor": "white", "axes.facecolor": "white", "pdf.fonttype": 42,
+    "savefig.bbox": "tight", "savefig.pad_inches": 0.04,
 })
 
 
 def save(fig, name):
-    """Save publication-grade vector PDF and high-res raster PNG."""
-    fig.savefig(FIG / f'{name}.pdf', dpi=300)
-    fig.savefig(FIG / 'png' / f'{name}.png', dpi=250)
+    (FIG / "png").mkdir(exist_ok=True)
+    fig.savefig(FIG / f"{name}.pdf")
+    fig.savefig(FIG / "png" / f"{name}.png", dpi=260)
     plt.close(fig)
 
 
-def grid(ax, axis='y'):
-    ax.grid(axis=axis, color=GRID, lw=0.6, ls='-', zorder=0)
+def grid(ax, axis="y"):
+    ax.grid(axis=axis, color=GRID, lw=0.8, zorder=0)
     ax.set_axisbelow(True)
 
 
+def rbar(ax, x, h, w, color, base=0.0, z=3, horizontal=False, r=0.0, hatch=None):
+    """A bar with a slightly rounded data end (the end away from the baseline)."""
+    if horizontal:
+        p = FancyBboxPatch((base, x - w / 2), h, w, boxstyle=f"round,pad=0,rounding_size={r}", lw=0,
+                           fc=color, zorder=z, mutation_aspect=1, hatch=hatch, ec="white" if hatch else color)
+    else:
+        p = FancyBboxPatch((x - w / 2, base), w, h, boxstyle=f"round,pad=0,rounding_size={r}", lw=0,
+                           fc=color, zorder=z, mutation_aspect=1, hatch=hatch, ec="white" if hatch else color)
+    ax.add_patch(p)
+
+
+def title(ax, text, sub=None):
+    ax.text(0, 1.14 if sub else 1.07, text, transform=ax.transAxes, fontsize=9.5, fontweight="bold", color=INK,
+            va="bottom")
+    if sub:
+        ax.text(0, 1.04, sub, transform=ax.transAxes, fontsize=7.8, color=SOFT, va="bottom")
+
+
+# ---- 1. leaderboard trajectory -----------------------------------------------------------------
+def leaderboard():
+    rows = [r for r in DATA["submissions"] if r[0] >= "2026-09-27"]
+    failed = {"2026-10-15", "2026-10-16", "2026-10-22"}
+    D = lambda d: date2num(datetime.fromisoformat(d))
+    fig, ax = plt.subplots(figsize=(FULL, 3.0))
+    xs = [D(r[0]) for r in rows]
+    best, bx, by = 0.0, [], []
+    for x, r in zip(xs, rows):
+        best = max(best, r[1])
+        bx.append(x)
+        by.append(best)
+    ax.fill_between(bx, 0, by, step="post", color=OURS_TINT, zorder=1)
+    ax.step(bx, by, where="post", color=OURS, lw=2.2, zorder=3, label="best score so far")
+    for x, r in zip(xs, rows):
+        bad = r[0] in failed
+        ax.scatter(x, r[1], s=34, zorder=4, color="white" if bad else OURS, edgecolor=MUTED if bad else OURS,
+                   lw=1.3)
+    ax.scatter([], [], s=34, color="white", edgecolor=MUTED, lw=1.3, label="regression or failed experiment")
+    ax.axhline(1.21, color=BASE, lw=1.1, ls=(0, (5, 3)), zorder=2)
+    ax.text(D("2026-10-06"), 1.7, "Duck, Milestone #1: 1.21", color=BASE, fontsize=8, va="bottom")
+    notes = ((D("2026-09-28"), 2.4, "Prime Agent port\n0.00 to 0.27", "left"),
+             (D("2026-10-05"), 6.6, "5.14  Flash-Next on SGLang,\nprefix-cache prompts", "left"),
+             (D("2026-10-10"), 9.2, "5.65, 6.06  one tool,\ndrain-only context", "left"),
+             (D("2026-10-20"), 12.2, "10.98  code graph,\nlevel memory", "right"),
+             (D("2026-10-26"), 17.6, "16.53", "center"))
+    for x, y, t, ha in notes:
+        ax.text(x, y, t, fontsize=8, color=INK, ha=ha, va="bottom", linespacing=1.25,
+                fontweight="bold" if t == "16.53" else "normal")
+    ax.xaxis.set_major_formatter(DateFormatter("%d %b"))
+    ax.set_xlim(xs[0] - 0.8, xs[-1] + 2.2)
+    ax.set_ylim(0, 20)
+    ax.set_ylabel("Kaggle public score")
+    ax.legend(loc="upper left", frameon=False, bbox_to_anchor=(0.0, 0.98))
+    grid(ax)
+    save(fig, "leaderboard")
+
+
+# ---- 2. levels over wall clock -----------------------------------------------------------------
+def curves():
+    fig, ax = plt.subplots(figsize=(COL, 2.9))
+    spec = (("taaf_sum", "Duck harness, summed over 4 passes", MUTED, (0, (1.5, 2)), 1.4),
+            ("taaf_distinct", "Duck harness, distinct levels", BASE, "-", 1.9),
+            ("ours", "SARBLOH, one pass", OURS, "-", 2.4))
+    for key, lab, col, ls, lw in spec:
+        pts = CURVES[key]
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        ax.step(xs, ys, where="post", color=col, ls=ls, lw=lw, label=lab, zorder=3)
+        if key == "ours":
+            ax.fill_between(xs, 0, ys, step="post", color=OURS_TINT, zorder=1)
+    ax.axhline(183, color=MUTED, lw=0.9, ls=(0, (4, 3)))
+    ax.text(0.15, 186, "183 levels in the 25 public games", fontsize=7.8, color=SOFT, va="bottom")
+    for h, n in ((2, 97), (4, 136), (8.2, 143)):
+        ax.scatter(h, n, s=22, color=OURS, zorder=5, edgecolor="white", lw=0.8)
+        ax.annotate(str(n), (h, n), xytext=(0, 7), textcoords="offset points", ha="center", fontsize=8,
+                    color=OURS, fontweight="bold")
+    for h, n in ((2, 63), (4, 103), (8.2, 129)):
+        ax.scatter(h, n, s=22, color=BASE, zorder=5, edgecolor="white", lw=0.8)
+        ax.annotate(str(n), (h, n), xytext=(0, -13), textcoords="offset points", ha="center", fontsize=8,
+                    color=BASE, fontweight="bold")
+    ax.set_xlim(0, 8.7)
+    ax.set_ylim(0, 205)
+    ax.set_xlabel("wall clock (hours), one RTX PRO 6000")
+    ax.set_ylabel("levels cleared")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), frameon=False, handlelength=1.8, labelspacing=0.4)
+    grid(ax)
+    save(fig, "levels_vs_time")
+
+
+# ---- 3. ablation ladder (motivation) -----------------------------------------------------------
 def gemini():
-    """Figure 2: Aesthetic ablation ladder showing effect of structured input views."""
-    rows = DATA['gemini']
-    fig, ax = plt.subplots(figsize=(COL, 1.85))
-
-    formal_names = [
-        'Raw Grid (Tokens)',
-        '+ Visual Frame',
-        '+ Geometric Briefing',
-        '+ Code-as-Action (REPL)'
-    ][::-1]
-    vals = [r[1] for r in rows][::-1]
-    descs = [
-        '200-300 moves (Failed)',
-        '18 moves (14x speedup)',
-        '12 moves (21x speedup)',
-        '6 moves (Super-human)'
-    ][::-1]
-
-    palette = [OURS, OURS_LIGHT, '#F97316', MUTED]
-    bars = ax.barh(formal_names, vals, color=palette, height=0.55, zorder=3,
-                   edgecolor=[INK if p == OURS else 'none' for p in palette], lw=0.6)
-
-    # Human baseline reference line
-    ax.axvline(10, color=BASE, ls='--', lw=0.85, zorder=2)
-    ax.text(10.5, 3.32, 'Human Baseline (~10 actions)', fontsize=6.3, color=BASE,
-            fontweight='bold', va='center')
-
-    for i, (v, desc, col) in enumerate(zip(vals, descs, palette)):
-        ax.annotate(desc, (v, i), xytext=(8, 0), textcoords='offset points',
-                    va='center', fontsize=6.6, color=INK,
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='#FFFFFF',
-                              edgecolor=col if col != MUTED else GRID, lw=0.7))
-
-    ax.set_xscale('log')
-    ax.set_xlim(3, 2400)
-    ax.set_xlabel('Actions to Complete ls20 Level 1 (Log Scale)')
-    grid(ax, 'x')
-    save(fig, 'gemini_ladder')
+    rows = DATA["gemini"]
+    names = ["Raw integer grid", "+ rendered image", "+ board explained", "+ reasoning in code"]
+    vals = [r[1] for r in rows]
+    notes = ["200-300 actions, game lost", "12-24 actions", "12 actions", "6 actions"]
+    cols = [MUTED, TEAL, VIOLET, OURS]
+    fig, ax = plt.subplots(figsize=(COL, 2.35))
+    n = len(rows)
+    for i, (v, c) in enumerate(zip(vals, cols)):
+        y = n - 1 - i
+        ax.barh(y, v, height=0.58, color=c, zorder=3, lw=0, hatch="////" if c == OURS else None, ec="white")
+        ax.text(v * 1.18, y, notes[i], va="center", fontsize=8, color=INK,
+                fontweight="bold" if c == OURS else "normal")
+    ax.set_yticks(range(n), names[::-1])
+    ax.set_xscale("log")
+    ax.set_xlim(3, 3000)
+    ax.set_xlabel("actions to clear ls20 level 1 (log scale)")
+    ax.tick_params(axis="y", length=0, labelsize=8.2)
+    ax.spines["left"].set_visible(False)
+    grid(ax, "x")
+    save(fig, "gemini_ladder")
 
 
-def perception_panels():
-    """Figure 3: Enlarged, aesthetic four-panel perception views comparison."""
-    P = FIG / 'perception'
-    raw = [r.split() for r in (P / 'ls20' / 'raw.txt').read_text(encoding='utf-8').splitlines()]
-    
-    # Substantially enlarged vertical height (2.75 inches vs original 1.9 inches)
-    fig, axes = plt.subplots(1, 4, figsize=(FULL, 2.75), gridspec_kw={'width_ratios': [0.95, 1.0, 1.35, 1.35]})
-    
-    # (a) Integer crop
-    a = axes[0]
-    r0, c0, n = 42, 30, 14
-    crop = [[int(v) for v in row[c0:c0 + n]] for row in raw[r0:r0 + n]]
-    a.imshow([[0.98] * n for _ in range(n)], cmap='gray', vmin=0, vmax=1, extent=(0, n, n, 0))
-    for y, row in enumerate(crop):
-        for x, v in enumerate(row):
-            is_agent = v in (9, 12)
-            a.text(x + 0.5, y + 0.55, str(v), ha='center', va='center',
-                   fontsize=4.6, family='monospace', fontweight='bold' if is_agent else 'normal',
-                   color=OURS if is_agent else (INK if v != 0 else MUTED_LIGHT))
-    a.set_xlim(0, n)
-    a.set_ylim(n, 0)
-    a.set_xticks([])
-    a.set_yticks([])
-    for spine in a.spines.values():
-        spine.set_visible(True)
-        spine.set_color(GRID)
-        spine.set_linewidth(0.8)
-    a.set_title('(a) Raw Grid (14x14 crop)', loc='left', fontsize=7.5, pad=5, fontweight='bold', color=INK)
-
-    # (b, c, d) Image panels
-    panels = [
-        (axes[1], P / 'ls20' / 'plain.png', '(b) Visual Frame (64x64)'),
-        (axes[2], P / 'ls20' / 'map.png', '(c) Perception Map: ls20 (Keys)'),
-        (axes[3], P / 'r11l' / 'map.png', '(d) Perception Map: r11l (Clicks)')
-    ]
-    for ax, img, title in panels:
-        ax.imshow(Image.open(img))
-        ax.set_xticks([])
-        ax.set_yticks([])
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_color(GRID)
-            spine.set_linewidth(0.8)
-        ax.set_title(title, loc='left', fontsize=7.5, pad=5, fontweight='bold', color=INK)
-
-    fig.subplots_adjust(wspace=0.15)
-    save(fig, 'perception_views')
-
-
+# ---- 4. perception lab -------------------------------------------------------------------------
 def lab():
-    """Figure 4: Aesthetic bar chart of perception lab ablation arms."""
-    rows = DATA['lab']
-    fig, ax = plt.subplots(figsize=(COL, 2.05))
+    rows = DATA["lab"]
     names = [r[0] for r in rows]
     vals = [r[1] for r in rows]
     toks = [r[2] for r in rows]
-
-    colors = []
-    for n in names:
-        if n.startswith('X8'):
-            colors.append(OURS)
-        elif n.startswith('E0'):
-            colors.append(MUTED)
-        else:
-            colors.append('#F59E0B')
-
-    bars = ax.bar(range(len(rows)), vals, color=colors, width=0.64, zorder=3,
-                  edgecolor=[INK if c == OURS else 'none' for c in colors], lw=0.6)
-
-    for i, (v, t, c) in enumerate(zip(vals, toks, colors)):
-        ax.text(i, v + 0.7, f'{v}/28', ha='center', fontsize=6.4, color=INK,
-                fontweight='bold' if c == OURS else 'normal')
-
-    ax.set_xticks(range(len(rows)), [n.split(' ', 1)[0] + '\n' + f'{t:,} t' for n, t in zip(names, toks)])
-    ax.set_xlabel('Perception Arm & Text Tokens per Frame', fontsize=7.4)
-    ax.set_ylim(0, 31)
-    ax.set_ylabel('Visual Rubric Score (Max 28)')
-    
-    # Highlight badge for X8
-    ax.annotate('X8 (Ours): 25/28\n(89.4% token reduction)', xy=(7, 25), xytext=(2.2, 27.5),
-                arrowprops=dict(arrowstyle='->', color=OURS, lw=0.8),
-                fontsize=6.5, color=OURS, fontweight='bold',
-                bbox=dict(boxstyle='round,pad=0.25', facecolor=OURS_TINT, edgecolor=OURS, lw=0.8))
-
+    fig, ax = plt.subplots(figsize=(COL, 2.7))
+    cols = [OURS if n.startswith("X8") else (MUTED if n.startswith("E0") else BASE) for n in names]
+    for i, (v, c) in enumerate(zip(vals, cols)):
+        ax.bar(i, v, width=0.7, color=c, zorder=3, lw=0, hatch="////" if c == OURS else None, ec="white")
+        ax.text(i, v + 0.6, str(v), ha="center", fontsize=8.2, color=INK,
+                fontweight="bold" if c == OURS else "normal")
+    ax.set_xticks(range(len(rows)), [n.split(" ", 1)[0] for n in names], fontsize=8)
+    ax.set_ylim(0, 30)
+    ax.set_ylabel("rubric score (of 28)")
+    ax.axhline(28, color=MUTED, lw=0.9, ls=(0, (4, 3)))
+    ax.text(len(rows) - 0.5, 28.4, "maximum 28", ha="right", fontsize=7.6, color=SOFT)
+    # tokens per frame, as a second row of small labels under the x tick labels
+    for i, t in enumerate(toks):
+        ax.text(i, -0.08, f"{t:,}", transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=7,
+                color=SOFT)
+    ax.text(-0.04, -0.08, "tokens\nper frame", transform=ax.transAxes, ha="right", va="top", fontsize=6.6,
+            color=SOFT, linespacing=1.1)
     grid(ax)
-    save(fig, 'perception_lab')
+    save(fig, "perception_lab")
 
 
-def curves():
-    """Figure 6: Levels cleared over wall-clock time comparing SARBLOH with baseline."""
-    fig, ax = plt.subplots(figsize=(COL, 2.2))
-
-    for key, lab, col, ls, lw in (
-        ('ours', 'SARBLOH (1 pass, scheduler)', OURS, '-', 1.8),
-        ('taaf_distinct', 'Duck Harness, distinct (4 passes)', BASE, '-', 1.4),
-        ('taaf_sum', 'Duck Harness, total across 4 passes', MUTED, ':', 1.1)
-    ):
-        pts = CURVES[key]
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
-        ax.step(xs, ys, where='post', color=col, ls=ls, lw=lw, label=lab, zorder=3)
-        if key == 'ours':
-            ax.fill_between(xs, 0, ys, step='post', color=OURS, alpha=0.06, zorder=2)
-
-    ax.axhline(183, color=MUTED_LIGHT, lw=0.75, ls='--')
-    ax.text(0.15, 186, 'Benchmark Total (183 Levels across 25 Games)', fontsize=6.3, color=MUTED)
-
-    # Annotated checkpoints
-    for h, n in ((2, 97), (4, 136), (8.2, 143)):
-        ax.annotate(str(n), (h, n), xytext=(0, 4), textcoords='offset points',
-                    ha='center', fontsize=6.8, color=OURS, fontweight='bold')
-    for h, n in ((2, 63), (4, 103), (8.2, 129)):
-        ax.annotate(str(n), (h, n), xytext=(0, -10), textcoords='offset points',
-                    ha='center', fontsize=6.8, color=BASE, fontweight='bold')
-
-    ax.set_xlim(0, 8.4)
-    ax.set_ylim(0, 205)
-    ax.set_xlabel('Wall-Clock Execution Time (Hours, 1x RTX PRO 6000)')
-    ax.set_ylabel('Total ARC-AGI-3 Levels Cleared')
-    ax.legend(loc='lower right', frameon=True, facecolor='#FFFFFF', edgecolor=GRID, framealpha=0.9, handlelength=1.6)
-    grid(ax)
-    save(fig, 'levels_vs_time')
-
-
+# ---- 5. per game (teaser) ----------------------------------------------------------------------
 def per_game():
-    """Figure 7 / Teaser Figure: Comprehensive per-game comparative breakdown."""
-    pg = DATA['per_game']
-    games = sorted(pg, key=lambda g: (pg[g]['ours'] / pg[g]['of'], pg[g]['ours']))
-    fig, ax = plt.subplots(figsize=(FULL, 2.35))
+    pg = DATA["per_game"]
+    games = sorted(pg, key=lambda g: (pg[g]["ours"] / pg[g]["of"], pg[g]["ours"]))
+    fig, ax = plt.subplots(figsize=(FULL, 3.0))
     x = list(range(len(games)))
-
-    # Total levels background bar
-    ax.bar(x, [pg[g]['of'] for g in games], width=0.82, color=BG_BAR, zorder=1, edgecolor=GRID, lw=0.5)
-
-    # Grouped comparative bars
-    w = 0.33
-    ax.bar([i - 0.17 for i in x], [pg[g]['taaf_best_of_4'] for g in games], width=w, color=BASE, zorder=3,
-           label='Duck Harness (Best of 4 Concurrent Passes)', edgecolor='none')
-    ax.bar([i + 0.17 for i in x], [pg[g]['ours'] for g in games], width=w, color=OURS, zorder=3,
-           label='SARBLOH (Single Pass, Priority-Scheduled)', edgecolor=INK, lw=0.5)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(games, rotation=0, fontsize=6.6, color=INK)
-    ax.set_ylabel('Levels Solved (Count)', fontsize=8)
-    ax.set_xlabel('ARC-AGI-3 Public Game Environment (Sorted by SARBLOH Completion Rate)', fontsize=8)
+    for i, g in enumerate(games):
+        rbar(ax, i, pg[g]["of"], 0.86, PANEL, z=1)
+        rbar(ax, i - 0.2, pg[g]["taaf_best_of_4"], 0.34, BASE, z=3)
+        rbar(ax, i + 0.2, pg[g]["ours"], 0.34, OURS, z=3, hatch="////")
+    ax.set_xticks(x, games, fontsize=7.4, rotation=90)
+    ax.tick_params(axis="x", length=0)
     ax.set_xlim(-0.7, len(games) - 0.3)
     ax.set_ylim(0, 10.5)
-
-    h, lab = ax.get_legend_handles_labels()
-    ax.legend(h + [Patch(facecolor=BG_BAR, edgecolor=GRID, lw=0.6)],
-              lab + ['Total Available Levels'],
-              loc='lower left', frameon=True, facecolor='#FFFFFF', edgecolor=GRID, framealpha=0.95,
-              ncol=3, bbox_to_anchor=(0.0, 1.02), fontsize=7.2)
-
+    ax.set_yticks(range(0, 11, 2))
+    ax.set_ylabel("levels cleared")
+    ax.legend([Patch(color=BASE), Patch(fc=OURS, ec="white", hatch="////"), Patch(color=PANEL)],
+              ["Duck harness, best of 4 passes", "SARBLOH, one pass", "levels in the game"],
+              loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3, frameon=False, handlelength=1.2,
+              columnspacing=1.8)
     grid(ax)
-    save(fig, 'per_game')
+    save(fig, "per_game")
 
 
-if __name__ == '__main__':
-    for f in (curves, gemini, lab, per_game, perception_panels):
+# ---- 6. perception views panel -----------------------------------------------------------------
+def perception_panels():
+    P = FIG / "perception"
+    raw = [r.split() for r in (P / "ls20" / "raw.txt").read_text(encoding="utf-8").splitlines()]
+    fig, axes = plt.subplots(1, 4, figsize=(FULL, 2.75), gridspec_kw={"width_ratios": [1.0, 1.0, 1.3, 1.3]})
+    a = axes[0]
+    r0, c0, n = 42, 30, 14
+    crop = [[int(v) for v in row[c0:c0 + n]] for row in raw[r0:r0 + n]]
+    a.imshow([[0.98] * n for _ in range(n)], cmap="gray", vmin=0, vmax=1, extent=(0, n, n, 0))
+    for y, row in enumerate(crop):
+        for x, v in enumerate(row):
+            hot = v in (9, 12)
+            a.text(x + 0.5, y + 0.55, str(v), ha="center", va="center", fontsize=4.8, family="monospace",
+                   fontweight="bold" if hot else "normal", color=OURS if hot else (INK if v else MUTED))
+    a.set_xlim(0, n)
+    a.set_ylim(n, 0)
+    panels = [(a, "(a) raw integers", "14x14 crop of the grid"),
+              (axes[1], "(b) plain frame", "what a vision model gets"),
+              (axes[2], "(c) map: ls20", "keys, tiles, walls"),
+              (axes[3], "(d) map: r11l", "clicks, objects")]
+    for ax, img in zip(axes[1:], (P / "ls20" / "plain.png", P / "ls20" / "map.png", P / "r11l" / "map.png")):
+        ax.imshow(Image.open(img))
+    for ax, t, s in panels:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_visible(True)
+            sp.set_color(GRID)
+            sp.set_linewidth(1.0)
+        ax.set_title(t, loc="left", fontsize=8.6, fontweight="bold", color=INK, pad=14)
+        ax.text(0, 1.02, s, transform=ax.transAxes, fontsize=7.2, color=SOFT, va="bottom")
+    fig.subplots_adjust(wspace=0.12)
+    save(fig, "perception_views")
+
+
+if __name__ == "__main__":
+    for f in (leaderboard, curves, gemini, lab, per_game, perception_panels):
         f()
-        print('Successfully plotted:', f.__name__)
+        print("ok", f.__name__)
