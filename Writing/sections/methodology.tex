@@ -1,61 +1,82 @@
 \section{Methodology}
 \label{sec:method}
 
+Perception is the part of \textsc{Sarbloh} that we developed most deliberately, so most of this section is about it: where it started (Section~\ref{sec:origins}), the eight designs we compared in a perception lab (Section~\ref{sec:lab}), what survived a held-out check (Section~\ref{sec:holdout}), and what the final engine computes (Section~\ref{sec:perception}). The last subsection (Section~\ref{sec:agent}) shows how the engine sits inside the whole agent (Figure~\ref{fig:overview}).
+
+\subsection{Where Perception Started}
+\label{sec:origins}
+
+The first perception module, which we call the \emph{Legacy Encoder}, pushed a new observation into the context after every transition. It had four parts: the frame as a PNG in the ARC palette ($4\times$ nearest-neighbour, $256{\times}256$ pixels); a lettered board with one letter per colour, shown whole at the start of a level and afterwards only as the changed region with a 3-cell margin and numbered rows and columns; a segmentation list of 4-connected objects with id, colour, shape hash, bounding box, containment and adjacency, with HUD bars along the frame edge flagged; and one change line per transition (``\code{obj 4 moved dx=0 dy=-5; obj 9 vanished; 2 cells recoloured}''). It cost about 3{,}500 text tokens per frame.
+
+Three early probes on the first level of \code{ls20} shaped it. They are qualitative, were logged from the author's own runs, and have no held-out score.
+\begin{itemize}
+    \item \textbf{Whole-frame picture versus cell deltas.} Sending only the changed cells is cheaper, but some actions change the game globally (stepping onto the modifier in \code{ls20} does), and a cell-delta view hides that. A whole-frame picture kept the global effect visible.
+    \item \textbf{Picture plus segmentation text.} The model understood the frame precisely only when the segmentation list and the lettered board came beside the picture: the picture carries the global layout, the text carries exact positions.
+    \item \textbf{Oracle briefing.} A frontier model played the same level twice, once from screenshots and the action space alone and once with a briefing we wrote by hand (action meanings, goal, mechanics, on-screen components). Without the briefing the game was wasted; with it the level was cleared in about six actions, against about ten for the author. Execution was adequate and understanding was the bottleneck (the ladder of Figure~\ref{fig:gemini}, Section~\ref{sec:motivation}).
+\end{itemize}
+The last probe set the target: an engine that writes the briefing itself, from the frame alone, for a game it has never seen.
+
+\subsection{The Perception Lab: Eight Ways to Read One Frame}
+\label{sec:lab}
+
+We compared eight ways of presenting the same frame against the Legacy Encoder, one Python file each. All of them share one front end (screenshot, then an exact $64{\times}64$ palette grid, then the object list), so the only thing that changes is what is computed on top of the objects and how it is shown. The two test frames are the first levels of \code{ls20} (keyboard controls) and \code{r11l} (clicks). Understanding was graded against an answer key written and checked in the engine before any presentation ran: seven items per frame (spatial boundaries, mechanical linkages, agent identity, goal, gauges and so on) at two points each, 28 points in all, plus an intuition grade from 1 to 5. The kill rule was fixed in advance: drop a presentation that scores no better than the Legacy Encoder (3/28), or whose claims are wrong on about half or more of the held-out games.
+
 \begin{figure*}[t]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-  font=\sffamily\footnotesize, >={Stealth[length=2.2mm]},
-  box/.style={draw=ink!80, rounded corners=3pt, fill=white, minimum height=7.5mm, inner sep=3.5pt, align=center, line width=0.55pt},
-  hot/.style={box, fill=soft, draw=ours, line width=0.85pt},
-  cool/.style={box, fill=softb, draw=base, line width=0.75pt},
-  lab/.style={font=\sffamily\scriptsize, text=ink!90, align=center},
-  flow/.style={->, draw=ink!75, line width=0.65pt},
-  hotflow/.style={->, draw=ours, line width=0.95pt},
-]
-% --- one game session -------------------------------------------------------------------------------------------
-\node[cool, minimum width=21mm] (game) at (0,0) {\textbf{ArcHost}\\[-1pt]{\scriptsize Environment sandbox,}\\[-1pt]{\scriptsize lossless step ledger}};
-\node[hot, minimum width=27mm, right=9mm of game] (seg) {\textbf{1. Segment + Track}\\[-1pt]{\scriptsize 4-connected components,}\\[-1pt]{\scriptsize bipartite identity tracking}};
-\node[hot, minimum width=27mm, right=3mm of seg] (layout) {\textbf{2. Layout Parsing}\\[-1pt]{\scriptsize terrain, panels, HUD,}\\[-1pt]{\scriptsize composite entities}};
-\node[hot, minimum width=27mm, right=3mm of layout] (measure) {\textbf{3. Invariant Engine}\\[-1pt]{\scriptsize reachability, containment,}\\[-1pt]{\scriptsize tethers, $D_4 \times \mathbb{Z}^+$ symmetry}};
-\node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Affordance Scorer}\\[-1pt]{\scriptsize operational hypotheses,}\\[-1pt]{\scriptsize minimal unit falsification}};
-\node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Multimodal View}\\[-1pt]{\scriptsize spatial map, coordinate grid,}\\[-1pt]{\scriptsize differential change line}};
-\begin{scope}[on background layer]
-\node[draw=ours, dashed, rounded corners=5pt, fill=ours!5, fit=(seg)(render), inner sep=6pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Deterministic Perception Engine} (Host-side, zero parameters, $\mathcal{O}(HW)$ complexity, $\approx$35\,ms per frame on 1 CPU core)}] (pe) {};
-\end{scope}
-
-\node[box, minimum width=35mm, below=14mm of render.south east, anchor=north east] (ctx) {\textbf{Append-Only Context}\\[-1pt]{\scriptsize monotonic growth invariant,}\\[-1pt]{\scriptsize 98.4\% KV prefix-cache hit rate}};
-\node[cool, minimum width=35mm, left=8mm of ctx] (llm) {\textbf{Qwen3.8-Flash-Next}\\[-1pt]{\scriptsize 125B MoE (6B active per token)}\\[-1pt]{\scriptsize AutoRound W4A16, SGLang + EAGLE}};
-\node[box, minimum width=45mm, left=8mm of llm] (kernel) {\textbf{IPython Execution Kernel}\\[-1pt]{\scriptsize \code{observe()} \quad \code{await play(path, predict)}}\\[-1pt]{\scriptsize Persistent symbolic memory dictionaries}};
-
-\draw[flow] (game) -- node[lab, above]{$g_t$} (seg);
-\draw[flow] (seg) -- (layout);
-\draw[flow] (layout) -- (measure);
-\draw[flow] (measure) -- (guess);
-\draw[flow] (guess) -- (render);
-\draw[hotflow] (render.south) -- node[lab, right]{aligned views} (render.south |- ctx.north);
-\draw[flow] (ctx) -- node[lab, above]{prefix prompt} (llm);
-\draw[flow] (llm) -- node[lab, above]{Python code} (kernel);
-\draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{speculative path execution\\(auto-preemption on discrepancy)} (game.south);
-
-% --- run level -------------------------------------------------------------------------------------------------
-\node[box, minimum width=35mm, below=10mm of llm] (sched) {\textbf{Utility Priority Scheduler}\\[-1pt]{\scriptsize 25 concurrent games, 10 GPU slots,}\\[-1pt]{\scriptsize marginal RHAE utility $\times$ hope decay}};
-\node[box, minimum width=35mm, right=8mm of sched] (cur) {\textbf{Cross-Level Curator}\\[-1pt]{\scriptsize relational lessons graph,}\\[-1pt]{\scriptsize falsified hypothesis blacklist}};
-\node[box, minimum width=45mm, left=8mm of sched] (srv) {\textbf{Self-Healing Runtime Watchdog}\\[-1pt]{\scriptsize zero-progress stall detection,}\\[-1pt]{\scriptsize wall-clock budgeted recovery chain}};
-\draw[flow, dashed] (sched) -- (llm);
-\draw[flow, dashed] (cur.north) -- ++(0,4.5mm) -| (kernel.south east);
-\draw[flow, dashed] (srv) -- (sched);
-\end{tikzpicture}}
-\caption{System architecture of \textsc{Sarbloh}. The host runtime encapsulates the environment sandbox. Each observation frame is processed by the deterministic perception engine (orange), generating three aligned modalities ingested into a strictly monotonic, append-only context window. The agent reasons exclusively by executing code within an embedded IPython kernel, inspecting state via \code{observe()} and committing speculative trajectories via \code{await play()}. Across 25 concurrent game sessions, a single enterprise GPU is dynamically multiplexed via an optimal utility-based priority scheduler.}
-\label{fig:overview}
+\includegraphics[width=\textwidth]{figures/perception_lab_gallery.pdf}
+\caption{The image part of each candidate presentation for the opening frame of \code{ls20}, with its rubric score and its text cost per frame. (a) Exploded Inventory pulls out every object and stacks copies. (b) Surprise Map keeps colour only where the frame is unpredictable. (c) Visual Routines marks reachability, with the step count to each tile. (d) Look-alike Threads joins shapes that match under rotation, mirroring or scale. (e) Foresight Strip imagines the next frame (here, one step up). (f) Blueprint redraws floor, walls and lattice as a clean schematic. (g) Role Ledger tags each object with a guessed role and a confidence. (h) Fused Briefing, the presentation we kept, combines the blueprint with measured facts and tagged guesses.}
+\label{fig:labgallery}
 \end{figure*}
 
-Figure~\ref{fig:overview} illustrates the architectural topology of \textsc{Sarbloh}. The runtime orchestrates 25 concurrent game sessions multiplexed across a single GPU. For each environment, the host sandbox intercepts raw environment frames, which are transformed by the deterministic perception engine into three structurally aligned representations. An append-only context manager streams these views into the model prompt while preserving prefix-cache residency. The reasoning backbone operates through an embedded IPython kernel, modeling environment dynamics in Python and executing multi-step paths via speculative execution. In this section, we detail each constituent subsystem: the perception engine, its empirical validation in the perception lab, the speculative code-as-action runtime, the monotonic KV-cache architecture, and the single-GPU serving infrastructure.
+\begin{itemize}
+    \item \textbf{Exploded Inventory} (3/28) pulls every object out of the frame, enlarges it, spaces the objects apart and stacks identical copies as $\times N$. The list is clean but attaches no meaning to anything.
+    \item \textbf{Surprise Map} (4/28) ranks cells by how unpredictable their $3{\times}3$ neighbourhood is and flags broken symmetry. About 90\% of the frame is predictable texture, and the map caught the lopsided plus on \code{ls20}, but little else.
+    \item \textbf{Visual Routines} (15/28), after Ullman, computes reachability by flood fill with step counts, what lies inside what, line tracing to attached objects, midpoints and alignment. On \code{r11l} it found the midpoint tether and the ring that fits a $5{\times}5$ object.
+    \item \textbf{Look-alike Threads} (6/28) joins objects that are equal under rotation, flip, scale or recolouring and names the transform. On \code{ls20} it showed that the inventory icon is the goal shape turned $90^\circ$ and drawn at twice the size.
+    \item \textbf{Foresight Strip} (12/28) imagines the next frame for each action from simple movement priors. On \code{ls20} it predicted all four moves and the gauge correctly, and on \code{r11l} its three-click plan solved the level.
+    \item \textbf{Blueprint} (8/28) redraws the frame as a schematic: floor, walls, tile lattice, named shapes and the HUD moved to a side panel. It is the best map for navigation and says nothing about meaning.
+    \item \textbf{Role Ledger} (20/28) guesses a role for every object (agent, goal, handle, gauge, lives) with a confidence and a one-action test. Every role was right on both frames.
+    \item \textbf{Fused Briefing} (25/28) uses the Blueprint as its picture, states the Visual Routines and Look-alike Threads results as measured facts, and adds the Role Ledger guesses with their tests. Foresight Strip was dropped.
+\end{itemize}
 
-\subsection{The Deterministic Perception Engine}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/perception_lab.pdf}
+\caption{Rubric score (of 28) and text tokens per frame for the Legacy Encoder and the eight presentations, on the two test frames. The Fused Briefing scores 25/28 against 3/28 for the Legacy Encoder at about a tenth of the text.}
+\label{fig:lab}
+\end{figure}
+
+Exploded Inventory and Surprise Map did no better than the Legacy Encoder, at a tenth of its text, and were dropped as stand-alone presentations. What moved understanding most were the computed relations of Visual Routines and Look-alike Threads, which state facts a model cannot reliably read off a picture, and the Role Ledger, which gives the fastest gist. The Fused Briefing reached 25/28 at about 370 tokens per frame, 8.3$\times$ the Legacy Encoder's score with 89.4\% fewer text tokens. Two caveats apply. The grader was the same agent that built the presentations and knew both games, and no blind reader was used. The Fused Briefing was designed after the other eight were graded and was graded on the same two frames, so its score is optimistic.
+
+\subsection{Held-Out Check: Facts Versus Guesses}
+\label{sec:holdout}
+
+We then checked the presentations on the 23 other official games, none of which had been used in the design. This check was graded by the engine rather than by hand (Table~\ref{tab:holdout}). Turning a screenshot into a grid generalised perfectly (23/23 games at 100\% cell accuracy). The guesses did not: they had effectively been fitted to the two test frames and were right about half the time or less on unseen games.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}L{0.55\columnwidth}L{0.36\columnwidth}@{}}
+\toprule
+Check on the 23 held-out games & Result \\
+\midrule
+Screenshot to grid, exact cells & 23/23 games \\
+Agent identity, keyboard games & 6/14 games \\
+Moves-left gauge found & 10/20 games \\
+Click handles that respond & 7/29 handles \\
+Keyboard foresight fully right & 1/16 games \\
+\bottomrule
+\end{tabular}
+\caption{Held-out check of the single-frame guesses. For click handles, the guesses were good on \code{dc22} (2/2), \code{sb26} (4/4) and \code{ka59} (1/1) and bad on \code{lp85} (0/17). On two further keyboard games nothing moved on the first key press, so the agent-identity guess could not be checked.}
+\label{tab:holdout}
+\end{table}
+
+This fixed the design rule of the engine: \emph{computed relations (reachability, enclosure, tethers and midpoints, alignment, shape equivalence) are stated as facts, because they are true by construction, whereas roles and dynamics from a single frame are stated as guesses, each with a one-action test that settles it}. One real action answers what a single-frame prior cannot. We did not run the Fused Briefing as a whole on the held-out games, and the lab reports no RHAE. The end-to-end effect of the engine on the agent is not isolated by an ablation: the trajectory of Section~\ref{sec:trajectory} changes several components at once.
+
+\subsection{The Perception Engine}
 \label{sec:perception}
 
-The perception engine comprises approximately 1,500 lines of highly optimized host-side NumPy and Pillow routines executing in $\mathcal{O}(HW)$ algorithmic time ($\approx$35\,ms per frame on a single CPU core without GPU overhead). For every environment transition, the engine generates three structurally synchronized representations sharing a unified, persistent object identity space (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
+The final engine is the Fused Briefing, rewritten to work directly on the grid inside the agent. It is about 1{,}500 lines of host-side NumPy and Pillow with no learned parameters. Over 225 real frames (the first frame and eight random actions on each of 25 offline games) it raised no errors, with a median of 42\,ms for the briefing and 40\,ms for the picture (maximum 0.38\,s for a briefing). For every environment transition it generates three synchronized representations sharing one persistent object identity space (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
 
 \begin{figure*}[t]
 \centering
@@ -90,7 +111,7 @@ Conditioned on this layout, the engine computes seven categories of mathematical
 \end{itemize}
 
 \paragraph{Affordance Role Induction and Minimal Falsification Probes.}
-Subsequent to invariant verification, non-terrain components are evaluated against nine canonical game-design affordance roles via weighted evidence scoring (Table~\ref{tab:roles}). To eliminate the risk of hallucinated mental models, the engine couples each inferred role hypothesis with an explicit, single-action falsification probe:
+Subsequent to invariant verification, non-terrain components are evaluated against eight canonical game-design affordance roles via weighted evidence scoring (Table~\ref{tab:roles}). To eliminate the risk of hallucinated mental models, the engine couples each inferred role hypothesis with an explicit, single-action falsification probe:
 \begin{table}[t]
 \centering
 \footnotesize
@@ -113,13 +134,16 @@ Affordance Role & Evidentiary Priors (Scored) & Unit Falsification Probe \\
 \label{tab:roles}
 \end{table}
 
-The natural language briefing is bounded to 20 lines, allocating at most one-third of its budget to role hypotheses and interleaving measured facts round-robin across invariant categories. Complete structured briefings are provided in Appendix~\ref{app:briefings}.
+The natural language briefing is bounded to 30 lines by default, allocating at most one-third of that budget to role hypotheses and sharing the rest among the invariant categories so that no single kind of fact can fill it; facts touching the guessed agent and goal come first, and the remainder are counted (``\code{+N more facts}'') and stay available through \code{observe().briefing}. Complete structured briefings are provided in Appendix~\ref{app:briefings}.
 
 \paragraph{View 3: Structured Affordance Map.}
 The spatial map (Figure~\ref{fig:views}c,d) renders abstracted semantic structure rather than raw pixels: accessible terrain is rendered in pale tones, impassable walls are hatched, detected lattice grids are overlaid as fine lines, and all entities are bordered by role-colored bounding markers labeled ``\code{id: ROLE?}''. Look-alike symmetries under $D_4 \times \mathbb{Z}^+$ are joined via dashed chromatic threads, while mechanical tether linkages display midpoint concentric rings. Peripheral HUD panels are isolated and magnified on the right. Crucially, natural language annotations are excluded from image pixels and transmitted strictly as structured text, maximizing token efficiency and eliminating visual OCR errors.
 
 \paragraph{Observation Scheduling.}
-The full multimodal observation (briefing text, alphanumeric grid, and rendered map) is transmitted at level inception and following context window purges. Following intermediate actions, the agent receives an abbreviated observation: the differential change ledger, a cropped alphanumeric window centered on the modified coordinate region with a 3-cell margin, and the updated visual map, consuming fewer than 600 tokens. The complete object table is retained host-side and queried on-demand via Python kernel calls (\code{observe().objects}).
+The full multimodal observation (briefing text, alphanumeric grid, and rendered map) is transmitted at level inception, following context window purges, and when the agent calls \code{observe()} after acting, at most once per state. Following intermediate actions, the agent receives an abbreviated observation: the differential change ledger, a cropped alphanumeric window centered on the modified coordinate region with a 3-cell margin, and the updated visual map, consuming fewer than 600 tokens. The complete object table is retained host-side and queried on-demand via Python kernel calls (\code{observe().objects}).
+
+\paragraph{Hardening inside the agent.}
+Two problems appeared only once the engine ran on live play. First, the test for a tile lattice flipped during play: \code{ls20} lost its $5{\times}5$ grid after one move, because the gauge in the status box added off-grid edges, and \code{ka59} lost its $3{\times}3$ grid whenever the agent touched another object. Status boxes are now left out of the test and the level's previous lattice is kept while it still fits, which removed all flips on the 225 frames. Second, ``X is directly above Y'' facts crowded out everything else: on \code{tr87} they filled 27 of the 30 briefing lines (68 facts in all, and 792 on \code{bp35}). A fixed cap also deleted facts from \code{observe().briefing}, so we kept every alignment fact, put those touching the guessed agent and goal first, and let each kind of fact take only its share of the lines shown.
 
 \begin{algorithm}[t]
 \caption{\textsc{Perceive}: Deterministic Frame-to-Modality Mapping}
@@ -148,26 +172,62 @@ $M \gets \textsc{RenderAffordanceMap}(L, \hat{\boldsymbol{\rho}}, F)$\;
 \Return{$(B, O, \textsc{ToAlphanumeric}(g_t)), M, \delta$}
 \end{algorithm}
 
-\subsection{Perception Lab Benchmark and Ablation}
-\label{sec:lab}
+\subsection{The Overall \textsc{Sarbloh} Agent}
+\label{sec:agent}
 
-To establish the empirical superiority of our multimodal perception pipeline, we constructed a formal perception benchmark evaluating eight competing architectural paradigms (X1--X8) against an unparsed encoder baseline (E0) on two complex evaluation frames (\code{ls20}, \code{r11l}). State comprehension was graded against an expert 28-point cognitive rubric assessing identification of spatial boundaries, mechanical linkages, agent identity, goal affordances, and numerical gauges (Figure~\ref{fig:lab}).
-
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/perception_lab.pdf}
-\caption{Evaluation of candidate perception architectures across the 28-point cognitive rubric and corresponding text token overhead per frame. Our unified architecture (X8) achieves state-of-the-art visual comprehension (25/28), outperforming the baseline encoder (E0: 3/28) by 8.3$\times$ while reducing token expenditure by 89.4\%.}
-\label{fig:lab}
-\end{figure}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize, >={Stealth[length=2.2mm]},
+  box/.style={draw=ink!80, rounded corners=3pt, fill=white, minimum height=7.5mm, inner sep=3.5pt, align=center, line width=0.55pt},
+  hot/.style={box, fill=soft, draw=ours, line width=0.85pt},
+  cool/.style={box, fill=softb, draw=base, line width=0.75pt},
+  lab/.style={font=\sffamily\scriptsize, text=ink!90, align=center},
+  flow/.style={->, draw=ink!75, line width=0.65pt},
+  hotflow/.style={->, draw=ours, line width=0.95pt},
+]
+% --- one game session -------------------------------------------------------------------------------------------
+\node[cool, minimum width=21mm] (game) at (0,0) {\textbf{ArcHost}\\[-1pt]{\scriptsize Environment sandbox,}\\[-1pt]{\scriptsize lossless step ledger}};
+\node[hot, minimum width=27mm, right=9mm of game] (seg) {\textbf{1. Segment + Track}\\[-1pt]{\scriptsize 4-connected components,}\\[-1pt]{\scriptsize bipartite identity tracking}};
+\node[hot, minimum width=27mm, right=3mm of seg] (layout) {\textbf{2. Layout Parsing}\\[-1pt]{\scriptsize terrain, panels, HUD,}\\[-1pt]{\scriptsize composite entities}};
+\node[hot, minimum width=27mm, right=3mm of layout] (measure) {\textbf{3. Invariant Engine}\\[-1pt]{\scriptsize reachability, containment,}\\[-1pt]{\scriptsize tethers, $D_4 \times \mathbb{Z}^+$ symmetry}};
+\node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Affordance Scorer}\\[-1pt]{\scriptsize operational hypotheses,}\\[-1pt]{\scriptsize minimal unit falsification}};
+\node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Multimodal View}\\[-1pt]{\scriptsize spatial map, coordinate grid,}\\[-1pt]{\scriptsize differential change line}};
+\begin{scope}[on background layer]
+\node[draw=ours, dashed, rounded corners=5pt, fill=ours!5, fit=(seg)(render), inner sep=6pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Deterministic Perception Engine} (Host-side, zero parameters, $\mathcal{O}(HW)$, tens of ms per frame on 1 CPU core)}] (pe) {};
+\end{scope}
 
-The evaluated paradigms comprised: naive entity inventories (X1), chromatic rarity heatmaps (X2), classical visual routines in the sense of Ullman including reachability and enclosures (X3), dihedral symmetry linkages (X4), action consequence forward prediction (X5), schematic structural blueprints (X6), affordance role ledgers (X7), and our unified fusion architecture combining X3, X4, X6, and X7 (X8). Naive re-encodings (X1, X2) offered marginal score gains over E0 while incurring high token costs. Algorithmic invariants (X3) and affordance role scoring (X7) drove the dominant performance improvements. The integrated X8 engine attained 25/28 rubric points while requiring only $\approx$370 text tokens per frame---an 89.4\% token reduction compared to the 3,500 tokens consumed by E0.
+\node[box, minimum width=35mm, below=14mm of render.south east, anchor=north east] (ctx) {\textbf{Append-Only Context}\\[-1pt]{\scriptsize monotonic growth invariant,}\\[-1pt]{\scriptsize 98.4\% KV prefix-cache hit rate}};
+\node[cool, minimum width=35mm, left=8mm of ctx] (llm) {\textbf{Qwen3.8-Flash-Next}\\[-1pt]{\scriptsize 125B MoE (6B active per token)}\\[-1pt]{\scriptsize AutoRound W4A16, SGLang + EAGLE}};
+\node[box, minimum width=45mm, left=8mm of llm] (kernel) {\textbf{IPython Execution Kernel}\\[-1pt]{\scriptsize \code{observe()} \quad \code{await play(path, predict)}}\\[-1pt]{\scriptsize Persistent symbolic memory dictionaries}};
 
-We subsequently evaluated cross-distribution generalization on 23 held-out official game environments not seen during engine design. Algorithmic grid reconstruction generalized flawlessly (23/23 games, 100\% cell accuracy). However, unverified single-frame role hypotheses exhibited inductive limitations: agent identity was correctly classified on 6 of 14 discrete navigation environments; action gauges were identified on 10 of 20 games; and 7 of 29 predicted interactive click handles responded to actuation. This empirical divergence validated our core design axiom: \emph{mathematical invariants are declared as definitive facts, whereas operational roles are explicitly declared as probabilistic hypotheses requiring unit action verification}.
+\draw[flow] (game) -- node[lab, above]{$g_t$} (seg);
+\draw[flow] (seg) -- (layout);
+\draw[flow] (layout) -- (measure);
+\draw[flow] (measure) -- (guess);
+\draw[flow] (guess) -- (render);
+\draw[hotflow] (render.south) -- node[lab, right]{aligned views} (render.south |- ctx.north);
+\draw[flow] (ctx) -- node[lab, above]{prefix prompt} (llm);
+\draw[flow] (llm) -- node[lab, above]{Python code} (kernel);
+\draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{speculative path execution\\(auto-preemption on discrepancy)} (game.south);
 
-\subsection{Speculative Code-as-Action Planning}
-\label{sec:acting}
+% --- run level -------------------------------------------------------------------------------------------------
+\node[box, minimum width=35mm, below=10mm of llm] (sched) {\textbf{Utility Priority Scheduler}\\[-1pt]{\scriptsize 25 concurrent games, 10 GPU slots,}\\[-1pt]{\scriptsize marginal RHAE utility $\times$ hope decay}};
+\node[box, minimum width=35mm, right=8mm of sched] (cur) {\textbf{Cross-Level Curator}\\[-1pt]{\scriptsize relational lessons graph,}\\[-1pt]{\scriptsize falsified hypothesis blacklist}};
+\node[box, minimum width=45mm, left=8mm of sched] (srv) {\textbf{Self-Healing Runtime Watchdog}\\[-1pt]{\scriptsize zero-progress stall detection,}\\[-1pt]{\scriptsize wall-clock budgeted recovery chain}};
+\draw[flow, dashed] (sched) -- (llm);
+\draw[flow, dashed] (cur.north) -- ++(0,4.5mm) -| (kernel.south east);
+\draw[flow, dashed] (srv) -- (sched);
+\end{tikzpicture}}
+\caption{System architecture of \textsc{Sarbloh}. The host runtime encapsulates the environment sandbox. Each observation frame is processed by the deterministic perception engine (orange), generating three aligned modalities ingested into a strictly monotonic, append-only context window. The agent reasons exclusively by executing code within an embedded IPython kernel, inspecting state via \code{observe()} and committing speculative trajectories via \code{await play()}. Across 25 concurrent game sessions, a single enterprise GPU is dynamically multiplexed via an optimal utility-based priority scheduler.}
+\label{fig:overview}
+\end{figure*}
 
-\textsc{Sarbloh} interacts with the environment exclusively through a single persistent IPython execution kernel, extending the CodeAct paradigm \citep{wang2024codeact}. Within the execution REPL, \code{observe()} returns the current multimodal observation state as Python data structures. Action commitment is performed exclusively through a speculative execution primitive:
+Figure~\ref{fig:overview} puts the perception engine in the context of the whole agent. The runtime orchestrates 25 concurrent game sessions multiplexed across a single GPU. For each environment, the host sandbox intercepts the raw frame and the perception engine turns it into the aligned views described above. An append-only context manager streams these views into the model prompt while preserving prefix-cache residency. The reasoning backbone works through an embedded IPython kernel, modelling the environment in Python and executing multi-step paths by speculative execution. The remaining components are described below.
+
+\paragraph{Speculative code-as-action.}
+\textsc{Sarbloh} acts exclusively through a single persistent IPython execution kernel, extending the CodeAct paradigm \citep{wang2024codeact}. Within the execution REPL, \code{observe()} returns the current multimodal observation state as Python data structures. Action commitment is performed exclusively through a speculative execution primitive:
 \begin{center}
 {\small\code{await play(path, predict=transition\_model)}}
 \end{center}
@@ -198,18 +258,15 @@ Algorithm~\ref{alg:play} defines the speculative execution contract. Prediction 
 
 Conversely, speculative execution is immediately preempted whenever runtime telemetry confirms that further action commitment is deleterious. The \emph{state revisit leash} monitors the hash of playfield configurations (excluding the peripheral 3-cell HUD border): if the agent reproduces a state visited earlier within the current attempt, the execution loop is immediately aborted, arresting cyclical wandering. Furthermore, voluntary episode resets are bounded to three per level, eliminating pathological restart loops observed in unconstrained baselines. When evaluated post-hoc across offline trajectories, the revisit leash successfully suppressed 2,331 redundant exploratory actions across 9,913 total steps without truncating a single successful solution path.
 
-\subsection{Context Engineering and Monotonic KV Caching}
-\label{sec:context}
-
-\paragraph{Monotonic Append-Only Invariant.}
+\paragraph{Monotonic append-only context.}
 Our deployed backbone architecture integrates Gated DeltaNet linear recurrent layers with sparse multi-head attention \citep{yang2024gated}. While linear attention provides exceptional generation speed, its recurrent state representation imposes a rigid operational invariant: the model serving engine can only resume generation from state checkpoints recorded at the terminal boundary of prior requests. Any retrospective modification to historical tokens---such as replacing stale visual images or updating historical messages---invalidates the recurrent state, triggering expensive full prefill recomputation.
 
 In early deployments, unconstrained prompt rewriting resulted in catastrophic cache degradation: 3,283 of 5,599 sequential requests experienced 0\% prefix cache reuse, requiring continuous prefill that saturated GPU bandwidth. We resolved this systems bottleneck by enforcing a strictly \emph{monotonic, append-only context protocol}. Generation histories retain all preceding reasoning traces, newly rendered images are appended as discrete immutable messages following the action output that produced them, and state modifications are appended strictly as delta logs. As demonstrated in Table~\ref{tab:telemetry}, this append-only invariant raised prompt prefix-cache utilization to \textbf{98.4\%} across full nine-hour runs, effectively rendering the serving system decode-bound.
 
-\paragraph{Deterministic Context Drainage.}
+\paragraph{Deterministic context drainage.}
 When cumulative context length surpasses 118k tokens, the runtime executes a deterministic context drainage routine, discarding the oldest conversational turns in code until total length falls below 55k tokens. Unlike prior agent frameworks that rely on recursive model-generated summaries \citep{knutsen2026arcgentica}, our purge routine uses zero LLM calls, completely avoiding the accumulation of hallucinated summaries. The initial system prompt is permanently pinned, and the active symbolic memory state and Python code graph are re-injected as a clean prefix checkpoint (Algorithm~\ref{alg:loop}, Line~3).
 
-\paragraph{Symbolic State Dictionaries and Relational Graph.}
+\paragraph{Working memory and relational graph.}
 The agent maintains working memory within four structured dictionaries persisted inside the IPython kernel: \code{GOAL}, \code{PLAN}, \code{HYPOTHESES}, and \code{FINDINGS}. These structures are retained across level transitions, ensuring that inductive knowledge acquired in early levels remains accessible when solving complex compositional stages. A fifth structure, \code{SKILLS}, is populated via a post-level \emph{curator}. Following each completed level, a fast structured JSON call evaluates verified versus refuted hypotheses, updating a cross-level relational lessons graph and maintaining an explicit blacklist of falsified rules to prevent the re-generation of refuted behavioral hypotheses. Live abstract syntax tree (AST) analysis inspects kernel variables following each cell execution, appending a single telemetry line summarizing defined or broken functional dependencies.
 
 \begin{algorithm}[t]
@@ -227,13 +284,10 @@ The agent maintains working memory within four structured dictionaries persisted
 }
 \end{algorithm}
 
-\subsection{Single-GPU Model Serving and Dynamic Priority Scheduling}
-\label{sec:systems}
-
-\paragraph{Model Quantization and Serving Runtime.}
+\paragraph{Model quantization and serving runtime.}
 \textsc{Sarbloh} deploys Qwen3.8-Flash-Next, an advanced 125B parameter Mixture-of-Experts (MoE) architecture activating 6B parameters per token, featuring hybrid Gated DeltaNet and sparse attention layers. The model is quantized to W4A16 precision using AutoRound \citep{cheng2023autoround} and served via SGLang \citep{zheng2024sglang} with EAGLE speculative decoding \citep{li2024eagle} (configured with 3 draft speculative tokens), FP8 KV caching, and a 136k context window. Each game turn is allocated a 12k token generation ceiling. A self-healing watchdog monitors serving process health: servers that experience thread hangs (detected when token generation counters cease incrementing despite active client requests) are immediately terminated via stack dumps and restarted along a staged profile fallback chain, with restart budgets metered strictly by remaining wall-clock execution time.
 
-\paragraph{Utility-Driven Priority Scheduler.}
+\paragraph{Utility-driven priority scheduler.}
 All 25 games are instantiated concurrently at runtime start, but active GPU access is restricted to 10 concurrent serving slots to prevent KV-cache thrashing. Slot allocation is governed by a dynamic utility-driven priority function. For a game session currently evaluating level $L+1$ of $n$, having expended $t$ generation tokens and $a$ actions on the active level, its priority index $\pi$ is computed as:
 \begin{equation}
 \pi = \left(\frac{L+1}{\frac{n(n+1)}{2}} \cdot \left(\frac{h}{h+a}\right)^2 + \gamma_{\text{tail}}\right) \cdot 2^{-\left(\left(\frac{t}{\tau}\right)^2 + \left(\frac{a}{\alpha}\right)^2\right)},

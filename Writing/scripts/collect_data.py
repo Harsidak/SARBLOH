@@ -22,7 +22,7 @@ SUBMISSIONS = [
     ("2026-09-29", 0.00, "sarbloh-prime", "Prime Agent port"),
     ("2026-10-01", 0.00, "sarbloh-prime", "Prime Agent port"),
     ("2026-10-02", 0.27, "sarbloh-prime", "Prime Agent port"),
-    ("2026-10-03", 0.19, "sarbloh-experimentation", "first experimentation build (perception engine X8 wired in on 10-03)"),
+    ("2026-10-03", 0.19, "sarbloh-experimentation", "first experimentation build (perception engine wired in on 10-03)"),
     ("2026-10-05", 5.14, "sarbloh-experimentation", "Flash-Next + speculative decoding on SGLang, prefix-cache prompts, 10 games at once"),
     ("2026-10-08", 5.65, "sarbloh-experimentation", "one tool: moves sent from code"),
     ("2026-10-11", 6.06, "sarbloh-experimentation", "drain-only context, xhigh effort"),
@@ -38,9 +38,9 @@ GEMINI = [("raw grid", 250, "200-300, game lost"), ("+ image", 18, "12-24"),
           ("+ board explained", 12, "12"), ("+ reason with code", 6, "6")]
 
 # experiments/E115_perception_lab/verdict.md: rubric /28 on two dev screenshots, text tokens per frame.
-LAB = [("E0 old eye", 3, 3500), ("X1 inventory", 3, 180), ("X2 surprise", 4, 270), ("X4 look-alikes", 6, 140),
-       ("X6 blueprint", 8, 100), ("X5 foresight", 12, 140), ("X3 routines", 15, 240), ("X7 roles", 20, 380),
-       ("X8 fusion", 25, 370)]
+LAB = [("Legacy Encoder", 3, 3500), ("Exploded Inventory", 3, 180), ("Surprise Map", 4, 270), ("Look-alike Threads", 6, 140),
+       ("Blueprint", 8, 100), ("Foresight Strip", 12, 140), ("Visual Routines", 15, 240), ("Role Ledger", 20, 380),
+       ("Fused Briefing", 25, 370)]
 HOLDOUT = {"screenshot to grid": (23, 23), "YOU (keyboard games)": (6, 14), "gauge (moves left)": (10, 20),
            "click handles that respond": (7, 29), "keyboard foresight": (1, 16)}
 

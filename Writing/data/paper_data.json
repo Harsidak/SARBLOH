@@ -46,7 +46,7 @@
    "2026-10-03",
    0.19,
    "sarbloh-experimentation",
-   "first experimentation build (perception engine X8 wired in on 10-03)"
+   "first experimentation build (perception engine wired in on 10-03)"
   ],
   [
    "2026-10-05",
@@ -121,47 +121,47 @@
  ],
  "lab": [
   [
-   "E0 old eye",
+   "Legacy Encoder",
    3,
    3500
   ],
   [
-   "X1 inventory",
+   "Exploded Inventory",
    3,
    180
   ],
   [
-   "X2 surprise",
+   "Surprise Map",
    4,
    270
   ],
   [
-   "X4 look-alikes",
+   "Look-alike Threads",
    6,
    140
   ],
   [
-   "X6 blueprint",
+   "Blueprint",
    8,
    100
   ],
   [
-   "X5 foresight",
+   "Foresight Strip",
    12,
    140
   ],
   [
-   "X3 routines",
+   "Visual Routines",
    15,
    240
   ],
   [
-   "X7 roles",
+   "Role Ledger",
    20,
    380
   ],
   [
-   "X8 fusion",
+   "Fused Briefing",
    25,
    370
   ]

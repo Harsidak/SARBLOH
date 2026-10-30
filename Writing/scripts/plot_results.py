@@ -182,30 +182,58 @@ def gemini():
 
 
 # ---- 4. perception lab -------------------------------------------------------------------------
+LAB_COLOURS = {"Fused Briefing": OURS, "Legacy Encoder": MUTED}
+
+
 def lab():
-    rows = DATA["lab"]
-    names = [r[0] for r in rows]
-    vals = [r[1] for r in rows]
-    toks = [r[2] for r in rows]
-    fig, ax = plt.subplots(figsize=(COL, 2.7))
-    cols = [OURS if n.startswith("X8") else (MUTED if n.startswith("E0") else BASE) for n in names]
-    for i, (v, c) in enumerate(zip(vals, cols)):
-        ax.bar(i, v, width=0.7, color=c, zorder=3, lw=0, hatch="////" if c == OURS else None, ec="white")
-        ax.text(i, v + 0.6, str(v), ha="center", fontsize=8.2, color=INK,
-                fontweight="bold" if c == OURS else "normal")
-    ax.set_xticks(range(len(rows)), [n.split(" ", 1)[0] for n in names], fontsize=8)
-    ax.set_ylim(0, 30)
-    ax.set_ylabel("rubric score (of 28)")
-    ax.axhline(28, color=MUTED, lw=0.9, ls=(0, (4, 3)))
-    ax.text(len(rows) - 0.5, 28.4, "maximum 28", ha="right", fontsize=7.6, color=SOFT)
-    # tokens per frame, as a second row of small labels under the x tick labels
-    for i, t in enumerate(toks):
-        ax.text(i, -0.08, f"{t:,}", transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=7,
+    rows = sorted(DATA["lab"], key=lambda r: r[1])
+    fig, ax = plt.subplots(figsize=(COL, 2.9))
+    for i, (n, v, t) in enumerate(rows):
+        c = LAB_COLOURS.get(n, BASE)
+        ax.barh(i, v, height=0.68, color=c, zorder=3, lw=0, hatch="////" if c == OURS else None, ec="white")
+        ax.text(v + 0.5, i, str(v), va="center", fontsize=8, color=INK, fontweight="bold" if c == OURS else "normal")
+        ax.text(1.03, i, f"{t:,}", transform=ax.get_yaxis_transform(), ha="left", va="center", fontsize=7.4,
                 color=SOFT)
-    ax.text(-0.04, -0.08, "tokens\nper frame", transform=ax.transAxes, ha="right", va="top", fontsize=6.6,
+    ax.set_yticks(range(len(rows)), [r[0] for r in rows], fontsize=7.8)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlim(0, 30)
+    ax.set_xticks(range(0, 29, 7))
+    ax.set_xlabel("rubric score (of 28)")
+    ax.axvline(28, color=MUTED, lw=0.9, ls=(0, (4, 3)))
+    ax.text(28, len(rows) - 0.45, "maximum 28", fontsize=6.8, color=SOFT, ha="right", va="bottom")
+    ax.text(1.03, 1.0, "text tokens\nper frame", transform=ax.transAxes, ha="left", va="bottom", fontsize=6.6,
             color=SOFT, linespacing=1.1)
-    grid(ax)
+    grid(ax, "x")
     save(fig, "perception_lab")
+
+
+def lab_gallery():
+    """What each of the eight candidate presentations shows for the opening frame of ls20 (image part only)."""
+    R = W.parent / "experiments" / "E115_perception_lab" / "results"
+    tiles = [("Exploded Inventory", "X1", (0, 60, 640, 575)), ("Surprise Map", "X2", (0, 28, 576, 604)),
+             ("Visual Routines", "X3", (0, 28, 384, 412)), ("Look-alike Threads", "X4", (0, 28, 640, 668)),
+             ("Foresight Strip", "X5", (0, 28, 320, 348)), ("Blueprint", "X6", (0, 28, 640, 668)),
+             ("Role Ledger", "X7", (0, 28, 640, 668)), ("Fused Briefing", "X8", (0, 28, 640, 668))]
+    stat = {n: (v, t) for n, v, t in DATA["lab"]}
+    fig, axes = plt.subplots(2, 4, figsize=(FULL, 3.95))
+    for k, (ax, (name, folder, box)) in enumerate(zip(axes.flat, tiles)):
+        im = Image.open(R / folder / "ls20_L1.png").convert("RGB").crop(box)
+        side = max(im.size)
+        sq = Image.new("RGB", (side, side), (244, 244, 247))
+        sq.paste(im, ((side - im.size[0]) // 2, (side - im.size[1]) // 2))
+        ax.imshow(sq)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_visible(True)
+            sp.set_color(OURS if name == "Fused Briefing" else GRID)
+            sp.set_linewidth(1.6 if name == "Fused Briefing" else 1.0)
+        v, t = stat[name]
+        ax.set_title(f"({'abcdefgh'[k]}) {name}", loc="left", fontsize=7.8, fontweight="bold", color=INK, pad=13)
+        ax.text(0, 1.02, f"{v}/28 points, {t:,} tokens", transform=ax.transAxes, fontsize=6.6, color=SOFT,
+                va="bottom")
+    fig.subplots_adjust(wspace=0.08, hspace=0.42)
+    save(fig, "perception_lab_gallery")
 
 
 # ---- 5. per game vs frontier models (teaser, from data/Score.csv) ------------------------------
@@ -281,6 +309,6 @@ def perception_panels():
 
 
 if __name__ == "__main__":
-    for f in (leaderboard, curves, gemini, lab, per_game, perception_panels):
+    for f in (leaderboard, curves, gemini, lab, lab_gallery, per_game, perception_panels):
         f()
         print("ok", f.__name__)
