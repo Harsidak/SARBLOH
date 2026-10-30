@@ -16,7 +16,9 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 from matplotlib.dates import DateFormatter, date2num  # noqa: E402
 from matplotlib.patches import FancyBboxPatch, Patch  # noqa: E402
@@ -206,26 +208,39 @@ def lab():
     save(fig, "perception_lab")
 
 
-# ---- 5. per game (teaser) ----------------------------------------------------------------------
+# ---- 5. per game vs frontier models (teaser, from data/Score.csv) ------------------------------
+FRONTIER = (("openai-gpt6.1-sol", "GPT-6.1 Sol", INK, "o"),
+            ("anthropic-claude-opus-5", "Claude Opus 5", SOFT, "s"),
+            ("google-gemini-3.8-flash", "Gemini 3.8 Flash", TEAL, "^"),
+            ("xai-grok-4.6-xhigh", "Grok 4.6 xhigh", VIOLET, "D"),
+            ("openai-gpt5.6-terra", "GPT-5.6 Terra", BASE, "v"))
+
+
 def per_game():
-    pg = DATA["per_game"]
-    games = sorted(pg, key=lambda g: (pg[g]["ours"] / pg[g]["of"], pg[g]["ours"]))
-    fig, ax = plt.subplots(figsize=(FULL, 3.0))
-    x = list(range(len(games)))
-    for i, g in enumerate(games):
-        rbar(ax, i, pg[g]["of"], 0.86, PANEL, z=1)
-        rbar(ax, i - 0.2, pg[g]["taaf_best_of_4"], 0.34, BASE, z=3)
-        rbar(ax, i + 0.2, pg[g]["ours"], 0.34, OURS, z=3, hatch="////")
-    ax.set_xticks(x, games, fontsize=7.4, rotation=90)
+    import csv
+    rows = list(csv.reader((W / "data/Score.csv").read_text(encoding="utf-8").splitlines()))
+    games = rows[0][1:]
+    sc = {r[0]: [float(v.strip("%")) for v in r[1:]] for r in rows[1:]}
+    ours = next(k for k in sc if k.startswith("Sarbloh"))
+    mean = lambda k: sum(sc[k]) / len(sc[k])
+    order = sorted(range(len(games)), key=lambda i: (sc[ours][i], sum(sc[k][i] for k, *_ in FRONTIER)))
+    fig, ax = plt.subplots(figsize=(FULL, 4.3))
+    xs = np.arange(len(order))
+    series = [(ours, OURS)] + [(k, c) for k, _, c, _ in FRONTIER]
+    w = 0.82 / len(series)
+    for j, (k, c) in enumerate(series):
+        ax.bar(xs - 0.41 + w * (j + 0.5), [sc[k][i] for i in order], w * 0.92, color=c, lw=0, zorder=3)
+    ax.set_xticks(xs, [games[i] for i in order], fontsize=7.4, rotation=90)
     ax.tick_params(axis="x", length=0)
-    ax.set_xlim(-0.7, len(games) - 0.3)
-    ax.set_ylim(0, 10.5)
-    ax.set_yticks(range(0, 11, 2))
-    ax.set_ylabel("levels cleared")
-    ax.legend([Patch(color=BASE), Patch(fc=OURS, ec="white", hatch="////"), Patch(color=PANEL)],
-              ["Duck harness, best of 4 passes", "SARBLOH, one pass", "levels in the game"],
-              loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3, frameon=False, handlelength=1.2,
-              columnspacing=1.8)
+    ax.set_xlim(-0.6, len(order) - 0.4)
+    ax.set_ylim(0, 104)
+    ax.set_yticks(range(0, 101, 25))
+    ax.set_ylabel("score on the game (%)")
+    ax.set_xlabel("games, sorted by the SARBLOH score")
+    hs = [Patch(fc=c, lw=0) for _, c in series]
+    names = [f"SARBLOH, mean {mean(ours):.1f}"] + [f"{n}, {mean(k):.1f}" for k, n, _, _ in FRONTIER]
+    fig.legend(hs, names, loc="upper left", bbox_to_anchor=(0.06, 1.02), ncol=6, frameon=False, handlelength=1.6,
+               columnspacing=1.2, fontsize=7.2)
     grid(ax)
     save(fig, "per_game")
 

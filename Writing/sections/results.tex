@@ -1,7 +1,7 @@
 \section{Results and Empirical Evaluation}
 \label{sec:results}
 
-We evaluate \textsc{Sarbloh} across three rigorous empirical dimensions: (i) official evaluation trajectory on the undisclosed Kaggle ARC-AGI-3 benchmark, (ii) controlled hardware-matched comparative benchmarking against the Milestone~\#1 winning Duck harness on identical enterprise hardware, and (iii) systems execution telemetry quantifying computational and token efficiency under our single-GPU budget.
+We evaluate \textsc{Sarbloh} across three rigorous empirical dimensions: (i) official evaluation trajectory on the undisclosed Kaggle ARC-AGI-3 benchmark, (ii) per-game comparison with five frontier models and a hardware-matched control run of the Milestone~\#1 Duck harness on identical enterprise hardware, and (iii) systems execution telemetry quantifying computational and token efficiency under our single-GPU budget.
 
 \subsection{Evaluation Trajectory on Hidden Benchmark}
 \label{sec:trajectory}
@@ -41,7 +41,7 @@ Figure~\ref{fig:curves} plots the cumulative count of cleared levels as a functi
 
 Normalized per GPU-hour, a single pass of the Duck harness (allocating approximately one-quarter of total GPU compute) reached approximately 104 levels. The primary performance advantage of \textsc{Sarbloh} stems from its utility-driven priority scheduler (Equation~\ref{eq:priority}): rather than dividing GPU capacity uniformly across redundant copies of every game, our runtime dynamically concentrates compute on the specific game states exhibiting the highest expected marginal RHAE gains. In time-bounded evaluations, prioritizing productive exploratory paths accelerates the discovery of distinct level solutions.
 
-Figure~\ref{fig:pergame} (shown after the abstract) provides a comprehensive per-game performance breakdown across all 25 evaluated environments. Operating with a single execution pass against the Duck harness's best-of-four passes, \textsc{Sarbloh} clears strictly more levels in 8 games, achieves parity in 13 games, and trails in 4 games (\code{tn36}, \code{vc33}, \code{s5i5}, \code{sp80}). The most significant performance margins are achieved in complex spatial and compositional environments: \code{sk48} (8 levels cleared versus 0 for baseline), \code{lf52} (6 versus 1), \code{wa30} (7 versus 2), and \code{g50t} (6 versus 3). Both architectures stall on \code{bp35}.
+Figure~\ref{fig:pergame} (shown after the abstract) gives the per-game score on all 25 public environments, set against five frontier models (data in \code{data/Score.csv}). \textsc{Sarbloh} has the highest score of the six systems on 21 games and reaches 100\% on 13 of them. It trails the best frontier model on four: \code{dc22} (39.6 versus 47.6), \code{sp80} (22.4 versus 60.1), \code{tn36} (7.7 versus 75.0) and \code{wa30} (26.3 versus 76.6), all of them games where GPT-6.1 Sol is the leader. On \code{g50t}, which no frontier model solves (best 0.28), \textsc{Sarbloh} scores 54.6. The mean over the 25 games is 72.5 for \textsc{Sarbloh} against 54.8 for GPT-6.1 Sol, the strongest frontier model. These are public-game scores and are not comparable to the hidden-set score of Section~\ref{sec:trajectory}.% TODO: state whether the Sarbloh row is the best run per game or a single run
 
 \subsection{Action Efficiency on Cleared Levels}
 \label{sec:efficiency}

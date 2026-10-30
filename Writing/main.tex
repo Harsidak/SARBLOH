@@ -88,7 +88,7 @@
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/per_game.pdf}
-\caption{Comprehensive comparative evaluation across the 25 public ARC-AGI-3 environments under a fixed 9-hour single-GPU budget. \textsc{Sarbloh} (single pass, utility-driven priority scheduling) outperforms the Milestone~\#1 winning Duck harness (best of four passes) on 8 environments, matches it on 13, and completes 143 total levels in 8.2 hours compared to 129 distinct levels achieved by the baseline under identical server hardware and model weights.}
+\caption{Score on the 25 public ARC-AGI-3 games. One group of bars per game, sorted by the \textsc{Sarbloh} score: the first (indigo) bar is \textsc{Sarbloh} with an open-weight Qwen3.8-Flash-Next model on one GPU, the other five are frontier models. The mean over the 25 games is 72.5 for \textsc{Sarbloh}, 54.8 for GPT-6.1 Sol, 37.8 for Claude Opus 5, 20.0 for Gemini 3.8 Flash, 5.2 for Grok 4.6 xhigh and 2.6 for GPT-5.6 Terra. \textsc{Sarbloh} reaches 100\% on 13 games. These are public-game scores, which are not comparable to the hidden-set score in Table~\ref{tab:field}.}
 \label{fig:pergame}
 \end{figure*}
 
