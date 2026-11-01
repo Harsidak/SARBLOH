@@ -35,7 +35,7 @@ Figure~\ref{fig:curves} plots the cumulative count of cleared levels as a functi
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/levels_vs_time.pdf}
-\caption{Cumulative level completion over wall-clock execution time across the 25 public ARC-AGI-3 environments on identical hardware (one NVIDIA RTX PRO 6000) and model weights. \textsc{Sarbloh} (single pass, utility scheduler) consistently outpaces the Duck harness baseline (best of 4 concurrent passes), resolving 143 of 183 levels in 8.2 hours compared to 129 distinct levels for the baseline.}
+\caption{Cumulative level completion over wall-clock execution time across the 25 public ARC-AGI-3 environments on identical hardware (one NVIDIA RTX PRO 6000) and model weights. The indigo line is \textsc{Sarbloh} (single pass, utility scheduler), the solid grey line is the distinct levels cleared by the Duck harness over its four concurrent passes, and the dotted grey line is the Duck harness's level count summed over those four passes. \textsc{Sarbloh} consistently outpaces the distinct-level baseline, resolving 143 of 183 levels in 8.2 hours compared to 129 distinct levels for the baseline.}
 \label{fig:curves}
 \end{figure}
 
