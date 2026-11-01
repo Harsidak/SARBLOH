@@ -1,0 +1,13 @@
+\section{Limitations and Future Work}
+\label{sec:future}
+
+\paragraph{Limitations.}
+Several architectural limitations remain. First, while affordance hypotheses are coupled with unit falsification tests, the current perception engine evaluates hypotheses independently at each frame without maintaining a fully unified Bayesian belief distribution across multi-step episodes. Second, although the agent plans with super-human efficiency once a level is understood, antecedent failure on complex perceptual transitions remains the primary source of score degradation. Finally, our current results rely on general-purpose open-weight models without task-specific policy fine-tuning.
+
+\paragraph{Future work.}
+Promising research avenues include:
+\begin{enumerate}
+    \item \textbf{Closed-Loop Belief Updating}: Formulating affordance induction as a dynamic partially observable belief state, where the empirical outcomes of unit falsification probes explicitly update prior belief weights across compositional levels.
+    \item \textbf{Offline Trajectory Fine-Tuning}: Applying parameter-efficient fine-tuning (LoRA \citep{hu2021lora}) directly on our database of verified, high-efficiency execution trajectories, optimizing syntactic code generation and world model synthesis.
+    \item \textbf{Sample-Efficient Reinforcement Learning}: Investigating offline reinforcement learning algorithms, such as Group Relative Policy Optimization (GRPO \citep{shao2024grpo}) and balanced policy clipping, to optimize planning depth and action parsimony within our fixed computational envelope.
+\end{enumerate}

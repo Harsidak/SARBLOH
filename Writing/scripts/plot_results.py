@@ -208,32 +208,36 @@ def lab():
 
 
 def lab_gallery():
-    """What each of the eight candidate presentations shows for the opening frame of ls20 (image part only)."""
+    """What each of the eight candidate presentations shows for the opening frame of ls20 (image part only).
+    Built with PIL at the engine's own resolution (no matplotlib resampling), so the tiles stay sharp."""
+    from PIL import ImageDraw, ImageFont
+    import matplotlib
     R = W.parent / "experiments" / "E115_perception_lab" / "results"
     tiles = [("Exploded Inventory", "X1", (0, 60, 640, 575)), ("Surprise Map", "X2", (0, 28, 576, 604)),
              ("Visual Routines", "X3", (0, 28, 384, 412)), ("Look-alike Threads", "X4", (0, 28, 640, 668)),
              ("Foresight Strip", "X5", (0, 28, 320, 348)), ("Blueprint", "X6", (0, 28, 640, 668)),
              ("Role Ledger", "X7", (0, 28, 640, 668)), ("Fused Briefing", "X8", (0, 28, 640, 668))]
     stat = {n: (v, t) for n, v, t in DATA["lab"]}
-    fig, axes = plt.subplots(2, 4, figsize=(FULL, 3.95))
-    for k, (ax, (name, folder, box)) in enumerate(zip(axes.flat, tiles)):
+    fd = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+    fb, fr = (ImageFont.truetype(str(fd / "DejaVuSans-Bold.ttf"), 54), ImageFont.truetype(str(fd / "DejaVuSans.ttf"), 44))
+    T, G, H = 768, 36, 140
+    canvas = Image.new("RGB", (4 * T + 5 * G, 2 * (T + H) + 3 * G), (255, 255, 255))
+    d = ImageDraw.Draw(canvas)
+    for k, (name, folder, box) in enumerate(tiles):
         im = Image.open(R / folder / "ls20_L1.png").convert("RGB").crop(box)
-        side = max(im.size)
-        sq = Image.new("RGB", (side, side), (244, 244, 247))
-        sq.paste(im, ((side - im.size[0]) // 2, (side - im.size[1]) // 2))
-        ax.imshow(sq)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        for sp in ax.spines.values():
-            sp.set_visible(True)
-            sp.set_color(OURS if name == "Fused Briefing" else GRID)
-            sp.set_linewidth(1.6 if name == "Fused Briefing" else 1.0)
+        sc = T / max(im.size)
+        im = im.resize((round(im.size[0] * sc), round(im.size[1] * sc)), Image.LANCZOS)
+        sq = Image.new("RGB", (T, T), (244, 244, 247))
+        sq.paste(im, ((T - im.size[0]) // 2, (T - im.size[1]) // 2))
+        x, y = G + (k % 4) * (T + G), G + (k // 4) * (T + H + G)
         v, t = stat[name]
-        ax.set_title(f"({'abcdefgh'[k]}) {name}", loc="left", fontsize=7.8, fontweight="bold", color=INK, pad=13)
-        ax.text(0, 1.02, f"{v}/28 points, {t:,} tokens", transform=ax.transAxes, fontsize=6.6, color=SOFT,
-                va="bottom")
-    fig.subplots_adjust(wspace=0.08, hspace=0.42)
-    save(fig, "perception_lab_gallery")
+        d.text((x, y), f"({'abcdefgh'[k]}) {name}", font=fb, fill=(23, 23, 38))
+        d.text((x, y + 68), f"{v}/28 points, {t:,} tokens", font=fr, fill=(96, 96, 112))
+        canvas.paste(sq, (x, y + H))
+        c = (91, 80, 230) if name == "Fused Briefing" else (200, 200, 210)
+        w = 8 if name == "Fused Briefing" else 3
+        d.rectangle([x, y + H, x + T - 1, y + H + T - 1], outline=c, width=w)
+    canvas.save(FIG / "png" / "perception_lab_gallery.png", optimize=True)
 
 
 # ---- 5. per game vs frontier models (teaser, from data/Score.csv) ------------------------------
