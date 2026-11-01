@@ -38,3 +38,5 @@ Surrounding this perceptual foundation, \textsc{Sarbloh Agent} integrates an exe
      using SGLang with EAGLE speculative decoding. By enforcing a strictly monotonic, append-only context protocol, the runtime
       achieves a 98.4\% prompt prefix-cache hit rate across hybrid linear-recurrent and attention layers, while a utility-driven
        priority scheduler dynamically multiplexes the GPU across 25 concurrent games based on expected marginal RHAE gains.
+
+Our main contribution is the perception engine. Prior ARC-AGI-3 agents hand the model the frame as integer arrays or ASCII grid, a rendered image, or both. We instead compute those structural facts exactly on the host, with no learned parameters, and give the model identity-tracked objects, proven geometric invariants and falsifiable affordance hypotheses in place of pixels. The controlled study in Section~\ref{sec:motivation} shows that this change of representation, rather than a stronger planner, accounts for most of the saving in actions, and the official score rises from 1.25 to 10.98 once the engine is added (Section~\ref{sec:results}).

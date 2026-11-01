@@ -1,10 +1,10 @@
-\section{Motivation: Isolating the Visual Grounding Bottleneck}
+\section{Motivation}
 \label{sec:motivation}
 
-Prior to constructing our agent architecture, we conducted a sequence of controlled ablation experiments designed to isolate the exact computational failure modes where autonomous language model agents squander their action budgets in interactive reasoning tasks.
+Before building the agent, we ran controlled ablations to find where a language model wastes its action budget in interactive reasoning.
 
 \paragraph{The Representation Ladder.}
-We evaluated a state-of-the-art frontier model (Gemini 1.5 Pro) on the inaugural level of \code{ls20}---a representative ARC-AGI-3 environment featuring a discrete keyboard-navigated maze with directional barriers, an inventory key, a locking mechanism, and a dynamic action gauge. Holding the model, prompt instructions, and underlying environment strictly constant, we systematically modulated only the modality and structure of the input observation (Figure~\ref{fig:gemini}).
+We evaluated a frontier model (Gemini 1.5 Pro) on the first level of \code{ls20}, a keyboard-navigated maze with directional barriers, a key, a lock and an action gauge. The model, prompt and environment were held fixed, and only the form of the observation changed (Figure~\ref{fig:gemini}).
 
 \begin{figure}[t]
 \centering
@@ -13,26 +13,17 @@ We evaluated a state-of-the-art frontier model (Gemini 1.5 Pro) on the inaugural
 \label{fig:gemini}
 \end{figure}
 
-When provided solely with the raw $64{\times}64$ integer matrix and the valid action enumeration, the model expended between 200 and 300 exploratory actions, repeatedly colliding with invisible topological boundaries and ultimately exhausting the action budget without reaching the goal state. Serializing spatial lattices into discrete token sequences destroys spatial adjacency priors: evaluating topological reachability across 4,096 integer tokens requires quadratic attention across distant positions in the sequence, an operation that autoregressive attention heads fail to execute reliably \citep{rahmanzadehgervi2024blind}. 
+Given the raw $64{\times}64$ integer matrix, the model spent 200 to 300 actions colliding with invisible boundaries and exhausted the budget without reaching the goal. Reading reachability off 4,096 serialized integers is a task attention heads do unreliably \citep{rahmanzadehgervi2024blind}. A rendered image of the same board cut this to 12--24 actions, and adding a structural decomposition (terrain, gauges, color parity) cut it to 12. Letting the model write search scripts in a sandbox finished the level in 6. Most of the gain came from the representation, not from more reasoning.
 
-Conversely, supplying the identical model with a rendered 2D image of the identical board immediately reduced action expenditure to 12--24 actions---an operational speedup exceeding an order of magnitude achieved purely by aligning the state representation with visual pre-training priors. Augmenting the visual frame with a structural decomposition of board components (delineating static terrain, dynamic gauges, and color parity invariants) further condensed the trajectory to 12 actions. Finally, prompting the model to synthesize programmatic search scripts within an execution sandbox yielded optimal completion in exactly 6 actions. The primary performance leap stems from perceptual grounding rather than scale of reasoning.
+\paragraph{The Oracle Briefing.}
+To separate planning failures from perception failures, we gave the model an advanced \code{ls20} level with screenshots alone, and with screenshots plus an ``oracle briefing'' stating the action semantics, goal, mechanical dependencies and on-screen entities. Without the briefing the model burned its whole allocation on inert artifacts. With it, the model cleared the level in 6 actions, better than the author's blind playthrough ($\approx$10). The planner was capable all along; it was held back by inaccurate state induction.
 
-\paragraph{The Oracle Briefing: Decoupling Perception from Planning.}
-To determine whether agent failures originate from deficiencies in high-level policy planning or low-level perceptual parsing, we performed an oracle comprehension experiment. The model was tasked with solving an advanced level of \code{ls20} under two conditions: (i) providing visual screenshots alone, and (ii) augmenting visual screenshots with an ``oracle briefing''---a concise, structured natural language annotation specifying inferred action semantics, goal criteria, mechanical dependencies, and identified on-screen entities.
+\paragraph{The Failure of Sparse Deltas.}
+Sending only the cells that changed saves tokens but causes perceptual myopia. Actions often have non-local effects: stepping on a trigger tile in \code{ls20} changes an icon in a distant status panel. With only local updates the agent misses such coupling and concludes its action did nothing, so we keep whole-frame representations.
 
-Without the briefing, the agent squandered its entire action allocation exploring inert visual artifacts and failed to resolve the level. In the presence of the structural briefing, the model formulated an optimal plan and cleared the level in 6 actions, substantially outperforming the author's initial blind playthrough ($\approx$10 actions). This empirical divergence establishes a vital architectural insight: modern reasoning backbones possess highly capable sequential planning and programmatic search capabilities, but their execution remains bottlenecked by inaccurate visual state induction. If an agent can be provided with high-fidelity semantic and geometric grounding, its downstream planning executes with near-optimal efficiency.
-
-\paragraph{The Failure of Sparse Coordinate Deltas.}
-In resource-constrained settings, a common optimization is transmitting only sparse coordinate deltas (i.e., the set of grid cells modified between step $t-1$ and $t$) to minimize prompt token consumption. While computationally economical, our empirical tracking revealed that coordinate deltas induce severe perceptual myopia. In ARC-AGI-3 environments, local agent actions routinely trigger non-local, global state transitions: for example, stepping onto a localized trigger tile in \code{ls20} instantaneously alters an icon situated in a distant status panel. When an agent receives only localized coordinate updates, it systematically overlooks global mechanical coupling, hallucinating that its action produced no operational side-effects. Maintaining holistic whole-frame visual representations is therefore mandatory to preserve causal tracking across the entire visual field.
-
-\paragraph{Core Design Principles of the Perception Engine.}
-Because oracle briefings cannot exist for undisclosed, held-out environments during official evaluation, an autonomous agent must construct its own structural abstractions dynamically. ARC-AGI-3 environments are strictly grounded in human core knowledge \citep{spelke2007core}, which is predominantly geometric and topological: connectivity, spatial enclosure, lattice-constrained reachability, structural symmetry, and affine transformations. 
-
-These properties admit exact, deterministic algorithmic verification. In contrast, operational semantics (e.g., identifying which dynamic component represents the agent embodiment, or what constitutes the terminal win condition) are fundamentally latent under partial observability and can only be induced through empirical interaction. 
-
-These findings dictate the central architectural axiom governing \textsc{Sarbloh}:
+\paragraph{Design Principle.}
+Oracle briefings do not exist for held-out games, so the agent must build its own abstractions. ARC-AGI-3 rests on human core knowledge \citep{spelke2007core}, which is geometric and topological (connectivity, enclosure, reachability, symmetry) and can be verified exactly. Operational semantics, such as which object is the agent or what wins the level, are latent and can only be learned by acting. This gives the central axiom of \textsc{Sarbloh Agent}:
 \begin{quote}
 \itshape
-Compute mathematically certain geometric invariants deterministically via zero-parameter host code; formulate ambiguous operational roles as explicit probabilistic hypotheses; and equip every hypothesis with a minimal-cost, single-action falsification test.
-\end{quote}
-By enforcing this strict dichotomy, the agent eliminates visual hallucination over spatial facts, while ensuring that any incorrect operational hypothesis is refuted through a single probing action, entirely averting catastrophic quadratic exploration penalties.
+Calculate mathematically specific geometric invariants deterministically using zero-parameter host code. Formulate uncertain operational responsibilities as explicit probabilistic hypotheses, and provide each hypothesis with a low-cost, single-action falsification test.\end{quote}
+Using this split the Chances of agent to hallucinate spatial facts or wrong operational hypothesis reduces. Reducing the cost of the model as many it might many actions to learn the same facts from scratch, and the agent would be penalized quadratically for each misstep.
