@@ -4,7 +4,7 @@
 Before building the agent, we ran controlled ablations to find where a language model wastes its action budget in interactive reasoning.
 
 \paragraph{The Representation Ladder.}
-We evaluated a frontier model (Gemini 1.5 Pro) on the first level of \code{ls20}, a keyboard-navigated maze with directional barriers, a key, a lock and an action gauge. The model, prompt and environment were held fixed, and only the form of the observation changed (Figure~\ref{fig:gemini}).
+We evaluated a frontier model (Gemini 3.1 Pro) on the first level of \code{ls20}. The model, prompt and environment were held fixed, and only the form of the observation changed (Figure~\ref{fig:gemini}).
 
 \begin{figure}[t]
 \centering
@@ -13,7 +13,8 @@ We evaluated a frontier model (Gemini 1.5 Pro) on the first level of \code{ls20}
 \label{fig:gemini}
 \end{figure}
 
-Given the raw $64{\times}64$ integer matrix, the model spent 200 to 300 actions colliding with invisible boundaries and exhausted the budget without reaching the goal. Reading reachability off 4,096 serialized integers is a task attention heads do unreliably \citep{rahmanzadehgervi2024blind}. A rendered image of the same board cut this to 12--24 actions, and adding a structural decomposition (terrain, gauges, color parity) cut it to 12. Letting the model write search scripts in a sandbox finished the level in 6. Most of the gain came from the representation, not from more reasoning.
+Given the raw $64{\times}64$ integer matrix, the model spent 200 to 300 actions colliding with invisible boundaries and exhausted the budget without reaching the goal. Reading reachability off 4,096 serialized integers is a task attention heads do unreliably \citep{rahmanzadehgervi2024blind}. A rendered image of the same board cut this to 12--24 actions, and adding a structural decomposition (terrain, gauges, color parity) cut it to 12. Letting the model write search scripts in a sandbox finished the level in 6. 
+We observed that most of the gain came from the representation of the environment, not from more Chain-of-Thought. 
 
 \paragraph{The Oracle Briefing.}
 To separate planning failures from perception failures, we gave the model an advanced \code{ls20} level with screenshots alone, and with screenshots plus an ``oracle briefing'' stating the action semantics, goal, mechanical dependencies and on-screen entities. Without the briefing the model burned its whole allocation on inert artifacts. With it, the model cleared the level in 6 actions, better than the author's blind playthrough ($\approx$10). The planner was capable all along; it was held back by inaccurate state induction.
@@ -22,7 +23,7 @@ To separate planning failures from perception failures, we gave the model an adv
 Sending only the cells that changed saves tokens but causes perceptual myopia. Actions often have non-local effects: stepping on a trigger tile in \code{ls20} changes an icon in a distant status panel. With only local updates the agent misses such coupling and concludes its action did nothing, so we keep whole-frame representations.
 
 \paragraph{Design Principle.}
-Oracle briefings do not exist for held-out games, so the agent must build its own abstractions. ARC-AGI-3 rests on human core knowledge \citep{spelke2007core}, which is geometric and topological (connectivity, enclosure, reachability, symmetry) and can be verified exactly. Operational semantics, such as which object is the agent or what wins the level, are latent and can only be learned by acting. This gives the central axiom of \textsc{Sarbloh Agent}:
+Oracle briefings do not exist for held-out games, so the agent must build its own abstractions. ARC-AGI-3 rests on human core knowledge \citep{spelke2007core}, which is geometric and topological (connectivity, enclosure, reachability, symmetry). Operational semantics, such as which object is the agent or what wins the level, are latent and can only be learned by acting. This gives the central axiom of \textsc{Sarbloh Agent}:
 \begin{quote}
 \itshape
 Calculate mathematically specific geometric invariants deterministically using zero-parameter host code. Formulate uncertain operational responsibilities as explicit probabilistic hypotheses, and provide each hypothesis with a low-cost, single-action falsification test.\end{quote}
