@@ -195,7 +195,7 @@ The derived JSON is committed in `Writing/data/`.
 
 ## Licence
 
-Apache-2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). `Sarbloh/rlm/` is vendored from Prime Agent and keeps its
+MIT-0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). `Sarbloh/rlm/` is vendored from Prime Agent and keeps its
 MIT licence. The 25 public games in `eval/real_games/` belong to the ARC Prize Foundation. Model weights and
 third-party repositories are not redistributed.
 

@@ -1,69 +1,12 @@
 \section{Methodology}
 \label{sec:method}
 
-Across the experiments we ran, perception was the driving force behind the model's understanding of a game: the same model played better whenever the observation it received was richer and more exact. We first compare eight ways of presenting one frame in a perception lab (Section~\ref{sec:lab}), then keep what survives a held-out check (Section~\ref{sec:holdout}), describe the engine that results (Section~\ref{sec:perception}), and show how it sits inside the whole agent (Section~\ref{sec:agent}, Figure~\ref{fig:overview}).
-
-\subsection{The Perception Lab: Eight Ways to Read One Frame}
-\label{sec:lab}
-
-We compared eight ways of presenting the same frame against a baseline, the \emph{Legacy Encoder}, our first perception module: after every transition it sent a PNG of the frame, a lettered board, a list of 4-connected objects and one change line per transition, about 3{,}500 text tokens per frame. Each of the eight is one Python file. All of them share one front end (screenshot, then an exact $64{\times}64$ palette grid, then the object list), so the only thing that changes is what is computed on top of the objects and how it is shown. The two test frames are the first levels of \code{ls20} (keyboard controls) and \code{r11l} (clicks). Understanding was graded against an answer key written and checked in the engine before any presentation ran: seven items per frame (spatial boundaries, mechanical linkages, agent identity, goal, gauges and so on) at two points each, 28 points in all, plus an intuition grade from 1 to 5. The kill rule was fixed in advance: drop a presentation that scores no better than the Legacy Encoder (3/28), or whose claims are wrong on about half or more of the held-out games.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/png/perception_lab_gallery.png}
-\caption{The image part of each candidate presentation for the opening frame of \code{ls20}, with its rubric score and its text cost per frame. (a) Exploded Inventory pulls out every object and stacks copies. (b) Surprise Map keeps colour only where the frame is unpredictable. (c) Visual Routines marks reachability, with the step count to each tile. (d) Look-alike Threads joins shapes that match under rotation, mirroring or scale. (e) Foresight Strip imagines the next frame (here, one step up). (f) Blueprint redraws floor, walls and lattice as a clean schematic. (g) Role Ledger tags each object with a guessed role and a confidence. (h) Fused Briefing, the presentation we kept, combines the blueprint with measured facts and tagged guesses.}
-\label{fig:labgallery}
-\end{figure*}
-
-\begin{itemize}
-    \item \textbf{Exploded Inventory} (3/28) pulls every object out of the frame, enlarges it, spaces the objects apart and stacks identical copies as $\times N$. The list is clean but attaches no meaning to anything.
-    \item \textbf{Surprise Map} (4/28) ranks cells by how unpredictable their $3{\times}3$ neighbourhood is and flags broken symmetry. About 90\% of the frame is predictable texture, and the map caught the lopsided plus on \code{ls20}, but little else.
-    \item \textbf{Visual Routines} (15/28), after Ullman, computes reachability by flood fill with step counts, what lies inside what, line tracing to attached objects, midpoints and alignment. On \code{r11l} it found the midpoint tether and the ring that fits a $5{\times}5$ object.
-    \item \textbf{Look-alike Threads} (6/28) joins objects that are equal under rotation, flip, scale or recolouring and names the transform. On \code{ls20} it showed that the inventory icon is the goal shape turned $90^\circ$ and drawn at twice the size.
-    \item \textbf{Foresight Strip} (12/28) imagines the next frame for each action from simple movement priors. On \code{ls20} it predicted all four moves and the gauge correctly, and on \code{r11l} its three-click plan solved the level.
-    \item \textbf{Blueprint} (8/28) redraws the frame as a schematic: floor, walls, tile lattice, named shapes and the HUD moved to a side panel. It is the best map for navigation and says nothing about meaning.
-    \item \textbf{Role Ledger} (20/28) guesses a role for every object (agent, goal, handle, gauge, lives) with a confidence and a one-action test. Every role was right on both frames.
-    \item \textbf{Fused Briefing} (25/28) uses the Blueprint as its picture, states the Visual Routines and Look-alike Threads results as measured facts, and adds the Role Ledger guesses with their tests. Foresight Strip was dropped.
-\end{itemize}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/perception_lab.pdf}
-\caption{Rubric score (of 28) and text tokens per frame for the Legacy Encoder and the eight presentations, on the two test frames. The Fused Briefing scores 25/28 against 3/28 for the Legacy Encoder at about a tenth of the text.}
-\label{fig:lab}
-\end{figure}
-
-Exploded Inventory and Surprise Map did no better than the Legacy Encoder, at a tenth of its text, and were dropped as stand-alone presentations. What moved understanding most were the computed relations of Visual Routines and Look-alike Threads, which state facts a model cannot reliably read off a picture, and the Role Ledger, which gives the fastest gist. The Fused Briefing reached 25/28 at about 370 tokens per frame, 8.3$\times$ the Legacy Encoder's score with 89.4\% fewer text tokens. Two caveats apply. The grader was the same agent that built the presentations and knew both games, and no blind reader was used. The Fused Briefing was designed after the other eight were graded and was graded on the same two frames, so its score is optimistic.
-
-\subsection{Held-Out Check: Facts Versus Guesses}
-\label{sec:holdout}
-
-We then checked the presentations on the 23 other official games, none of which had been used in the design. This check was graded by the engine rather than by hand (Table~\ref{tab:holdout}). Turning a screenshot into a grid generalised perfectly (23/23 games at 100\% cell accuracy). The guesses did not: they had effectively been fitted to the two test frames and were right about half the time or less on unseen games.
-
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{@{}L{0.55\columnwidth}L{0.36\columnwidth}@{}}
-\toprule
-Check on the 23 held-out games & Result \\
-\midrule
-Screenshot to grid, exact cells & 23/23 games \\
-Agent identity, keyboard games & 6/14 games \\
-Moves-left gauge found & 10/20 games \\
-Click handles that respond & 7/29 handles \\
-Keyboard foresight fully right & 1/16 games \\
-\bottomrule
-\end{tabular}
-\caption{Held-out check of the single-frame guesses. For click handles, the guesses were good on \code{dc22} (2/2), \code{sb26} (4/4) and \code{ka59} (1/1) and bad on \code{lp85} (0/17). On two further keyboard games nothing moved on the first key press, so the agent-identity guess could not be checked.}
-\label{tab:holdout}
-\end{table}
-
-This fixed the design rule of the engine: \emph{computed relations (reachability, enclosure, tethers and midpoints, alignment, shape equivalence) are stated as facts, because they are true by construction, whereas roles and dynamics from a single frame are stated as guesses, each with a one-action test that settles it}. One real action answers what a single-frame prior cannot. We did not run the Fused Briefing as a whole on the held-out games, and the lab reports no RHAE. The end-to-end effect of the engine on the agent is not isolated by an ablation: the trajectory of Section~\ref{sec:trajectory} changes several components at once.
+Across the perception experiments we ran (Appendix~\ref{app:lab}), perception was the driving force behind the model's understanding of a game: the same model understood a level far better whenever its observation stated the level's structure exactly. This section describes the engine that came out of those experiments (Section~\ref{sec:perception}) and how it sits inside the whole agent (Section~\ref{sec:agent}, Figure~\ref{fig:overview}).
 
 \subsection{The Perception Engine}
 \label{sec:perception}
 
-The final engine is the Fused Briefing, rewritten to work directly on the grid inside the agent. It is about 1{,}500 lines of host-side NumPy and Pillow with no learned parameters. Over 225 real frames (the first frame and eight random actions on each of 25 offline games) it raised no errors, with a median of 42\,ms for the briefing and 40\,ms for the picture (maximum 0.38\,s for a briefing). For every environment transition it generates three synchronized representations sharing one persistent object identity space (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
+The engine is the Fused Briefing of our perception lab (Appendix~\ref{app:lab}), rewritten to work directly on the grid inside the agent. The lab fixed one design rule: \emph{computed relations (reachability, enclosure, tethers and midpoints, alignment, shape equivalence) are stated as facts, because they are true by construction, whereas roles and dynamics guessed from a single frame are stated as guesses, each with a one-action test that settles it}. The engine is about 1{,}500 lines of host-side NumPy and Pillow with no learned parameters. Over 225 real frames (the first frame and eight random actions on each of 25 offline games) it raised no errors, with a median of 42\,ms for the briefing and 40\,ms for the picture (maximum 0.38\,s for a briefing). For every environment transition it generates three synchronized representations sharing one persistent object identity space (Figure~\ref{fig:views}, Algorithm~\ref{alg:perceive}).
 
 \begin{figure*}[t]
 \centering
@@ -159,7 +102,7 @@ $M \gets \textsc{RenderAffordanceMap}(L, \hat{\boldsymbol{\rho}}, F)$\;
 \Return{$(B, O, \textsc{ToAlphanumeric}(g_t)), M, \delta$}
 \end{algorithm}
 
-\subsection{The Overall \textsc{Sarbloh Agent} Agent}
+\subsection{The Overall \textsc{Sarbloh} Agent}
 \label{sec:agent}
 
 \begin{figure*}[t]
