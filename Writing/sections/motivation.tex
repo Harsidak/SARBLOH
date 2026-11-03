@@ -23,8 +23,8 @@ To separate planning failures from perception failures, we gave the model an adv
 Sending only the cells that changed saves tokens but causes perceptual myopia. Actions often have non-local effects: stepping on a trigger tile in \code{ls20} changes an icon in a distant status panel. With only local updates the agent misses such coupling and concludes its action did nothing, so we keep whole-frame representations.
 
 \paragraph{Design Principle.}
-Oracle briefings do not exist for held-out games, so the agent must build its own abstractions. ARC-AGI-3 rests on human core knowledge \citep{spelke2007core}, which is geometric and topological (connectivity, enclosure, reachability, symmetry). Operational semantics, such as which object is the agent or what wins the level, are latent and can only be learned by acting. This gives the central axiom of \textsc{Sarbloh Agent}:
-\begin{quote}
-\itshape
-Calculate mathematically specific geometric invariants deterministically using zero-parameter host code. Formulate uncertain operational responsibilities as explicit probabilistic hypotheses, and provide each hypothesis with a low-cost, single-action falsification test.\end{quote}
-This split matters for two reasons. First, the model no longer has to infer spatial facts from raw numbers, so it has far fewer chances to hallucinate them, and the one thing it must still guess, what the objects are for, arrives with a cheap test. Second, without the split the model would have to learn the same facts from scratch by acting, and since every extra action is penalized quadratically, each misstep costs more than the last.
+Oracle briefings do not exist for held-out games, so the agent must build its own abstractions. ARC-AGI-3 rests on human core knowledge \citep{spelke2007core}, which is geometric and topological (connectivity, enclosure, reachability, symmetry). Operational semantics, such as which object is the agent or what wins the level, are latent and can only be learned by acting. The agent should therefore be told the first kind of fact outright and only offered the second kind as guesses to test, the design rule stated in Section~\ref{sec:rule}.
+
+\begin{tintbox}
+\small\textbf{Summary.} (i)~With the model and prompt fixed, changing only the observation took the first level of \code{ls20} from 200--300 actions to 6. (ii)~Given an oracle briefing, the same model cleared an advanced level in 6 actions, so the planner was not the bottleneck; perception was. (iii)~Sparse deltas hide non-local effects, so the agent sees whole frames.
+\end{tintbox}

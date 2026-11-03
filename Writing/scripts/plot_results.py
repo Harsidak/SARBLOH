@@ -290,17 +290,17 @@ def perception_panels():
     raw = [r.split() for r in (P / "ls20" / "raw.txt").read_text(encoding="utf-8").splitlines()]
     fig, axes = plt.subplots(1, 4, figsize=(FULL, 2.75), gridspec_kw={"width_ratios": [1.0, 1.0, 1.3, 1.3]})
     a = axes[0]
-    r0, c0, n = 42, 30, 14
+    r0, c0, n = 36, 24, 22
     crop = [[int(v) for v in row[c0:c0 + n]] for row in raw[r0:r0 + n]]
     a.imshow([[0.98] * n for _ in range(n)], cmap="gray", vmin=0, vmax=1, extent=(0, n, n, 0))
     for y, row in enumerate(crop):
         for x, v in enumerate(row):
             hot = v in (9, 12)
-            a.text(x + 0.5, y + 0.55, str(v), ha="center", va="center", fontsize=4.8, family="monospace",
+            a.text(x + 0.5, y + 0.55, str(v), ha="center", va="center", fontsize=3.05, family="monospace",
                    fontweight="bold" if hot else "normal", color=OURS if hot else (INK if v else MUTED))
     a.set_xlim(0, n)
     a.set_ylim(n, 0)
-    panels = [(a, "(a) raw integers", "14x14 crop of the grid"),
+    panels = [(a, "(a) raw integers", "22x22 of the 64x64 grid"),
               (axes[1], "(b) plain frame", "what a vision model gets"),
               (axes[2], "(c) map: ls20", "keys, tiles, walls"),
               (axes[3], "(d) map: r11l", "clicks, objects")]

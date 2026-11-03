@@ -1,0 +1,34 @@
+BRIEFING (arrow keys)
+MEASURED (certain):
+- obj 6 (black ring) encloses an EMPTY 3x3 space
+- obj 8 (black ring) encloses an EMPTY 3x3 space
+- obj 18 (black ring) encloses an EMPTY 3x3 space
+- obj 20 (black shape with 2 hole cell(s)) encloses an EMPTY 3x3 space
+- obj 31 (black ring) encloses an EMPTY 3x3 space
+- obj 33 (black shape with 2 hole cell(s)) encloses an EMPTY 3x3 space
+- obj 51 (black ring) encloses an EMPTY 3x31 space
+- obj 5 (black irregular shape (15 cells)) is level with and left of obj 6 (black ring) (shared rows 5-9)
+- obj 5 (black irregular shape (15 cells)) is level with and left of obj 7 (black irregular shape (15 cells)) (shared rows 5-9)
+- obj 5 (black irregular shape (15 cells)) is level with and left of obj 8 (black ring) (shared rows 5-9)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 17 (black irregular shape (11 cells)) (shared columns 13-17)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 30 (black irregular shape (11 cells)) (shared columns 13-17)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 44 (black irregular shape (65 cells)) (shared columns 15-17)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 47 (white 7-cell shape) (shared columns 15-17)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 51 (black ring) (shared columns 15-17)
+- obj 5 (black irregular shape (15 cells)) is directly above obj 62 (white 7-cell shape) (shared columns 15-17)
+- obj 6 (black ring) is level with and left of obj 7 (black irregular shape (15 cells)) (shared rows 5-9)
+- obj 6 (black ring) is level with and left of obj 8 (black ring) (shared rows 5-9)
+- obj 6 (black ring) is directly above obj 18 (black ring) (shared columns 23-27)
+- obj 6 (black ring) is directly above obj 31 (black ring) (shared columns 23-27)
+- obj 6 (black ring) is directly above obj 44 (black irregular shape (65 cells)) (shared columns 23-27)
+- obj 6 (black ring) is directly above obj 51 (black ring) (shared columns 23-27)
+- obj 7 (black irregular shape (15 cells)) is level with and left of obj 8 (black ring) (shared rows 5-9)
+- obj 7 (black irregular shape (15 cells)) is directly above obj 19 (black irregular shape (13 cells)) (shared columns 36-40)
+- obj 7 (black irregular shape (15 cells)) is directly above obj 32 (black irregular shape (15 cells)) (shared columns 36-40)
+- obj 7 (black irregular shape (15 cells)) is directly above obj 44 (black irregular shape (65 cells)) (shared columns 36-40)
+- obj 7 (black irregular shape (15 cells)) is directly above obj 51 (black ring) (shared columns 36-40)
+- obj 47 (white 7-cell shape), turned 180 deg OR mirrored top-bottom, becomes exactly obj 62 (white 7-cell shape)
+- (+40 more facts: `observe().briefing` in ipython)
+GUESSES (check with one action):
+- obj 63 (light grey bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 5, 6, 7, 8, 17, 18, 19, 20, 30, 31, 32, 33, 44, 51 (black irregular shape (15 cells); black ring; black irregular shape (11 cells); black irregular shape (13 cells); ...) = GOAL (50%) - test: get the right thing into it and see if the level ends

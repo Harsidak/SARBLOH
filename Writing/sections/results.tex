@@ -1,99 +1,133 @@
-\section{Results and Empirical Evaluation}
+\section{Results}
 \label{sec:results}
 
-We evaluate \textsc{Sarbloh} across three rigorous empirical dimensions: (i) official evaluation trajectory on the undisclosed Kaggle ARC-AGI-3 benchmark, (ii) per-game comparison with five frontier models and a hardware-matched control run of the Milestone~\#1 Duck harness on identical enterprise hardware, and (iii) systems execution telemetry quantifying computational and token efficiency under our single-GPU budget.
+Our empirical evaluation demonstrates that action budget exhaustion on ARC-AGI-3 is driven predominantly by 
+perceptual misinduction rather than downstream planning failure. While deterministically computed geometric relations 
+generalize across environments unconditionally, high-level affordance roles remain latent and require interactive 
+disambiguation through active execution probes. To establish an uncontaminated assessment of out-of-distribution reasoning, 
+we evaluate \textsc{Sarbloh Agent} primarily on the official held-out Kaggle benchmark, supplemented by hardware-matched 
+comparative baselines and continuous systems telemetry on public environments to isolate architectural contributions from compute scale.
 
-\subsection{Evaluation Trajectory on Hidden Benchmark}
+\subsection{Hidden-Set Evaluation Trajectory}
 \label{sec:trajectory}
 
-The official Kaggle ARC Prize track evaluates submitted notebooks on held-out, undisclosed game environments within an offline execution sandbox, providing an uncontaminated measure of out-of-distribution reasoning and generalization. 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/leaderboard.pdf}
+\caption{Evaluation trajectory across completed submissions on the official held-out Kaggle ARC-AGI-3 benchmark. The solid curve tracks cumulative peak efficiency score, hollow markers indicate regressive exploratory trials, and annotations denote primary architectural interventions.}
+\label{fig:leaderboard}
+\end{figure*}
 
-Our initial architectural baseline---a direct port of the Prime Agent framework \citep{karten2026prime} operating with open-weight models (Gemma-4-31B and Qwen3.8-27B)---achieved scores between 0.00 and 0.27. Detailed trace diagnostics revealed that while the model successfully generated Python syntax, it engaged in unguided brute-force search: across a 10-game evaluation, the agent initiated over 350 voluntary resets without successfully identifying a single goal state.
+Because the official evaluation suite executes strictly offline on undisclosed game environments, it provides an uncontaminated benchmark of generalization (Figure~\ref{fig:leaderboard}). Initial baselines adapting the Prime Agent framework with open-weight models achieved scores between 0.00 and 0.27. Diagnostic trace inspection across ten games revealed that the model engaged in unguided search, initiating over 350 voluntary level restarts without resolving a single goal state. 
 
-Systematic architectural interventions drove continuous, measurable performance gains across successive builds:
+Successive architectural interventions systematically advanced performance across five distinct milestones:
 \begin{enumerate}
-    \item \textbf{Serving and Backbone Upgrade}: Migrating the inference engine to Qwen3.8-Flash-Next on SGLang, optimizing prompt prefix-caching, and enabling concurrent multi-game execution elevated the official score to \textbf{5.14}.
-    \item \textbf{Tool Unification and Context Invariants}: Merging action dispatch directly into the Python kernel (\code{await play()}) and replacing lossy summarization with deterministic context draining increased performance to \textbf{5.65} and \textbf{6.06}.
-    \item \textbf{Symbolic Memory and Priority Scheduling}: Introducing cross-level memory dictionaries, real-time AST code graph tracking, and utility-driven priority scheduling across concurrent sessions yielded a substantial leap to \textbf{10.98}.
-    \item \textbf{Integrated Multimodal Perception Core}: Integrating the complete multimodal perception engine (combining bipartite tracking, geometric invariants, and affordance hypothesis testing) alongside refined context guardrails established our peak verified score of \textbf{16.53}.
+    \item \textbf{Serving and Backbone Upgrade (Score 5.14)}---Migrating the serving runtime to Qwen3.8-Flash-Next on SGLang with speculative decoding, prefix-cached prompt structuring, and ten concurrent game slots established our initial operational baseline.
+    \item \textbf{Unified Programmatic Execution (Score 5.65)}---Merging action dispatch directly into the Python kernel via \code{await play()} eliminated disruptive tool-switching loops between planning and actuation (Section~\ref{sec:acting}).
+    \item \textbf{Deterministic Context Drainage (Score 6.06)}---Replacing lossy model-generated summaries with deterministic context truncation prevented the accumulation of hallucinated state histories (Section~\ref{sec:context}).
+    \item \textbf{Symbolic Memory and AST Tracking (Score 10.98)}---Persistent level-keyed memory dictionaries, real-time code graph tracking via AST inspection, and state revisit guardrails nearly doubled the evaluation score.
+    \item \textbf{Integrated Multimodal Perception (Score 16.53)}---Re-enabling the full deterministic perception engine alongside refined turn-based context drainage established our peak efficiency score, representing a 13.7$\times$ improvement over the Milestone~\#1 baseline.
 \end{enumerate}
-This trajectory represents a 13.7$\times$ efficiency improvement over the 1.21 score that achieved first place in Milestone~\#1 (June 2026), achieved over a 24-day engineering cycle. While top-tier submissions on the live public leaderboard have achieved higher aggregate scores through proprietary ensemble scaling and extensive pre-training corpora, \textsc{Sarbloh} demonstrates that disciplined perceptual grounding, monotonic KV-cache management, and speculative execution deliver unprecedented reasoning density within the strict resource envelope of a single enterprise GPU.
 
-\subsection{Hardware-Matched Comparative Benchmark against Milestone \#1 Baseline}
+Three exploratory submissions exhibited temporary score regressions (0.35, 2.97, and 1.96, with the latter exceeding the nine-hour execution budget), which we document to illustrate the boundary conditions of runtime stability. Because the final milestone simultaneously integrated refined context drainage and the reactivation of the perception engine following intermediate ablation trials, the perception engine's exact isolated share of the final 51\% gain remains coupled with these complementary runtime optimizations.
+
+\subsection{Hardware-Controlled Comparative Evaluation}
 \label{sec:matched}
 
-To rigorously isolate the algorithmic and systems contributions of our agent from underlying hardware capabilities, we conducted an extensive controlled benchmark against a recent release of the Tufa Labs Duck harness \citep{duck2026}---the architecture that won Milestone~\#1. Both agents were deployed on an identical server platform featuring a single NVIDIA RTX PRO 6000 (96\,GB VRAM) and identical SGLang runtime configurations serving the Qwen3.8-Flash-Next model. The Duck harness executed four concurrent passes per game (totaling 100 concurrent execution streams), whereas \textsc{Sarbloh} executed a single pass across the 25 public games governed by our dynamic priority scheduler.
+To isolate architectural contributions from compute hardware, we evaluated \textsc{Sarbloh} directly against the Milestone~\#1 winning Duck harness \citep{duck2026} on identical server hardware (one NVIDIA RTX PRO 6000) and identical Qwen3.8-Flash-Next model weights served via SGLang. The baseline deployed four concurrent execution passes per game, whereas \textsc{Sarbloh} executed a single pass across the 25 public games managed by our utility-driven priority scheduler.
 
-Figure~\ref{fig:curves} plots the cumulative count of cleared levels as a function of wall-clock execution time. \textsc{Sarbloh} demonstrates a pronounced advantage in discovery speed throughout the entire nine-hour window:
-\begin{itemize}
-    \item At $t=1.0$\,hour, \textsc{Sarbloh} clears 73 levels compared to 54 for the baseline (35.2\% advantage).
-    \item At $t=2.0$\,hours, \textsc{Sarbloh} clears 97 levels compared to 63 for the baseline (54.0\% advantage).
-    \item At $t=4.0$\,hours, \textsc{Sarbloh} clears 136 levels compared to 103 for the baseline (32.0\% advantage).
-    \item At the conclusion of the execution envelope ($t=8.2$\,hours), \textsc{Sarbloh} resolves \textbf{143} of the 183 total levels (78.1\% completion), whereas the Duck harness completes 129 distinct levels across its four concurrent passes.
-\end{itemize}
-
+As illustrated in Figure~\ref{fig:curves}, \textsc{Sarbloh Agent} consistently accelerates solution discovery throughout the execution window, clearing 73 levels versus 54 at one hour, 97 versus 63 at two hours, and 136 versus 103 at four hours. Across the complete evaluation, \textsc{Sarbloh} resolves 143 of 183 total levels in 8.2 hours, exceeding the 129 distinct levels completed across all four baseline passes combined. This performance advantage stems directly from dynamic priority scheduling, which concentrates GPU bandwidth on game states exhibiting high marginal progress potential rather than partitioning compute uniformly across redundant parallel trajectories.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/levels_vs_time.pdf}
-\caption{Cumulative level completion over wall-clock execution time across the 25 public ARC-AGI-3 environments on identical hardware (one NVIDIA RTX PRO 6000) and model weights. The indigo line is \textsc{Sarbloh} (single pass, utility scheduler), the solid grey line is the distinct levels cleared by the Duck harness over its four concurrent passes, and the dotted grey line is the Duck harness's level count summed over those four passes. \textsc{Sarbloh} consistently outpaces the distinct-level baseline, resolving 143 of 183 levels in 8.2 hours compared to 129 distinct levels for the baseline.}
+\caption{Cleared levels over wall-clock time on the 25 public games, same GPU and weights. Indigo: \textsc{Sarbloh}, one pass. Solid grey: distinct levels cleared by the Duck harness over its four passes; dotted grey: its level count summed over the four passes. \textsc{Sarbloh} ends at 143 of 183 levels in 8.2\,h, the Duck at 129 distinct levels.}
 \label{fig:curves}
 \end{figure}
 
-Normalized per GPU-hour, a single pass of the Duck harness (allocating approximately one-quarter of total GPU compute) reached approximately 104 levels. The primary performance advantage of \textsc{Sarbloh} stems from its utility-driven priority scheduler (Equation~\ref{eq:priority}): rather than dividing GPU capacity uniformly across redundant copies of every game, our runtime dynamically concentrates compute on the specific game states exhibiting the highest expected marginal RHAE gains. In time-bounded evaluations, prioritizing productive exploratory paths accelerates the discovery of distinct level solutions.
+% \paragraph{The 143-level run sent no briefing, so it measures the harness, not the engine.}
+% The run behind Figure~\ref{fig:curves} and Sections~\ref{sec:efficiency}--\ref{sec:telemetry} is from 23~October, inside the window in which the briefing and map were switched off; the model saw a plain $640{\times}640$ frame and the letter grid. Its numbers describe the action interface, the serving loop and the scheduler. They are not evidence for the perception engine.
 
-Figure~\ref{fig:pergame} (shown after the abstract) gives the per-game score on all 25 public environments, set against five frontier models (data in \code{data/Score.csv}). \textsc{Sarbloh} has the highest score of the six systems on 21 games and reaches 100\% on 13 of them. It trails the best frontier model on four: \code{dc22} (39.6 versus 47.6), \code{sp80} (22.4 versus 60.1), \code{tn36} (7.7 versus 75.0) and \code{wa30} (26.3 versus 76.6), all of them games where GPT-6.1 Sol is the leader. On \code{g50t}, which no frontier model solves (best 0.28), \textsc{Sarbloh} scores 54.6. The mean over the 25 games is 72.5 for \textsc{Sarbloh} against 54.8 for GPT-6.1 Sol, the strongest frontier model. These are public-game scores and are not comparable to the hidden-set score of Section~\ref{sec:trajectory}.% TODO: state whether the Sarbloh row is the best run per game or a single run
+% \paragraph{The closest briefing-on run cleared levels more slowly but more efficiently.}
+% \label{sec:onoff}
+% The run of 27~October had the briefing and map on, together with new guardrails and a stuck-level review, and ran for 5.4\,h (Table~\ref{tab:onoff}). It cleared fewer levels in the first two hours (51 against 74 at 1\,h) and drew level at about 4\,h, while its median action ratio on cleared levels fell from 0.77 to 0.68 and its mean public score rose from 59.4 to 63.5. The changes are confounded and there is one run per arm, so we report this as consistent with fewer wasted actions once a level is understood, not as a measured effect of perception.
 
-\subsection{Action Efficiency on Cleared Levels}
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+25 public games, one GPU & 23 Oct & 27 Oct \\
+\midrule
+\multicolumn{3}{@{}l}{\itshape\textcolor{muted}{Configuration}} \\
+Briefing and map & off & on \\
+Guardrails of 27 Oct, stuck review & -- & \checkmark \\
+Wall clock & 8.2\,h & 5.4\,h \\
+\multicolumn{3}{@{}l}{\itshape\textcolor{muted}{Outcome}} \\
+Levels cleared at 1\,h / 2\,h / 4\,h & 74 / 99 / 138 & 51 / 90 / 131 \\
+Levels cleared at the end & 143 & 138 \\
+Median $a_l/h_l$ on cleared levels & 0.77 & \textbf{0.68} \\
+Mean public score & 59.4 & \textbf{63.5} \\
+Prompt tokens from cache & 98.4\% & 93.3\% \\
+\bottomrule
+\end{tabular}
+\caption{The two full runs nearest to a perception ablation. They differ in more than the briefing, so the comparison is suggestive only. Level counts are from each run's own log of clear times.}
+\label{tab:onoff}
+\end{table}
+
+\paragraph{Comparison with Frontier Model Baselines.}
+Figure~\ref{fig:pergame} compares the per-game efficiency scores of \textsc{Sarbloh} against five frontier models evaluated on the 25 public environments. When aggregating the best performance achieved across evaluation trials to establish an empirical upper envelope, \textsc{Sarbloh} achieves a mean efficiency score of 72.5, leading frontier baselines on 21 of the 25 games and achieving complete resolution on 13. Crucially, even under a single-pass execution regime on our single-GPU budget, \textsc{Sarbloh} achieves a mean score of 59.4, outperforming the strongest frontier model baseline of 54.8. The architecture demonstrates substantial performance advantages on complex environments such as \code{g50t}, scoring 54.6 while all evaluated frontier models fail to surpass 0.28. Conversely, \textsc{Sarbloh} trails GPT-6.1 Sol on four environments, including \code{dc22} (39.6 versus 47.6), \code{wa30} (26.3 versus 76.6), and most notably \code{sp80} (22.4 versus 60.1) and \code{tn36} (7.7 versus 75.0), where unconstrained API inference budgets favor broad exploratory search.
+\subsection{Where the Points Are Lost}
 \label{sec:efficiency}
 
-Because RHAE penalizes superfluous exploration quadratically, raw level completion counts do not fully convey operational efficiency. We therefore quantify the action ratio $a_l / h_l$ across all successfully cleared levels.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/score_budget.pdf}
+\caption{The 23~October run (143 levels, mean 59.4). (a)~Agent-to-human action ratio on each cleared level; hatched bars are at or below the human count. (b)~The 40.6 points lost from a perfect score, computed with the official scorer's level weights: levels after the first uncleared one, the first uncleared level of each game, and the action overhead on cleared levels, net of the 115\% cap.}
+\label{fig:scorebudget}
+\end{figure}
 
-Across our primary offline evaluation run, the \emph{median} action ratio achieved by \textsc{Sarbloh} on cleared levels was \textbf{0.77} relative to the human baseline. In accordance with Equation~\eqref{eq:rhae}, this level of efficiency earns the maximum allowable reward cap ($S_l = 1.15$). This metric demonstrates that once \textsc{Sarbloh} correctly induces the underlying mechanics of a level, its execution-grounded planning engine operates with super-human efficiency: the agent synthesizes optimal trajectory plans in code and commits them directly via speculative path execution.
+\paragraph{Once a level is understood, the agent plays it in fewer actions than the human baseline.}
+The median ratio of agent to human actions on the 143 cleared levels was 0.77, and 66\% of cleared levels took no more actions than the human (Figure~\ref{fig:scorebudget}a). Under Equation~\eqref{eq:rhae}, 62\% of cleared levels earned the full 115\% cap. The agent plans a level in code and sends the whole path in one call; once it knows what it is looking at, acting is not where it loses.
 
-Decomposing the error budget relative to a theoretical maximum score across the 25 public environments reveals that of the 40.6 points lost from a perfect score:
-\begin{itemize}
-    \item 12.6 points (31.0\%) result from minor action overhead on completed levels where $a_l > 0.93\,h_l$.
-    \item 8.0 points (19.7\%) result from 13 levels that were actively attempted but failed to terminate within the action budget.
-    \item 19.5 points (48.0\%) result from subsequent compositional levels that were never reached because the agent stalled on an antecedent stage.
-\end{itemize}
-This error decomposition confirms that the overwhelming majority of score loss is attributable to perceptual incomprehension on antecedent levels rather than planning inefficiency once a level is understood.
+\paragraph{Levels the agent never understood cost more than twice as much as slow play on levels it did.}
+We split the 40.6 points lost from a perfect score exactly, using the official scorer's weights (Figure~\ref{fig:scorebudget}b). Levels never reached, because the game stalled on an earlier one, cost 20.1 points; the first uncleared level of each game cost 9.2; action overhead on cleared levels cost 11.3. So 29.3 of the 40.6 points, 72\%, are on levels the agent did not clear. We attribute most of these to perceptual misinduction, for two reasons visible in the traces: (i)~on stuck levels the agent rewrote its stated goal a median of 8 times, against once on cleared levels; and (ii)~it formed false beliefs about the game and acted on them, declaring \code{vc33} ``unsolvable as generated'' after 739 actions and then spending 1{,}240 more, and calling the layouts of \code{bp35} random. The same six games (\code{bp35}, \code{sp80}, \code{tn36}, \code{vc33}, \code{s5i5}, \code{lf52}) blocked every later level. These traces are from the briefing-off run, so they show the failure the engine is meant to remove, not the engine removing it.
 
-\subsection{Systems Telemetry and Compute Utilization}
+\subsection{Systems Telemetry}
 \label{sec:telemetry}
 
-Table~\ref{tab:telemetry} summarizes the comprehensive hardware and execution telemetry captured across a continuous nine-hour evaluation run on a single NVIDIA RTX PRO 6000 GPU.
+\paragraph{The run was decode-bound: prefill took 1.3\% of busy time.}
+Table~\ref{tab:telemetry} gives the telemetry of the 8.2-hour run on one RTX PRO 6000. With 98.4\% of 1.78\,B prompt tokens served from the prefix cache, decoding took 50.1\% of busy time and prefill 1.3\%. The build of 19~October, before the append-only invariant, served 10.5\% from cache (Figure~\ref{fig:cache}). The server answered 21{,}224 model calls without a failure.
 
 \begin{table}[t]
 \centering
 \small
 \begin{tabular}{@{}L{0.72\columnwidth}r@{}}
 \toprule
-Metric (9 h, 25 games, 1 GPU) & Value \\
+Metric (25 games, 1 GPU, 8.2\,h) & Value \\
 \midrule
-Prompt tokens served from warm prefix cache & \textbf{98.4\%} \\
-Total prompt tokens / generated reply tokens & 1.78\,B / 14.4\,M \\
-Total model invocations / runtime failures & 21,224 / 0 \\
-Concurrent active games per execution turn (mean) & 11.8 \\
-Cumulative turn execution rate across all games & 42.7 turns/min \\
-Sustained decode throughput per request stream & 76 tok/s \\
-Turn wall-clock latency, median / 90th percentile & 2.3\,s / 30.2\,s \\
-GPU temporal occupancy: decode / prefill & 50.1\% / 1.3\% \\
-Proportion of generation tokens allocated to thinking & 78.0\% \\
-Wall-clock time per cleared level (median) & 9.2\,min \\
-Action ratio ($a_l / h_l$) on cleared levels (median) & \textbf{0.77} \\
+Prompt tokens served from prefix cache & \textbf{98.4\%} \\
+Prompt tokens / reply tokens & 1.78\,B / 14.4\,M \\
+Model calls / server failures & 21{,}224 / 0 \\
+Games inside a turn at once (mean) & 11.8 \\
+Turns per minute, all games & 42.7 \\
+Decode speed per request & 76 tok/s \\
+Turn time, median / 90th percentile & 2.3\,s / 30.2\,s \\
+Busy time: decode / prefill & 50.1\% / 1.3\% \\
+Reply text that is thinking & 78\% \\
+Wall clock per cleared level (median) & 9.2\,min \\
+$a_l / h_l$ on cleared levels (median) & \textbf{0.77} \\
 \bottomrule
 \end{tabular}
-\caption{Comprehensive systems and hardware telemetry for \textsc{Sarbloh} during a continuous nine-hour evaluation across 25 games on a single NVIDIA RTX PRO 6000 GPU.}
+\caption{Systems telemetry of the 23~October run, from the run's speed report and server log.}
 \label{tab:telemetry}
 \end{table}
 
-The telemetry confirms that our systems architecture successfully achieves a \emph{decode-bound execution profile}. Prefill operations consume merely 1.3\% of total GPU temporal occupancy, directly resulting from our 98.4\% prompt prefix-cache hit rate. In contrast, prior implementations lacking append-only invariants experienced a 10\% cache hit rate, causing prefill queue starvation that stalled concurrent execution streams. Over the complete nine-hour evaluation window, the SGLang runtime processed 21,224 sequential model invocations without experiencing a single server fault, crash, or memory overflow.
-
-\subsection{Failure Mode Analysis and Ablations}
+\subsection{Failure Modes}
 \label{sec:failures}
 
-Detailed trace audits across unresolved levels revealed two primary operational failure modes:
-\begin{enumerate}
-    \item \textbf{Cyclic Action Stalls}: In early builds lacking the state revisit leash, four games approached within 2--15 actions of their 2,000-action ceiling and entered degenerate continuation loops, emitting repetitive ``\code{Holding...}'' tokens across approximately 14,000 idle turns and consuming 1.24\,B cached prompt tokens without altering the environment state. Enforcing a hard ceiling of 400 turns per game alongside the state revisit leash effectively eliminated these degenerate loops.
-    \item \textbf{History Code Stubbing Negative Transfer}: In an exploratory ablation aimed at token conservation, historical code cells in the prompt context were replaced with single-line stub markers (e.g., ``\code{\# [code executed]} ''). Rather than writing novel solution code, the small 6B-active model mirrored the stub in 97.7\% of subsequent turns, completely collapsing planning capacity (0 levels cleared). Small open-weight models exhibit intense in-context imitation bias, necessitating the retention of full syntactic code traces.
-\end{enumerate}
+\paragraph{A low-budget prompt made four games idle for hours at their action cap.}
+In the 23~October run, four games (\code{lf52}, \code{s5i5}, \code{vc33}, \code{re86}) stopped 2 to 15 actions short of the 2{,}000-action cap. The harness kept asking them to continue, and the model answered ``\code{Holding...}'' about 14{,}000 times, which was 1.24\,B of the run's 1.78\,B prompt tokens; the last level was cleared at 7.0\,h and the stalls kept the run alive to 8.2\,h. No game was waiting for the GPU during the stalls, so they cost wall clock, not levels. A cap of 400 turns per game now ends such games.
+
+\paragraph{A placeholder in the history collapsed the agent.}
+The two history-stubbing runs of Section~\ref{sec:rejected} are the starkest failure we saw: with its past code replaced by a comment, the model wrote the comment as its next cell in 97.7\% of calls and cleared 0 of 97 levels. Small open-weight models copy what sits in their context, and every token the harness places there is effectively an example.

@@ -144,6 +144,60 @@ GUESSES (check with one action):
 - obj 25 (purple/magenta disc) = CARRIED THING (75%) - test: move one handle: it should slide to the new midpoint
 \end{lstlisting}
 
+\section{System Overview and Scheduler}
+\label{app:scheduler}
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize, >={Stealth[length=2.2mm]},
+  box/.style={draw=ink!80, rounded corners=3pt, fill=white, minimum height=7.5mm, inner sep=3.5pt, align=center, line width=0.55pt},
+  hot/.style={box, fill=soft, draw=ours, line width=0.85pt},
+  cool/.style={box, fill=softb, draw=base, line width=0.75pt},
+  lab/.style={font=\sffamily\scriptsize, text=ink!90, align=center},
+  flow/.style={->, draw=ink!75, line width=0.65pt},
+  hotflow/.style={->, draw=ours, line width=0.95pt},
+]
+\node[cool, minimum width=21mm] (game) at (0,0) {\textbf{ArcHost}\\[-1pt]{\scriptsize game sandbox,}\\[-1pt]{\scriptsize step ledger}};
+\node[hot, minimum width=27mm, right=9mm of game] (seg) {\textbf{1. Segment + Track}\\[-1pt]{\scriptsize 4-connected objects,}\\[-1pt]{\scriptsize ids fixed per level}};
+\node[hot, minimum width=27mm, right=3mm of seg] (layout) {\textbf{2. Layout}\\[-1pt]{\scriptsize terrain, panels, HUD,}\\[-1pt]{\scriptsize assemblies}};
+\node[hot, minimum width=27mm, right=3mm of layout] (measure) {\textbf{3. Measured facts}\\[-1pt]{\scriptsize reach, enclosure,}\\[-1pt]{\scriptsize tethers, $D_4 \times \mathbb{Z}^+$ shapes}};
+\node[hot, minimum width=27mm, right=3mm of measure] (guess) {\textbf{4. Guessed roles}\\[-1pt]{\scriptsize scored roles,}\\[-1pt]{\scriptsize one-action tests}};
+\node[hot, minimum width=24mm, right=3mm of guess] (render) {\textbf{5. Views}\\[-1pt]{\scriptsize map, letter grid,}\\[-1pt]{\scriptsize change ledger}};
+\begin{scope}[on background layer]
+\node[draw=ours, dashed, rounded corners=5pt, fill=ours!5, fit=(seg)(render), inner sep=6pt, label={[lab, text=ours, yshift=-1pt]above:\textbf{Perception engine} (host side, no learned parameters, tens of ms per frame)}] (pe) {};
+\end{scope}
+\node[box, minimum width=35mm, below=14mm of render.south east, anchor=north east] (ctx) {\textbf{Append-only context}\\[-1pt]{\scriptsize each request = previous + reply,}\\[-1pt]{\scriptsize 98.4\% from prefix cache}};
+\node[cool, minimum width=35mm, left=8mm of ctx] (llm) {\textbf{Qwen3.8-Flash-Next}\\[-1pt]{\scriptsize 125B MoE, 6B active,}\\[-1pt]{\scriptsize W4A16, SGLang + EAGLE}};
+\node[box, minimum width=45mm, left=8mm of llm] (kernel) {\textbf{IPython kernel}\\[-1pt]{\scriptsize \code{observe()} \quad \code{await play(path, predict)}}\\[-1pt]{\scriptsize memory dictionaries}};
+\draw[flow] (game) -- node[lab, above]{$g_t$} (seg);
+\draw[flow] (seg) -- (layout);
+\draw[flow] (layout) -- (measure);
+\draw[flow] (measure) -- (guess);
+\draw[flow] (guess) -- (render);
+\draw[hotflow] (render.south) -- node[lab, right]{views} (render.south |- ctx.north);
+\draw[flow] (ctx) -- node[lab, above]{prompt} (llm);
+\draw[flow] (llm) -- node[lab, above]{Python} (kernel);
+\draw[hotflow] (kernel.west) -| node[lab, pos=0.75, left, align=right]{planned path\\(wrong predictions reported)} (game.south);
+\node[box, minimum width=35mm, below=10mm of llm] (sched) {\textbf{Priority scheduler}\\[-1pt]{\scriptsize 25 games, 10 GPU slots,}\\[-1pt]{\scriptsize level weight $\times$ hope}};
+\node[box, minimum width=35mm, right=8mm of sched] (cur) {\textbf{Curator}\\[-1pt]{\scriptsize one call per cleared level,}\\[-1pt]{\scriptsize skills, refuted rules}};
+\node[box, minimum width=45mm, left=8mm of sched] (srv) {\textbf{Watchdog}\\[-1pt]{\scriptsize stalled-server detection,}\\[-1pt]{\scriptsize restarts within the time budget}};
+\draw[flow, dashed] (sched) -- (llm);
+\draw[flow, dashed] (cur.north) -- ++(0,4.5mm) -| (kernel.south east);
+\draw[flow, dashed] (srv) -- (sched);
+\end{tikzpicture}}
+\caption{Components of \textsc{Sarbloh}. The perception engine (orange) turns each frame into the three views of Section~\ref{sec:perception}; the model acts only through Python in its kernel; 25 games share one GPU under the scheduler.}
+\label{fig:overview}
+\end{figure*}
+
+Figure~\ref{fig:overview} shows how the components connect. The scheduler of Section~\ref{sec:serving} gives a game playing level $L{+}1$ of $n$, having spent $t$ reply tokens and $a$ actions on that level without a win, the priority
+\begin{align}
+\pi &= \big(g_{\text{now}} + g_{\text{tail}}\big)\cdot \underbrace{2^{-\left((t/T)^{2} + (a/A)^{2}\right)}}_{\text{hope}}, \label{eq:priority}\\
+g_{\text{now}} &= \frac{L+1}{n(n+1)/2}\Big(\frac{h}{h+a}\Big)^{2}, \quad g_{\text{tail}} = \frac{\tau_{\text{tail}}(n-L-1)}{55}\,\phi, \nonumber
+\end{align}
+where $g_{\text{now}}$ is the RHAE weight of the current level discounted by the actions already spent, $g_{\text{tail}}$ the value of the levels it unlocks, with $h = 25$ actions (a typical human level), $T = 40$k tokens and $A = 115$ actions. The tail value $\tau_{\text{tail}}(k)$ is 8, 7, 5 or 0 when $k \ge 3$, 2, 1 or 0 levels remain after the current one, on the 55-weight scale of a 10-level game, so that short games do not starve long ones; $\phi \in [0,1]$ fades it to zero over the last 20\% of the run budget, when no time is left for later levels. A game that has never held a slot goes before every game that has. A game keeps a slot for 20 model calls before it can be handed over. All constants were set by hand; we did not tune them.
+
 \section{System Configuration and Hyperparameters}
 \label{app:config}
 

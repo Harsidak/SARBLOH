@@ -38,6 +38,31 @@
 \definecolor{soft}{HTML}{FFF7ED}      % Soft Orange Tint
 \definecolor{softb}{HTML}{EFF6FF}     % Soft Blue Tint
 
+\definecolor{linkc}{HTML}{3B33B8}     % links and caption labels (dark indigo)
+
+% Tinted box, used twice: the abstract and the Motivation summary
+\usepackage[most]{tcolorbox}
+\newtcolorbox{tintbox}{colback=indigo!4, colframe=indigo!18, boxrule=0.4pt, arc=3pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt}
+
+% Caption labels in colour, separated by a bar (\captionsetup, not package options)
+\DeclareCaptionLabelSeparator{bar}{\;\textbar\;}
+\captionsetup{labelfont={bf,color=linkc},labelsep=bar}
+
+% Coloured links instead of boxes. aaai2027.sty refuses hyperref for AAAI
+% submissions; this is an arXiv build, so that one check becomes a warning.
+\makeatletter
+\let\sarb@PackageError\PackageError
+\def\sarb@aaai{aaai}
+\def\PackageError#1#2#3{\def\sarb@pkg{#1}%
+  \ifx\sarb@pkg\sarb@aaai\PackageWarning{aaai}{#2}\else\sarb@PackageError{#1}{#2}{#3}\fi}
+\AtBeginDocument{\AtBeginDocument{\let\PackageError\sarb@PackageError}}
+\makeatother
+\usepackage[hyphens]{xurl}
+\usepackage[colorlinks=true,linkcolor=linkc,citecolor=linkc,urlcolor=linkc,
+  pdftitle={SARBLOH: Structured Geometric Perception and Speculative Code Execution for Autonomous ARC-AGI-3 Agents},
+  pdfauthor={Harsidak Singh Banwait}]{hyperref}
+
 \newcommand{\code}[1]{\texttt{#1}}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcommand{\algcomment}[1]{\footnotesize\itshape\textcolor{muted}{#1}}
@@ -88,7 +113,7 @@
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/per_game.pdf}
-\caption{Score on the 25 public ARC-AGI-3 games. One point per game, sorted by the \textsc{Sarbloh} score: the thick indigo line is \textsc{Sarbloh} with an open-weight Qwen3.8-Flash-Next model on one GPU, the other five lines are frontier models. The mean over the 25 games is 72.5 for \textsc{Sarbloh}, 54.8 for GPT-6.1 Sol, 37.8 for Claude Opus 5, 20.0 for Gemini 3.8 Flash, 5.2 for Grok 4.6 xhigh and 2.6 for GPT-5.6 Terra. \textsc{Sarbloh} reaches 100\% on 13 games. These are public-game scores, which are not comparable to the hidden-set score in Table~\ref{tab:field}.}
+\caption{Score on the 25 public ARC-AGI-3 games. One point per game, sorted by the \textsc{Sarbloh} score: the thick indigo line is \textsc{Sarbloh} with an open-weight Qwen3.8-Flash-Next model on one GPU, the other five lines are frontier models. The \textsc{Sarbloh} line takes, per game, the best of our runs (8 to 18 per game); our best single run has a mean of 59.4. The mean over the 25 games is 72.5 for \textsc{Sarbloh}, 54.8 for GPT-6.1 Sol, 37.8 for Claude Opus 5, 20.0 for Gemini 3.8 Flash, 5.2 for Grok 4.6 xhigh and 2.6 for GPT-5.6 Terra. \textsc{Sarbloh} reaches 100\% on 13 games. These are public-game scores, which are not comparable to the hidden-set score in Table~\ref{tab:field}.}
 \label{fig:pergame}
 \end{figure*}
 
