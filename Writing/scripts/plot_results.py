@@ -108,7 +108,7 @@ def leaderboard():
                    lw=1.3)
     ax.scatter([], [], s=34, color="white", edgecolor=MUTED, lw=1.3, label="regression or failed experiment")
     ax.axhline(1.21, color=BASE, lw=1.1, ls=(0, (5, 3)), zorder=2)
-    ax.text(D("2026-10-06"), 1.7, "Duck, Milestone #1: 1.21", color=BASE, fontsize=8, va="bottom")
+    ax.text(D("2026-10-06"), 1.7, "Duck, first Milestone winner: 1.21", color=BASE, fontsize=8, va="bottom")
     notes = ((D("2026-09-28"), 2.4, "Prime Agent port\n0.00 to 0.27", "left"),
              (D("2026-10-05"), 6.6, "5.14  Flash-Next on SGLang,\nprefix-cache prompts", "left"),
              (D("2026-10-10"), 9.2, "5.65, 6.06  one tool,\ndrain-only context", "left"),
@@ -261,25 +261,24 @@ def per_game():
     ours = next(k for k in sc if k.startswith("Sarbloh"))
     mean = lambda k: sum(sc[k]) / len(sc[k])
     order = sorted(range(len(games)), key=lambda i: (sc[ours][i], sum(sc[k][i] for k, *_ in FRONTIER)))
-    fig, ax = plt.subplots(figsize=(FULL, 3.6))
+    fig, ax = plt.subplots(figsize=(FULL, 2.75))
     xs = np.arange(len(order))
     for k, n, c, m in FRONTIER:
-        ax.plot(xs, [sc[k][i] for i in order], color=c, lw=1.1, alpha=0.9, marker=m, ms=3.2, zorder=3,
-                label=f"{n}, mean {mean(k):.1f}")
+        ax.plot(xs, [sc[k][i] for i in order], color=c, lw=1.1, alpha=0.85, marker=m, ms=3.0, zorder=3,
+                label=f"{n} ({mean(k):.1f}%)")
     ys = [sc[ours][i] for i in order]
     ax.fill_between(xs, 0, ys, color=OURS_TINT, zorder=1)
-    ax.plot(xs, ys, color=OURS, lw=2.6, marker="o", ms=4.2, mec="white", mew=0.8, zorder=5,
-            solid_capstyle="round", label=f"SARBLOH, mean {mean(ours):.1f}")
-    ax.set_xticks(xs, [games[i] for i in order], fontsize=7.4, rotation=90)
+    ax.plot(xs, ys, color=OURS, lw=2.4, marker="o", ms=4.0, mec="white", mew=0.8, zorder=5,
+            solid_capstyle="round", label=f"SARBLOH ({mean(ours):.1f}%)")
+    ax.set_xticks(xs, [games[i] for i in order], fontsize=7.2, rotation=90)
     ax.tick_params(axis="x", length=0)
     ax.set_xlim(-0.6, len(order) - 0.4)
-    ax.set_ylim(0, 104)
+    ax.set_ylim(0, 105)
     ax.set_yticks(range(0, 101, 25))
-    ax.set_ylabel("score on the game (%)")
-    ax.set_xlabel("games, sorted by the SARBLOH score")
-    h, l = ax.get_legend_handles_labels()
-    fig.legend(h[-1:] + h[:-1], l[-1:] + l[:-1], loc="upper left", bbox_to_anchor=(0.06, 1.03), ncol=3,
-               frameon=False, handlelength=1.8, columnspacing=1.2, fontsize=7.2)
+    ax.set_ylabel("Efficiency Score (%)")
+    ax.set_xlabel("ARC-AGI-3 Public Benchmark Environments (sorted by SARBLOH score)")
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.02, 1.0, 0.1), ncol=3,
+              mode="expand", frameon=False, handlelength=1.6, columnspacing=1.0, fontsize=7.2)
     ax.grid(axis="both", color=GRID, lw=0.8, zorder=0)
     save(fig, "per_game")
 

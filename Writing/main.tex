@@ -44,6 +44,16 @@
 \usepackage[most]{tcolorbox}
 \newtcolorbox{tintbox}{colback=indigo!4, colframe=indigo!18, boxrule=0.4pt, arc=3pt,
   left=6pt, right=6pt, top=5pt, bottom=5pt}
+% Appendix code boxes: verbatim briefings, and the two tr87 briefings side by side
+\newtcblisting{briefing}[1]{listing only, breakable, colback=indigo!3, colframe=indigo!22, boxrule=0.4pt, arc=2pt,
+  left=4pt, right=4pt, top=2pt, bottom=2pt, title={#1}, fonttitle=\small\bfseries, coltitle=ink,
+  colbacktitle=indigo!10, listing options={basicstyle=\scriptsize\ttfamily, breaklines=true,
+  columns=fullflexible, keepspaces=true, showstringspaces=false}}
+\tcbset{budgetbox/.style={width=0.495\textwidth, nobeforeafter, box align=top, equal height group=budget,
+  colback=white, colframe=indigo!22, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt,
+  fonttitle=\small\bfseries, coltitle=ink, colbacktitle=indigo!10,
+  fontupper=\fontsize{5.6}{6.6}\selectfont\ttfamily}}
+\newcommand{\bmark}[1]{\textcolor{#1}{\rule[0.05ex]{0.7ex}{1.2ex}}\,}
 
 % Caption labels in colour, separated by a bar (\captionsetup, not package options)
 \DeclareCaptionLabelSeparator{bar}{\;\textbar\;}
@@ -60,7 +70,7 @@
 \makeatother
 \usepackage[hyphens]{xurl}
 \usepackage[colorlinks=true,linkcolor=linkc,citecolor=linkc,urlcolor=linkc,
-  pdftitle={SARBLOH: Structured Geometric Perception and Speculative Code Execution for Autonomous ARC-AGI-3 Agents},
+  pdftitle={Transforming Integer Grids to Spatial Intuition: Perception, Not Planning, Governs ARC-AGI-3},
   pdfauthor={Harsidak Singh Banwait}]{hyperref}
 
 \newcommand{\code}[1]{\texttt{#1}}
@@ -89,7 +99,7 @@
 }
 \pagestyle{plain}
 
-\title{\textsc{Sarbloh}: Structured Geometric Perception and Speculative Code Execution for Autonomous ARC-AGI-3 Agents}
+\title{Transforming Integer Grids to Spatial Intuition:\\Perception, Not Planning, Governs ARC-AGI-3}
 \author{
     Harsidak Singh Banwait
 }
@@ -105,15 +115,15 @@
 
 \input{sections/abstract}
 
-\vspace{0.4em}
+\vspace{0.2em}
 \noindent\textbf{Code:} \url{https://github.com/Harsidak/SARBLOH}
-\vspace{0.6em}
+\vspace{0.35em}
 
 % Headline empirical teaser figure placed after abstract (BAPO-style empirical teaser)
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/per_game.pdf}
-\caption{Score on the 25 public ARC-AGI-3 games. One point per game, sorted by the \textsc{Sarbloh} score: the thick indigo line is \textsc{Sarbloh} with an open-weight Qwen3.8-Flash-Next model on one GPU, the other five lines are frontier models. The \textsc{Sarbloh} line takes, per game, the best of our runs (8 to 18 per game); our best single run has a mean of 59.4. The mean over the 25 games is 72.5 for \textsc{Sarbloh}, 54.8 for GPT-6.1 Sol, 37.8 for Claude Opus 5, 20.0 for Gemini 3.8 Flash, 5.2 for Grok 4.6 xhigh and 2.6 for GPT-5.6 Terra. \textsc{Sarbloh} reaches 100\% on 13 games. These are public-game scores, which are not comparable to the hidden-set score in Table~\ref{tab:field}.}
+\caption{\textbf{Action efficiency across 25 public ARC-AGI-3 environments.} Comparative benchmark performance between \textsc{Sarbloh} (open-weight Qwen3.8-Flash-Next executed on a single Kaggle GPU) and five proprietary frontier API baselines, sorted by \textsc{Sarbloh} efficiency (\textsc{Sarbloh}---72.5\% peak / 59.4\% single pass). For \textsc{Sarbloh}, reported scores reflect peak performance across evaluation runs, as the strict nine-hour Kaggle wall-clock limit prevented solving all environments in a single pass and required re-evaluating individual games such as \code{bp35} in isolated sessions. \textsc{Sarbloh} leads frontier models on 21 of 25 environments, attaining 72.5\% peak efficiency compared to 54.8\% for the strongest frontier baseline (GPT-6.1 Sol).}
 \label{fig:pergame}
 \end{figure*}
 
@@ -122,6 +132,7 @@
 \input{sections/motivation}
 \input{sections/methodology}
 \input{sections/results}
+\input{sections/related}
 \input{sections/future}
 \input{sections/conclusion}
 

@@ -1,57 +1,68 @@
-\section{Preliminaries and Related Work}
+\section{Preliminaries}
 \label{sec:prelim}
-
-\subsection{Environment}
-\label{sec:env}
-An ARC-AGI-3 environment \citep{arcagi3} is an uninstructed, discrete-time game made of an ordered sequence of levels $\{1, \dots, n\}$. At each step $t$ the agent sees a frame $g_t \in \{0, \dots, 15\}^{H \times W}$ with $H, W \le 64$, the episode state $s_t \in \{\code{NOT\_FINISHED}, \code{WIN}, \code{GAME\_OVER}\}$ and the number of levels cleared. It then picks an action from
-\begin{equation}
-\begin{split}\mathcal{A} = \{&\code{ACTION1}, \dots, \code{ACTION5},\\ &\code{ACTION6}(x,y), \code{ACTION7}, \code{RESET}\},\end{split}
-\end{equation}
-where \code{ACTION1}--\code{ACTION4} are directional, \code{ACTION5} and \code{ACTION7} are game-specific, and \code{ACTION6}$(x,y)$ is a click at pixel $(x,y)$. Nothing is explained up front: what the actions do, which object the agent controls and what wins the level must all be inferred from transitions. Early levels introduce single mechanics and later levels compose them \citep{spelke2007core}.
-
-Games are scored by \emph{Relative Human Action Efficiency} (RHAE). Let $h_l$ be the human baseline for level $l$ (the upper-median human action count) and $a_l$ the agent's action count. Then
-\begin{equation}
-\begin{split}
-S_l &= \min\!\left(1.15,\, \left(\frac{h_l}{a_l}\right)^2\right),\\
-E &= \frac{\min\!\left(\sum_{l=1}^k l,\; \sum_{l=1}^n l\, S_l\right)}{\sum_{l=1}^n l},
-\end{split}
-\label{eq:rhae}
-\end{equation}
-where $k \le n$ is the number of levels cleared, and the benchmark score is the mean of $E$ over games. Three consequences drive our design. Extra actions are penalized quadratically, so an agent that needs twice the human count keeps only 25\% of the credit. Thinking and host-side computation are free, and only actions sent to the environment count in $a_l$, which favours planning in code over trial and error. And the weight $l$ pushes the score toward later levels.
-
-\paragraph{Offline evaluation and resource bounds.}
-The official Kaggle track runs a submitted notebook on held-out games with no network access. It gets one NVIDIA RTX PRO 6000 (Blackwell, 96\,GB VRAM), 176\,GB of host RAM and a nine-hour wall-clock limit for the whole suite, and all weights must be open and packaged with the notebook. The budget is therefore decode throughput, since reasoning is bounded by tokens per second, and the length of prompt that can stay in the warm prefix cache without eviction or recomputation.
-
-\subsection{Related Work}
-\label{sec:related}
-
-\paragraph{How Prior Agents Perceive the Game.}
-Prior ARC-AGI-3 systems (Table~\ref{tab:field}) differ in planning, memory and tooling, but they share one perception design: the frame reaches the model as raw data, and the model recovers structure itself. The Duck harness, passes composite ASCII grids together with visual renderings of the board \citep{duck2026,arcprizemilestone1}. The second- and third-place Kaggle systems feed annotated frames to Gemma-4-31B, which emits JSON action sequences directly \citep{arcprizemilestone1}. \emph{VISTA} \citep{vista2026} adds a multimodal visual harness that keeps every frame losslessly. Arcgentica \citep{knutsen2026arcgentica} and Prime Agent \citep{karten2026prime} expose the game through a persistent Python REPL, so the model must write its own code to parse the grid.
-
-In every case the observation is an integer or ASCII grid, a rendered image, or both. Objects, connectivity, containment and symmetry are left to the model to infer from pixels or characters, which is the step our motivating study (Section~\ref{sec:motivation}) finds most costly. We know of no prior ARC-AGI-3 agent that computes these facts exactly on the host, tracks object identity across frames, or attaches a one-action test to each uncertain hypothesis.
 
 \begin{table*}[t]
 \centering
 \small
-\renewcommand{\arraystretch}{1.45}
+\renewcommand{\arraystretch}{1.28}
 \setlength{\tabcolsep}{3pt}
 \newcommand{\sysname}[2]{\begin{tabular}[t]{@{}c@{}}\textbf{#1}\\[-3pt]{\scriptsize\textcolor{muted}{#2}}\end{tabular}}
+\newcommand{\sysnamesub}[3]{\begin{tabular}[t]{@{}c@{}}\textbf{#1}\\[-3pt]{\scriptsize\textcolor{muted}{#2}}\\[-2pt]{\scriptsize\textcolor{muted}{#3}}\end{tabular}}
 \newcommand{\sysnamed}[3]{\begin{tabular}[t]{@{}c@{}}\textbf{#1}\\[-3pt]\textbf{#2}\\[-3pt]{\scriptsize\textcolor{muted}{#3}}\end{tabular}}
 \newcommand{\rowline}{\arrayrulecolor{gridc}\specialrule{0.5pt}{0pt}{0pt}}
 \newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-\begin{tabular}{@{}L{0.1\textwidth}>{\columncolor{oursTint}}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}C{0.099\textwidth}@{}}
+\begin{tabular}{@{}L{0.125\textwidth}>{\columncolor{oursTint}}C{0.10\textwidth}C{0.095\textwidth}C{0.095\textwidth}C{0.095\textwidth}C{0.095\textwidth}C{0.095\textwidth}C{0.095\textwidth}C{0.095\textwidth}@{}}
 \toprule
  & \multicolumn{3}{c}{\textbf{Hidden Kaggle set} \textcolor{muted}{\scriptsize (offline, 1 GPU, 9\,h)}} & \multicolumn{5}{c}{\textbf{Public set} \textcolor{muted}{\scriptsize (frontier APIs, unbounded)}} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-9}
- & \sysname{\textcolor{indigo}{\textsc{Sarbloh}}}{this work} & \sysname{Duck}{Milestone \#1, 1st} & \sysname{Reki}{Milestone \#1, 2nd} & \sysname{Prime Agent}{open harness} & \sysname{Arcgentica}{Symbolica} & \sysname{AVO}{NVIDIA} & \sysnamed{Provider}{Adapters}{GPT-5.5} & \sysnamed{Provider}{Adapters}{Gemini 3.8 Flash} \\
+ & \sysname{\textcolor{indigo}{\textsc{Sarbloh}}}{this work} & \sysnamesub{Duck}{first Milestone}{winner} & \sysnamesub{Reki}{second Milestone}{winner} & \sysname{Prime Agent}{open harness} & \sysname{Arcgentica}{Symbolica} & \sysname{AVO}{NVIDIA} & \sysnamed{Provider}{Adapters}{GPT-5.5} & \sysnamed{Provider}{Adapters}{Gemini 3.8 Flash} \\
 \midrule
-Backbone & Qwen3.8-Flash-Next (MoE) & Qwen 3.6 27B & Gemma-4-31B & Claude Opus 5 & Claude Opus 4.6 & Opus 5 / GPT-5.6 Sol & GPT-5.5 & Gemini 3.8 Flash \\
+Wall-clock limit & 9\,h & 9\,h & 9\,h & unbounded & unbounded & unbounded & unbounded & unbounded \\
+\rowline
+Network access & none & none & none & yes & yes & yes & yes & yes \\
+\rowline
+Protocol & peak / single pass & -- & -- & self-reported & self-reported & self-reported & self-reported & self-reported \\
 \rowline
 Open weights & \checkmark & \checkmark & \checkmark & -- & -- & -- & -- & -- \\
+\rowline
+Backbone & Qwen3.8-Flash-Next & Qwen 3.6 27B & Gemma-4-31B & Claude Opus 5 & Claude Opus 4.6 & Opus 5 / GPT-5.6 & GPT-5.5 & Gemini 3.8 Flash \\
 \arrayrulecolor{black}\midrule
 \rule{0pt}{2.4ex}Score & \textbf{\textcolor{indigo}{16.53}} & \textbf{1.21} & \textbf{0.87} & \textbf{95.5} & \textbf{36.1}$^{\dagger}$ & \textbf{100.0}$^{\dagger}$ & \textbf{99.99}$^{\dagger}$ & \textbf{$\approx$99.9}$^{\dagger}$ \\[2pt]
 \bottomrule
 \end{tabular}
-\caption{ARC-AGI-3 systems under two evaluation protocols. The left group runs offline on the hidden Kaggle games with open weights on one GPU; the right group calls frontier APIs on the public games. The two scores are not directly comparable. $^{\dagger}$Reported by the system's authors on the public games and not certified by the organizers; the Provider Adapters scores are as reported to us, and the Gemini figure is approximate. No adapter result for Claude is available.}
+\caption{\textbf{ARC-AGI-3 systems across two distinct evaluation regimes.} The left group executes offline within the official Kaggle evaluation sandbox on a single GPU under strict hardware and nine-hour wall-clock limits without network access. The right group evaluates proprietary frontier models via unconstrained commercial APIs without standardized verification. $^{\dagger}$Self-reported by authors on public games without independent certification.}
 \label{tab:field}
 \end{table*}
+
+The ARC-AGI-3 benchmark \citep{arcagi3} defines an uninstructed, discrete-time sequential decision process structured as an ordered progression of compositional levels $\{1, \dots, n\}$. At each interaction step $t$, the agent receives a discrete visual grid observation $g_t \in \{0, \dots, 15\}^{H \times W}$ with spatial dimensions bounded by $H, W \le 64$, where each coordinate denotes one of 16 categorical color indices. In addition to the visual grid, the environment exposes the episode termination status $s_t \in \{\code{NOT\_FINISHED}, \code{WIN}, \code{GAME\_OVER}\}$ alongside the count of levels resolved so far. 
+
+To interact with the environment, the agent selects an action from the action set $\mathcal{A}$, defined in Equation~\eqref{eq:actions}:
+\begin{equation}
+\label{eq:actions}
+\begin{aligned}
+\mathcal{A} = \{ & \code{ACTION1}, \dots, \code{ACTION5}, \\
+                 & \code{ACTION6}(x,y), \code{ACTION7}, \code{RESET} \}.
+\end{aligned}
+\end{equation}
+In Equation~\eqref{eq:actions}, actions \code{ACTION1}--\code{ACTION4} represent cardinal directional displacements, actions \code{ACTION5} and \code{ACTION7} denote game-specific discrete triggers, and \code{ACTION6}$(x,y)$ specifies an arbitrary continuous spatial coordinate click parameterized by $x \in [0, W-1]$ and $y \in [0, H-1]$. Environments provide zero upfront task directives, as action semantics, controllable entity embodiment, and terminal win conditions are latent. The agent must infer these operational rules entirely from transition dynamics, where earlier levels isolate elemental mechanics and subsequent levels compose them hierarchically \citep{spelke2007core}.
+
+Benchmark performance is evaluated using \emph{Relative Human Action Efficiency} (RHAE). For each level $l$, let $h_l$ denote the upper-median human action baseline, and let $a_l$ represent the cumulative count of physical actions committed by the candidate agent. The per-level efficiency score $S_l$ is defined in Equation~\eqref{eq:level_score}:
+\begin{equation}
+\label{eq:level_score}
+S_l = \min\!\left(1.15,\, \left(\frac{h_l}{a_l}\right)^2\right).
+\end{equation}
+Across an entire game comprising $n$ levels where the agent successfully completes $k \le n$ levels, the cumulative game efficiency score $E$ is defined in Equation~\eqref{eq:rhae}:
+\begin{equation}
+\label{eq:rhae}
+E = \frac{1}{\sum_{l=1}^n l} \min\!\left(\sum_{l=1}^k l,\; \sum_{l=1}^n l\, S_l\right).
+\end{equation}
+
+Equation~\eqref{eq:level_score} and Equation~\eqref{eq:rhae} establish three governing operational properties that dictate our agent architecture:
+\begin{enumerate}
+    \item \emph{Quadratic Exploration Penalty}---Because action counts enter Equation~\eqref{eq:level_score} inversely squared, unguided exploratory actions penalize the final score quadratically. An agent requiring twice the human baseline actions retains only 25\% of the available credit.
+    \item \emph{Zero-Cost Internal Computation}---Reasoning latencies and host-side execution are strictly non-penalized, and only physical actions committed to the environment register in $a_l$. This structure strongly favors extensive host-side geometric parsing and speculative algorithmic planning over trial-and-error exploration.
+    \item \emph{Progressive Reward Scaling}---The linear level multiplier $l$ in Equation~\eqref{eq:rhae} weights later compositional levels substantially higher, rewarding agents that generalize foundational mechanics induced during earlier stages.
+\end{enumerate}
+
+\paragraph{Offline Evaluation and Resource Bounds.}
+The official Kaggle evaluation track evaluates candidate agents on held-out, undisclosed environments within an isolated execution sandbox without external network access. Computation is strictly bounded to a single NVIDIA RTX PRO 6000 GPU (Blackwell architecture, 96\,GB VRAM) and 176\,GB of host RAM, subject to an inviolable nine-hour wall-clock execution ceiling for the entire evaluation suite. Furthermore, all model weights and dependencies must be open-source and pre-packaged within the submission container, contrasting sharply against unconstrained frontier API baselines (Table~\ref{tab:field}). Under these constraints, the operational budget is governed by generation decode throughput and the length of context history that can be retained in the GPU's warm prefix cache without triggering expensive quadratic recomputations.

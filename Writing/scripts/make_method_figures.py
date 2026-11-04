@@ -94,7 +94,7 @@ def turn_trace():
 
 
 # ---- the briefing line budget on tr87 -----------------------------------------------------------
-def _short(line: str) -> str:
+def _short(line: str, width: int = 36) -> str:
     line = re.sub(r"(obj \d+) \((?:[^()]|\([^()]*\))*\)", r"\1", line)
     for a, b in (("(shared columns ", "c"), ("(shared rows ", "r"), (" is directly above ", " above "),
                  (" is level with and left of ", " left of "), (" encloses an EMPTY ", " encloses empty "),
@@ -102,7 +102,7 @@ def _short(line: str) -> str:
                  (", turned 180 deg OR mirrored top-bottom, becomes exactly", " rotated = "), (" - test:", ", test:")):
         line = line.replace(a, b)
     line = re.sub(r"(\d+-\d+)\)", r"\1", line)
-    return line if len(line) <= 36 else line[:34] + ".."
+    return line if len(line) <= width else line[:width - 2] + ".."
 
 
 def _kind(line: str) -> str:
@@ -140,6 +140,31 @@ def briefing_budget():
         ax.text(0, -0.9, summary, fontsize=5.6, color=SOFT, va="bottom", linespacing=1.1)
     fig.subplots_adjust(wspace=0.1)
     save(fig, "briefing_budget")
+
+
+def briefing_budget_tex():
+    """The same two briefings as LaTeX text boxes (figures/briefing_budget.tex, \\input by the appendix)."""
+    P = FIG / "perception/tr87"
+    marks = {"inside": "base", "align": "muted", "alike": "lavender", "guess": "ours", "other": "white"}
+    esc = str.maketrans({c: "\\" + c for c in "_%#&{}$"})
+    out = []
+    for name, t in (("single_cap", "(a) one cap of 30 lines"), ("shared", "(b) lines shared by kind")):
+        raw = (P / f"{name}.txt").read_text(encoding="utf-8").splitlines()
+        counts, rows = {}, []
+        for x in raw:
+            if x.startswith("- "):
+                k = _kind(x)
+                counts[k] = counts.get(k, 0) + 1
+                rows.append(f"\\bmark{{{marks[k]}}}{_short(x[2:], 62).translate(esc)}\\\\")
+            else:
+                rows.append(f"\\textbf{{{x.translate(esc)}}}\\\\")
+        summary = (f"{counts.get('align', 0)} alignment, {counts.get('inside', 0)} enclosure, "
+                   f"{counts.get('alike', 0)} look-alike, {counts.get('guess', 0)} guess lines")
+        out.append("\n".join([f"\\begin{{tcolorbox}}[budgetbox, title={{{t}}}]",
+                              f"{{\\rmfamily\\itshape {summary}}}\\\\[2pt]", *rows, "\\end{tcolorbox}"]))
+    (FIG / "briefing_budget.tex").write_text(
+        "% written by Writing/scripts/make_method_figures.py (briefing_budget_tex); do not edit by hand\n"
+        + "\\hfill\n".join(out) + "\n", encoding="utf-8")
 
 
 # ---- prefix-cache hit rate over requests --------------------------------------------------------
