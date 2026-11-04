@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2503.04412
+retrieved: 2026-09-24
+kind: paper
+title: "Wider or Deeper? Scaling LLM Inference-Time Compute with Adaptive Branching Tree Search"
+why: "AB-MCTS (SakanaAI treequest); explore-vs-refine search over hypotheses."
+relates_to: jugat, worldmodel
+verified: false

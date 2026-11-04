@@ -1,0 +1,8 @@
+source_url: https://arxiv.org/abs/2601.16175
+retrieved: 2026-09-26
+kind: paper
+title: "Learning to discover at test time (TTT-Discover)"
+why: "Learned Generate via test-time gradient updates; PUCT Sample; the RL-flavoured alternative"
+relates_to: Sarbloh-AVO
+
+verified: false

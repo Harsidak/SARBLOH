@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2509.09675
+retrieved: 2026-09-24
+kind: paper
+title: "CDE: Curiosity-Driven Exploration for Efficient RL in LLMs"
+why: "Curiosity bonuses; only relevant if RL is ever attempted (CLAUDE.md RL lesson)."
+relates_to: background
+verified: false

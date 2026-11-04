@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2510.04542
+retrieved: 2026-09-24
+kind: paper
+title: "Code World Models for General Game Playing"
+why: "Code-as-world-model + MCTS; foundation for worldmodel/jugat."
+relates_to: worldmodel, jugat
+verified: false

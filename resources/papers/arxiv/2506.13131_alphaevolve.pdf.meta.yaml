@@ -1,0 +1,8 @@
+source_url: https://arxiv.org/abs/2506.13131
+retrieved: 2026-09-26
+kind: paper
+title: "AlphaEvolve: A coding agent for scientific and algorithmic discovery"
+why: "The Vary=Generate(Sample(P)) baseline AVO replaces; island/MAP-Elites database"
+relates_to: Sarbloh-AVO
+
+verified: false

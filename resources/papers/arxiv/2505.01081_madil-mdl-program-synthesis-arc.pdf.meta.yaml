@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2505.01081
+retrieved: 2026-09-24
+kind: paper
+title: "MADIL: An MDL-based Framework for Efficient Program Synthesis in the ARC Benchmark"
+why: "MDL pressure for world-model refactoring."
+relates_to: worldmodel
+verified: false

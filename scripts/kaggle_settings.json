@@ -1,0 +1,121 @@
+{
+  "username": "banwait13",
+  "dataset_slug": "sarbloh-agent",
+  "kernel_slug": "sarbloh-main",
+  "kernel_title": "SARBLOH main",
+  "machine_shape": "NvidiaRtxPro6000",
+  "extra_datasets": [
+    "jeroencottaar/taaf-kaggle-source-share",
+    "banwait13/sarbloh-vllm-wheelhouse",
+    "driessmit1/vrfai-qwen3-6-27b-fp8-hf-snapshot"
+  ],
+  "model_sources": [],
+  "attach_sarbloh": false,
+  "prime": {
+    "notebook": "kaggle/experimental/002_prime.ipynb",
+    "kernel_slug": "sarbloh-prime",
+    "kernel_title": "SARBLOH prime",
+    "datasets": [
+      "banwait13/sarblohagent",
+      "fumiyauchiyama/qwen3-8-27b-fp8-hf-snapshot",
+      "banwait13/sarblohmodels",
+      "banwait13/sarbloh-wheels-gemma4",
+      "banwait13/sarbloh-vllm-wheelhouse",
+      "banwait13/sglangwheels"
+    ]
+  },
+  "vllm_bench": {
+    "notebook": "kaggle/experimental/007_vllm_bench.ipynb",
+    "kernel_slug": "sarbloh-vllm-bench",
+    "kernel_title": "SARBLOH vllm bench",
+    "datasets": [
+      "banwait13/sarbloh-vllm-wheelhouse",
+      "banwait13/sarbloh-wheels-gemma4",
+      "banwait13/sarblohmodels",
+      "fumiyauchiyama/qwen3-8-27b-fp8-hf-snapshot",
+      "keithtyser/duck-qwen38-nvfp4-mtp-vllm-smoke-v1",
+      "keithtyser/qwen38-flash-next-vllm-nvfp4-runtime-v1"
+    ],
+    "model_sources": [
+      "keithtyser/qwen3-8-flash-next-nvfp4/pyTorch/radixark-modelopt-fp4/1"
+    ]
+  },
+  "experimentation": {
+    "notebook": "kaggle/experimental/sarbloh_experimentation.ipynb",
+    "kernel_slug": "sarbloh-experimentation",
+    "kernel_title": "SARBLOH experimentation",
+    "datasets": [
+      "banwait13/sarblohagent",
+      "banwait13/sglangwheels"
+    ],
+    "model_sources": [
+      "dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1",
+      "dfranzen/albucino-qwen3-8-flash-next-drafter/transformers/default/1"
+    ]
+  },
+  "deepseek": {
+    "notebook": "kaggle/experimental/deepseek_experimentation.ipynb",
+    "kernel_slug": "sarbloh-deepseek",
+    "kernel_title": "SARBLOH deepseek",
+    "datasets": [
+      "banwait13/sarblohagent",
+      "banwait13/sglang0520wheels",
+      "banwait13/sglangwheels"
+    ],
+    "model_sources": [
+      "cosmicbe/dsv4-flash-0731-reap-150b/pyTorch/default/1"
+    ],
+    "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461"
+  },
+  "dsv4_probe": {
+    "notebook": "kaggle/experimental/dsv4_probe.ipynb",
+    "kernel_slug": "sarbloh-dsv4-probe",
+    "kernel_title": "SARBLOH dsv4 probe",
+    "datasets": [
+      "banwait13/sglang0520wheels",
+      "banwait13/sglangwheels"
+    ],
+    "model_sources": [
+      "cosmicbe/dsv4-flash-0731-reap-150b/pyTorch/default/1"
+    ],
+    "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461"
+  },
+  "glm": {
+    "notebook": "kaggle/experimental/glm_experimentation.ipynb",
+    "kernel_slug": "sarbloh-glm",
+    "kernel_title": "SARBLOH glm",
+    "datasets": [
+      "banwait13/llamacpp-cuda-b11878"
+    ],
+    "model_sources": [
+      "kemake/glm53-flash-unsloth-public/gguf/ud-iq4-xs/1"
+    ]
+  },
+  "glm_probe": {
+    "notebook": "kaggle/experimental/glm_probe.ipynb",
+    "kernel_slug": "sarbloh-glm-probe",
+    "kernel_title": "SARBLOH glm probe",
+    "datasets": [
+      "banwait13/llamacpp-cuda-b11878"
+    ],
+    "model_sources": [
+      "kemake/glm53-flash-unsloth-public/gguf/ud-iq4-xs/1"
+    ]
+  },
+  "alignment": {
+    "notebook": "Alignment/alignment.ipynb",
+    "kernel_slug": "sarbloh-alignment",
+    "kernel_title": "SARBLOH alignment",
+    "machine_shape": "NvidiaTeslaT4",
+    "datasets": []
+  },
+  "alignment_tpu": {
+    "notebook": "kaggle/experimental/alignment_tpu.ipynb",
+    "kernel_slug": "sarbloh-alignment-tpu",
+    "kernel_title": "SARBLOH alignment TPU",
+    "machine_shape": "TpuV5E8",
+    "datasets": [
+      "banwait13/sarblohagent"
+    ]
+  }
+}

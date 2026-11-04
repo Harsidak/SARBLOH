@@ -4,31 +4,30 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-.env
-*.lock
-*.toml
-# --- Notebooks ---
+.ruff_cache/
 .ipynb_checkpoints/
 
-# --- Run artefacts (regenerable, large) ---
+# --- Secrets: Kaggle / HF credentials live here, never commit ---
+.env
+
+# --- Run artefacts (large; the paper's numbers are derived into Writing/data/) ---
 runs/
 *.log
 scorecards/
 recordings/
 scores/
+Alignment/data/cache/
 
-# --- Archive bulk: kept on disk, not in history (see GIT_SETUP.md) ---
-_archive/runs/
-_archive/logs/
+# --- Third-party material: catalogued in resources/INDEX.md, not redistributed ---
+resources/papers/**
+resources/repos/
+resources/web/
+!resources/papers/**/
+!resources/papers/**/*.meta.yaml
+scripts/Games/
+Alignment/authoring/scripts/
 
-# --- Third-party clones: referenced, never distributed ---
-resources/repos/*
-resources/papers/*
-resources/web/*
-resources\_TEMPLATE.meta.yaml
-
-
-# --- Kaggle workspace: notebooks are public; weights, staging and third-party code are not (see CLAUDE.md §5) ---
+# --- Kaggle workspace: notebooks are public; weights, staging and third-party code are not ---
 kaggle/.push/
 kaggle/datasets/models/
 kaggle/datasets/Taaf agent/
@@ -37,7 +36,7 @@ kaggle/datasets/*/*.whl
 kaggle/reference/
 
 # --- Local inference binaries ---
-tools/llama.cpp/
+tools/
 
 # --- Large binaries ---
 *.gguf
@@ -46,21 +45,17 @@ tools/llama.cpp/
 *.pt
 *.safetensors
 
-# --- OS / editor ---
+# --- Internal notes and unattributed results ---
+history/legacy_scores/
+planning/SESSION_CONTEXT.md
+planning/GIT_SETUP.md
+planning/MIGRATION.md
+experiments_*.md
+
+# --- OS / editor / local agent tooling ---
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# other files
-CLAUDE.md
-.claude
-# other files
-experiments/BACKLOG.md
-experiments_2026-10-01.md
-history/
-planning/
-resources/
-scripts/
-!Writing/scripts/
+.claude/
 .agents/

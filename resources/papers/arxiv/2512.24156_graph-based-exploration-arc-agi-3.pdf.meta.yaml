@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2512.24156
+retrieved: 2026-09-24
+kind: paper
+title: "Graph-Based Exploration for ARC-AGI-3 Interactive Reasoning Tasks"
+why: "Training-free 3rd place (preview); state graph + salience-ranked actions. Baseline for exploration cost."
+relates_to: jugat, E-DIAG
+verified: false

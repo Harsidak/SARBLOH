@@ -271,7 +271,7 @@ with (d / ".prime" / "history.jsonl").open("a", encoding="utf-8") as fh:
 obs = O.observe()
 ok("observe_fields", obs.step == 5 and obs.change == js["change"] and obs.board[8][10] == "O"
    and obs.objects == json.loads(json.dumps(js["objects"])) and obs.briefing == b2.lines() and obs.text == full)
-ok("observe_history_skips_partial_line", [h["i"] for h in obs.history] == [4, 5])
+ok("observe_history_skips_partial_line", [h["i"] for h in obs.history] == [5, 4])   # newest first
 ok("observe_ascii_window", obs.ascii(8, 10, 9, 12).splitlines()[2] == "  8 OOO")
 try:
     obs.letters

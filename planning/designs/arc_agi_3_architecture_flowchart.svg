@@ -1,0 +1,287 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" width="100%" height="100%">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+    </marker>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1000" fill="url(#grad1)"/>
+
+  <!-- Title -->
+  <text x="700" y="40" text-anchor="middle" fill="#f8fafc" font-family="monospace" font-size="22" font-weight="bold" filter="url(#glow)">
+    ARC-AGI-3 AGENT ARCHITECTURE: DSL × RL × QWEN-3.6-27B
+  </text>
+
+  <!-- === LAYER 1: ENVIRONMENT INTERFACE === -->
+  <rect x="20" y="70" width="1360" height="120" rx="8" fill="#0f172a" stroke="#3b82f6" stroke-width="2"/>
+  <text x="700" y="95" text-anchor="middle" fill="#60a5fa" font-family="monospace" font-size="14" font-weight="bold">
+    LAYER 1: ARC-AGI-3 ENVIRONMENT INTERFACE
+  </text>
+
+  <rect x="40" y="110" width="200" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="140" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">64×64 Grid Observation</text>
+  <text x="140" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(RGB/Discrete Colors)</text>
+
+  <rect x="270" y="110" width="200" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="370" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">Action Space Decoder</text>
+  <text x="370" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(Discrete Actions)</text>
+
+  <rect x="500" y="110" width="200" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="600" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">Reward Signal Parser</text>
+  <text x="600" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(Sparse/Dense Feedback)</text>
+
+  <rect x="730" y="110" width="200" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="830" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">State Transition Logger</text>
+  <text x="830" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(Trajectory Buffer)</text>
+
+  <rect x="960" y="110" width="200" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="1060" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">GAME_OVER / RESET</text>
+  <text x="1060" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(Episode Controller)</text>
+
+  <rect x="1190" y="110" width="170" height="60" rx="6" fill="#1e3a5f" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="1275" y="135" text-anchor="middle" fill="#93c5fd" font-family="monospace" font-size="11">Level Progression</text>
+  <text x="1275" y="155" text-anchor="middle" fill="#64748b" font-family="monospace" font-size="9">(Curriculum Tracker)</text>
+
+  <!-- === LAYER 2: DSL & PROGRAM SYNTHESIS === -->
+  <rect x="20" y="210" width="440" height="280" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+  <text x="240" y="235" text-anchor="middle" fill="#34d399" font-family="monospace" font-size="14" font-weight="bold">
+    PILLAR 1: DSL &amp; PROGRAM SYNTHESIS
+  </text>
+
+  <rect x="40" y="255" width="190" height="70" rx="6" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+  <text x="135" y="275" text-anchor="middle" fill="#6ee7b7" font-family="monospace" font-size="10">Primitive Library</text>
+  <text x="135" y="290" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">objects, fill, paint,</text>
+  <text x="135" y="305" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">shift, rotate, mirror</text>
+
+  <rect x="250" y="255" width="190" height="70" rx="6" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+  <text x="345" y="275" text-anchor="middle" fill="#6ee7b7" font-family="monospace" font-size="10">Bottom-Up Search</text>
+  <text x="345" y="290" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">LambdaBeam-style</text>
+  <text x="345" y="305" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">Neural-guided DAG</text>
+
+  <rect x="40" y="340" width="190" height="70" rx="6" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+  <text x="135" y="360" text-anchor="middle" fill="#6ee7b7" font-family="monospace" font-size="10">Top-Down Search</text>
+  <text x="135" y="375" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">DreamCoder/CTS</text>
+  <text x="135" y="390" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">Grammar Unrolling</text>
+
+  <rect x="250" y="340" width="190" height="70" rx="6" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+  <text x="345" y="360" text-anchor="middle" fill="#6ee7b7" font-family="monospace" font-size="10">Verifier Engine</text>
+  <text x="345" y="375" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">Execute candidate</text>
+  <text x="345" y="390" text-anchor="middle" fill="#a7f3d0" font-family="monospace" font-size="9">against observations</text>
+
+  <rect x="40" y="425" width="400" height="50" rx="6" fill="#022c22" stroke="#10b981" stroke-width="1.5"/>
+  <text x="240" y="445" text-anchor="middle" fill="#34d399" font-family="monospace" font-size="10" font-weight="bold">OUTPUT: Executable World Model (Python)</text>
+  <text x="240" y="460" text-anchor="middle" fill="#6ee7b7" font-family="monospace" font-size="9">transition_fn(state, action) → next_state</text>
+
+  <!-- === LAYER 3: RL EXPLORATION === -->
+  <rect x="480" y="210" width="440" height="280" rx="8" fill="#0f172a" stroke="#f59e0b" stroke-width="2"/>
+  <text x="700" y="235" text-anchor="middle" fill="#fbbf24" font-family="monospace" font-size="14" font-weight="bold">
+    PILLAR 3: RL EXPLORATION &amp; CURRICULUM
+  </text>
+
+  <rect x="500" y="255" width="190" height="70" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+  <text x="595" y="275" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="10">ICM / RND Module</text>
+  <text x="595" y="290" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Intrinsic Curiosity</text>
+  <text x="595" y="305" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Prediction Error Reward</text>
+
+  <rect x="710" y="255" width="190" height="70" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+  <text x="805" y="275" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="10">GRPO Policy</text>
+  <text x="805" y="290" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Group Relative PO</text>
+  <text x="805" y="305" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Critic-Free Update</text>
+
+  <rect x="500" y="340" width="190" height="70" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+  <text x="595" y="360" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="10">State Count Bonus</text>
+  <text x="595" y="375" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Episodic Novelty</text>
+  <text x="595" y="390" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Hash-based Tracking</text>
+
+  <rect x="710" y="340" width="190" height="70" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+  <text x="805" y="360" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="10">Exploit/Explore Gate</text>
+  <text x="805" y="375" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Entropy Threshold</text>
+  <text x="805" y="390" text-anchor="middle" fill="#fde68a" font-family="monospace" font-size="9">Model Confidence Switch</text>
+
+  <rect x="500" y="425" width="400" height="50" rx="6" fill="#271c19" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="700" y="445" text-anchor="middle" fill="#fbbf24" font-family="monospace" font-size="10" font-weight="bold">OUTPUT: Exploration Policy π(a|s)</text>
+  <text x="700" y="460" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="9">Balanced intrinsic + extrinsic reward</text>
+
+  <!-- === LAYER 4: TEST-TIME COMPUTE (MCTS) === -->
+  <rect x="940" y="210" width="440" height="280" rx="8" fill="#0f172a" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="1160" y="235" text-anchor="middle" fill="#a78bfa" font-family="monospace" font-size="14" font-weight="bold">
+    PILLAR 2: TEST-TIME COMPUTE (MCTS)
+  </text>
+
+  <rect x="960" y="255" width="190" height="70" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1055" y="275" text-anchor="middle" fill="#c4b5fd" font-family="monospace" font-size="10">LLM Heuristic Value</text>
+  <text x="1055" y="290" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Qwen-3.6-27B Eval</text>
+  <text x="1055" y="305" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">State Utility Score</text>
+
+  <rect x="1170" y="255" width="190" height="70" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1265" y="275" text-anchor="middle" fill="#c4b5fd" font-family="monospace" font-size="10">MCTS Tree Node</text>
+  <text x="1265" y="290" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">UCT Selection</text>
+  <text x="1265" y="305" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Rollout + Backprop</text>
+
+  <rect x="960" y="340" width="190" height="70" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1055" y="360" text-anchor="middle" fill="#c4b5fd" font-family="monospace" font-size="10">World Model Sim</text>
+  <text x="1055" y="375" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Fast internal rollout</text>
+  <text x="1055" y="390" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Zero env actions</text>
+
+  <rect x="1170" y="340" width="190" height="70" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1265" y="360" text-anchor="middle" fill="#c4b5fd" font-family="monospace" font-size="10">Active Learning Loop</text>
+  <text x="1265" y="375" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Info-Gain Action Pick</text>
+  <text x="1265" y="390" text-anchor="middle" fill="#ddd6fe" font-family="monospace" font-size="9">Hypothesis Testing</text>
+
+  <rect x="960" y="425" width="400" height="50" rx="6" fill="#1e1b4b" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="1160" y="445" text-anchor="middle" fill="#a78bfa" font-family="monospace" font-size="10" font-weight="bold">OUTPUT: Action Selection Distribution</text>
+  <text x="1160" y="460" text-anchor="middle" fill="#c4b5fd" font-family="monospace" font-size="9">Pareto-optimal explore/exploit tradeoff</text>
+
+  <!-- === LAYER 5: MEMORY & CONTEXT === -->
+  <rect x="20" y="510" width="1360" height="180" rx="8" fill="#0f172a" stroke="#ec4899" stroke-width="2"/>
+  <text x="700" y="535" text-anchor="middle" fill="#f472b6" font-family="monospace" font-size="14" font-weight="bold">
+    PILLAR 4: MEMORY &amp; CONTEXT WINDOW MANAGEMENT
+  </text>
+
+  <rect x="40" y="555" width="260" height="110" rx="6" fill="#4a044e" stroke="#db2777" stroke-width="1.5"/>
+  <text x="170" y="575" text-anchor="middle" fill="#f9a8d4" font-family="monospace" font-size="10" font-weight="bold">HIERARCHICAL MEMORY</text>
+  <text x="170" y="595" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">L0: Raw Observations (last 20)</text>
+  <text x="170" y="610" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">L1: Episode Summaries</text>
+  <text x="170" y="625" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">L2: Game Rule Hypothesis</text>
+  <text x="170" y="640" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">L3: Cross-Game Abstractions</text>
+
+  <rect x="320" y="555" width="260" height="110" rx="6" fill="#4a044e" stroke="#db2777" stroke-width="1.5"/>
+  <text x="450" y="575" text-anchor="middle" fill="#f9a8d4" font-family="monospace" font-size="10" font-weight="bold">VECTOR RETRIEVAL</text>
+  <text x="450" y="595" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Embedding Store (FAISS)</text>
+  <text x="450" y="610" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Semantic Similarity Search</text>
+  <text x="450" y="625" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Relevant Past Episodes</text>
+  <text x="450" y="640" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Rule Pattern Matching</text>
+
+  <rect x="600" y="555" width="260" height="110" rx="6" fill="#4a044e" stroke="#db2777" stroke-width="1.5"/>
+  <text x="730" y="575" text-anchor="middle" fill="#f9a8d4" font-family="monospace" font-size="10" font-weight="bold">COMPRESSION ENGINE</text>
+  <text x="730" y="595" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Diff-based State Encoding</text>
+  <text x="730" y="610" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Action-Effect Pairs Only</text>
+  <text x="730" y="625" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Token Budget: ~12k/turn</text>
+  <text x="730" y="640" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Rolling Window + Summaries</text>
+
+  <rect x="880" y="555" width="260" height="110" rx="6" fill="#4a044e" stroke="#db2777" stroke-width="1.5"/>
+  <text x="1010" y="575" text-anchor="middle" fill="#f9a8d4" font-family="monospace" font-size="10" font-weight="bold">WORKING MEMORY</text>
+  <text x="1010" y="595" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Current Hypothesis Stack</text>
+  <text x="1010" y="610" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Active Rule Candidates</text>
+  <text x="1010" y="625" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Pending Experiments</text>
+  <text x="1010" y="640" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Plan Execution State</text>
+
+  <rect x="1160" y="555" width="200" height="110" rx="6" fill="#4a044e" stroke="#db2777" stroke-width="1.5"/>
+  <text x="1260" y="575" text-anchor="middle" fill="#f9a8d4" font-family="monospace" font-size="10" font-weight="bold">VRAM BUDGET</text>
+  <text x="1260" y="595" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">Qwen-3.6-27B FP8</text>
+  <text x="1260" y="610" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">~30GB Model Weights</text>
+  <text x="1260" y="625" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">~12GB KV-Cache</text>
+  <text x="1260" y="640" text-anchor="middle" fill="#fbcfe8" font-family="monospace" font-size="9">~6GB Overhead</text>
+
+  <!-- === LAYER 6: CENTRAL ORCHESTRATOR === -->
+  <rect x="20" y="710" width="1360" height="130" rx="8" fill="#0f172a" stroke="#06b6d4" stroke-width="3" filter="url(#glow)"/>
+  <text x="700" y="735" text-anchor="middle" fill="#22d3ee" font-family="monospace" font-size="16" font-weight="bold">
+    CENTRAL ORCHESTRATOR: QWEN-3.6-27B (vLLM, FP8, 48GB RTX 6000)
+  </text>
+
+  <rect x="40" y="755" width="300" height="65" rx="6" fill="#083344" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="190" y="775" text-anchor="middle" fill="#67e8f9" font-family="monospace" font-size="10" font-weight="bold">ROLE 1: WORLD MODEL GENERATOR</text>
+  <text x="190" y="792" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Generates Python transition functions from observations</text>
+  <text x="190" y="807" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Refactors code for MDL-like simplicity bias</text>
+
+  <rect x="360" y="755" width="300" height="65" rx="6" fill="#083344" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="510" y="775" text-anchor="middle" fill="#67e8f9" font-family="monospace" font-size="10" font-weight="bold">ROLE 2: MCTS VALUE ESTIMATOR</text>
+  <text x="510" y="792" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Evaluates leaf node utility via chain-of-thought</text>
+  <text x="510" y="807" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Generates action candidates + reflection critiques</text>
+
+  <rect x="680" y="755" width="300" height="65" rx="6" fill="#083344" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="830" y="775" text-anchor="middle" fill="#67e8f9" font-family="monospace" font-size="10" font-weight="bold">ROLE 3: HYPOTHESIS MANAGER</text>
+  <text x="830" y="792" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Maintains competing rule hypotheses</text>
+  <text x="830" y="807" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Falsifies/refines based on new evidence</text>
+
+  <rect x="1000" y="755" width="360" height="65" rx="6" fill="#083344" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="1180" y="775" text-anchor="middle" fill="#67e8f9" font-family="monospace" font-size="10" font-weight="bold">ROLE 4: PLAN EXECUTOR &amp; ACTION SELECTOR</text>
+  <text x="1180" y="792" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Converts MCTS-selected action → env command</text>
+  <text x="1180" y="807" text-anchor="middle" fill="#a5f3fc" font-family="monospace" font-size="9">Handles RESET on GAME_OVER, tracks efficiency</text>
+
+  <!-- === LAYER 7: CONTROL FLOW ARROWS === -->
+  <!-- Env to DSL -->
+  <line x1="140" y1="170" x2="140" y2="210" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="150" y="195" fill="#60a5fa" font-family="monospace" font-size="9">observations</text>
+
+  <!-- Env to RL -->
+  <line x1="600" y1="170" x2="600" y2="210" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="610" y="195" fill="#60a5fa" font-family="monospace" font-size="9">rewards</text>
+
+  <!-- Env to MCTS -->
+  <line x1="1060" y1="170" x2="1060" y2="210" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="1070" y="195" fill="#60a5fa" font-family="monospace" font-size="9">state</text>
+
+  <!-- DSL to Orchestrator -->
+  <line x1="240" y1="490" x2="240" y2="710" stroke="#10b981" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="250" y="610" fill="#34d399" font-family="monospace" font-size="9">world_model.py</text>
+
+  <!-- RL to Orchestrator -->
+  <line x1="700" y1="490" x2="510" y2="710" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="570" y="610" fill="#fbbf24" font-family="monospace" font-size="9">policy + curiosity</text>
+
+  <!-- MCTS to Orchestrator -->
+  <line x1="1160" y1="490" x2="830" y2="710" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="950" y="610" fill="#a78bfa" font-family="monospace" font-size="9">action_candidates</text>
+
+  <!-- Memory to Orchestrator -->
+  <line x1="700" y1="690" x2="700" y2="710" stroke="#ec4899" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="710" y="705" fill="#f472b6" font-family="monospace" font-size="9">context</text>
+
+  <!-- Orchestrator to Env -->
+  <line x1="700" y1="840" x2="700" y2="880" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrowhead)"/>
+  <text x="710" y="865" fill="#22d3ee" font-family="monospace" font-size="11" font-weight="bold">ACTION</text>
+
+  <line x1="700" y1="880" x2="700" y2="920" stroke="#06b6d4" stroke-width="2"/>
+  <line x1="700" y1="920" x2="140" y2="920" stroke="#06b6d4" stroke-width="2"/>
+  <line x1="140" y1="920" x2="140" y2="170" stroke="#06b6d4" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="400" y="915" fill="#22d3ee" font-family="monospace" font-size="9">feedback loop</text>
+
+  <!-- === LAYER 8: TIMING & CONSTRAINTS === -->
+  <rect x="20" y="860" width="1360" height="120" rx="8" fill="#0f172a" stroke="#ef4444" stroke-width="2"/>
+  <text x="700" y="885" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="14" font-weight="bold">
+    RUNTIME CONSTRAINTS &amp; TIMING BUDGET (9 Hours / Game)
+  </text>
+
+  <rect x="40" y="905" width="200" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="140" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">Phase 1: Explore (0-30min)</text>
+  <text x="140" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">High curiosity, model building</text>
+
+  <rect x="260" y="905" width="200" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="360" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">Phase 2: Model (30-60min)</text>
+  <text x="360" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">DSL synthesis, verifier tuning</text>
+
+  <rect x="480" y="905" width="200" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="580" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">Phase 3: Plan (60-120min)</text>
+  <text x="580" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">MCTS rollout, exploit gate</text>
+
+  <rect x="700" y="905" width="200" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="800" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">Phase 4: Execute (120-540min)</text>
+  <text x="800" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">Level solving, efficiency max</text>
+
+  <rect x="920" y="905" width="200" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="1020" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">GPU Budget: 48GB VRAM</text>
+  <text x="1020" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">30GB model + 12GB KV + 6GB overhead</text>
+
+  <rect x="1140" y="905" width="220" height="55" rx="6" fill="#450a0a" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="1250" y="922" text-anchor="middle" fill="#fca5a5" font-family="monospace" font-size="10">Action Cap: 1500/level</text>
+  <text x="1250" y="940" text-anchor="middle" fill="#fecaca" font-family="monospace" font-size="9">RHAE = human_action / agent_action</text>
+
+  <!-- Legend -->
+  <rect x="20" y="965" width="1360" height="25" rx="4" fill="#1e293b"/>
+  <text x="700" y="982" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="10">
+    GREEN = Program Synthesis  |  PURPLE = Test-Time Search  |  AMBER = RL Exploration  |  PINK = Memory  |  CYAN = LLM Core  |  RED = Constraints
+  </text>
+</svg>

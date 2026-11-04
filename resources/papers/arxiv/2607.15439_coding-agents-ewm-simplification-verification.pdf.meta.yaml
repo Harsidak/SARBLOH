@@ -1,0 +1,8 @@
+source_url: https://arxiv.org/abs/2607.15439
+retrieved: 2026-09-26
+kind: paper
+title: "Do Coding Agents Need Executable World Models, Simplification, and Verification to Solve ARC-AGI-3?"
+why: "Ablation: textual agent beats flexible executable WM at gpt-5.5; tests our parkh thesis directly"
+relates_to: Sarbloh-AVO
+
+verified: false

@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2310.19791
+retrieved: 2026-09-24
+kind: paper
+title: "LILO: Learning Interpretable Libraries by Compressing and Documenting Code"
+why: "Library compression; cited by EWM."
+relates_to: memory, worldmodel
+verified: false

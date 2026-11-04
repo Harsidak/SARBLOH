@@ -1,0 +1,9 @@
+source_url: https://arxiv.org/abs/2608.23552
+retrieved: 2026-09-27
+kind: paper
+title: "Prime Agent: A Self-Improving RLM Harness"
+authors: Seth Karten, Alex L. Zhang, Kevin Thomas, Sebastian Mueller, Elie Bakouch, Daniel Auras, Mika Senghaas, Fares Obeid, Konstantin Dunas, Johannes Hagemann, Sami Jaghouar (Prime Intellect, Princeton, MIT)
+why: The harness Sarbloh-Prime implements; ARC-AGI-3 RHAE 30% -> 95.5% with Opus 5 (self-reported, public set)
+relates_to: Sarbloh-Prime, E003
+licence: arXiv (paper); code MIT
+verified: true   # read in full 2026-09-27 (text extracted with pypdf)

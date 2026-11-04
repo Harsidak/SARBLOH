@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2006.08381
+retrieved: 2026-09-24
+kind: paper
+title: "DreamCoder: Growing generalizable, interpretable knowledge with wake-sleep Bayesian program learning"
+why: "Library learning; procedure-level memory clock."
+relates_to: memory, worldmodel
+verified: false

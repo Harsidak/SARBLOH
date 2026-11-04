@@ -252,7 +252,7 @@ def broken(requests):
 
 
 def is_picture(m):
-    return m["role"] == "user" and "[picture of the board now" in json.dumps(m["content"])
+    return m["role"] == "user" and "[picture of current state(board)" in json.dumps(m["content"])
 
 
 def pictures(msgs):

@@ -1,0 +1,8 @@
+source_url: https://arxiv.org/abs/2603.05451
+retrieved: 2026-09-26
+kind: paper
+title: "FlashAttention-4"
+why: "Domain background for the AVO kernel case study only (warp specialization, online softmax); not needed for ARC"
+relates_to: Sarbloh-AVO
+
+verified: false

@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2603.24621
+retrieved: 2026-08   # inherited from Docs/, exact date unknown
+kind: paper
+title: "ARC-AGI-3: A New Challenge for Frontier Agentic Intelligence"
+why: "Official technical report: RHAE, human baselines, named failure modes."
+relates_to: eval
+verified: false

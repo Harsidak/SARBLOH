@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2405.15383
+retrieved: 2026-09-24
+kind: paper
+title: "Generating Code World Models with LLMs Guided by Monte Carlo Tree Search"
+why: "MCTS over code generation for world models."
+relates_to: worldmodel
+verified: false

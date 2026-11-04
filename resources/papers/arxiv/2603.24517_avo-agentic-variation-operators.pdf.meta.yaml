@@ -1,0 +1,8 @@
+source_url: https://arxiv.org/abs/2603.24517
+retrieved: 2026-09-26
+kind: paper
+title: "AVO: Agentic Variation Operators for Autonomous Evolutionary Search"
+why: "The one official AVO paper (NVIDIA); Vary(P)=Agent(P,K,f), lineage, commit gate, supervisor"
+relates_to: Sarbloh-AVO
+
+verified: false

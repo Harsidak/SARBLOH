@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2402.12275
+retrieved: 2026-08   # inherited from Docs/, exact date unknown
+kind: paper
+title: "WorldCoder, a model-based LLM agent"
+why: "Prior art for inducing programmatic world models from interaction."
+relates_to: worldmodel
+verified: false

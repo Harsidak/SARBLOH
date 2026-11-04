@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2510.04871
+retrieved: 2026-09-24
+kind: paper
+title: "Less is More: Recursive Reasoning with Tiny Networks (TRM)"
+why: "Tiny recursive nets on ARC; augmentation strategy."
+relates_to: background
+verified: false

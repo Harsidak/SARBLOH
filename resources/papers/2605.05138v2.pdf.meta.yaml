@@ -1,0 +1,7 @@
+source_url: https://arxiv.org/abs/2605.05138
+retrieved: 2026-08   # inherited from Docs/, exact date unknown
+kind: paper
+title: "Executable World Models for ARC-AGI-3 in the Era of Coding Agents"
+why: "Closest published method to worldmodel+parkh; 58.12 RHAE with GPT-5.5; premature commitment as main failure."
+relates_to: worldmodel, parkh
+verified: false

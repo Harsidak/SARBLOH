@@ -115,10 +115,7 @@ def main():
                     help="print every suite's full output, not just failures")
     args = ap.parse_args()
 
-    # tests/archive/ holds deprecated suites for code that no longer exists; they are never run.
-    archive = os.path.join(HERE, "archive") + os.sep
-    suites = sorted(s for s in glob.glob(os.path.join(HERE, "**", "test_*.py"), recursive=True)
-                    if not s.startswith(archive))
+    suites = sorted(glob.glob(os.path.join(HERE, "**", "test_*.py"), recursive=True))
     if args.only:
         suites = [s for s in suites
                   if any(o in os.path.basename(s) for o in args.only)]
