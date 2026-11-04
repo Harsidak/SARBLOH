@@ -1,0 +1,6 @@
+BRIEFING (arrow keys and clicks)
+MEASURED (certain):
+- obj 3 (sky blue square) is level with and left of obj 4 (sky blue square) (shared rows 49-53)
+- 2 identical sky blue square (5x5): obj 3, 4 -> a count of something (lives, items, tiles)
+GUESSES (check with one action):
+- (none)

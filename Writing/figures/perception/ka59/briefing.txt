@@ -1,0 +1,21 @@
+BRIEFING (arrow keys and clicks)
+MEASURED (certain):
+- Floor is a 3x3 tile grid.
+- obj 2 (purple rectangle): reachable in 5 steps
+- obj 4 (charcoal ring): reachable in 8 steps
+- obj 7 (green/black square): reachable in 3 steps
+- obj 11 (charcoal ring): reachable in 1 steps
+- obj 4 (charcoal ring) encloses an EMPTY 3x3 space -- exactly the size of: obj 6 (green/white square), obj 7 (green/black square)
+- obj 11 (charcoal ring) encloses an EMPTY 3x3 space -- exactly the size of: obj 6 (green/white square), obj 7 (green/black square)
+- obj 2 (purple rectangle) is level with and left of obj 4 (charcoal ring) (shared rows 26-30)
+- obj 2 (purple rectangle) is level with and right of obj 6 (green/white square) (shared rows 30-32)
+- obj 2 (purple rectangle) is level with and right of obj 11 (charcoal ring) (shared rows 32-36)
+- obj 6 (green/white square) is level with and left of obj 7 (green/black square) (shared rows 30-32)
+- obj 2 (purple rectangle) is level with and right of obj 7 (green/black square) (shared rows 30-32)
+- obj 6, 7 (green/white square; green/black square) have the same shape in different colours (green/white vs green/black)
+- 2 identical charcoal ring (5x5): obj 4, 11 -> a count of something (lives, items, tiles)
+GUESSES (check with one action):
+- obj 4, 11 (charcoal ring) = GOAL (75-80%) - test: get the right thing into it and see if the level ends
+- obj 13 (charcoal bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 7 (green/black square) = HANDLE (click) (67%) - test: click an empty spot once: the selected handle should jump there
+- obj 6 (green/white square) = YOU (57%) - test: press one arrow key: it should move one tile and the gauge should drop

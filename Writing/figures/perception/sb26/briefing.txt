@@ -1,0 +1,24 @@
+BRIEFING (clicks)
+MEASURED (certain):
+- no tile grid -> free movement. Open space = charcoal (89% of screen).
+- the 5 main objects are in 2 separate open areas; straight paths between them are clear except: obj 12 (red/white ring) -> obj 20 (green square) (5 rock cells); obj 12 (red/white ring) -> obj 21 (purple square) (4 rock cells); obj 12 (red/white ring) -> obj 22 (blue square) (4 rock cells); obj 12 (red/white ring) -> obj 23 (yellow square) (5 rock cells)
+- obj 12 (red/white ring) encloses a 10x28 space
+- obj 12 (red/white ring) is directly above obj 20 (green square) (shared columns 18-21)
+- obj 12 (red/white ring) is directly above obj 21 (purple square) (shared columns 26-29)
+- obj 12 (red/white ring) is directly above obj 22 (blue square) (shared columns 34-37)
+- obj 12 (red/white ring) is directly above obj 23 (yellow square) (shared columns 42-45)
+- obj 13 (grey square) is level with and left of obj 14 (grey square) (shared rows 29-30)
+- obj 13 (grey square) is level with and left of obj 15 (grey square) (shared rows 29-30)
+- obj 13 (grey square) is level with and left of obj 16 (grey square) (shared rows 29-30)
+- obj 14 (grey square) is level with and left of obj 15 (grey square) (shared rows 29-30)
+- obj 14 (grey square) is level with and left of obj 16 (grey square) (shared rows 29-30)
+- obj 14 (grey square) is directly above obj 21 (purple square) (shared columns 28-29)
+- obj 20, 21, 22, 23 (green square; purple square; blue square; yellow square) are obj 13, 14, 15, 16 (grey square) drawn 2x bigger
+- obj 20, 21, 22, 23 (green square; purple square; blue square; yellow square) have the same shape in different colours (green vs purple vs blue vs yellow)
+- 4 identical grey square (2x2): obj 13, 14, 15, 16 -> a count of something (lives, items, tiles)
+- (+8 more facts: `observe().briefing` in ipython)
+GUESSES (check with one action):
+- obj 20, 21, 22, 23 (green square; purple square; blue square; yellow square) = HANDLE (click) (86%) - test: click an empty spot once: the selected handle should jump there
+- obj 19 (grey bar) = MOVES LEFT (75%) - test: take any action and check it shrinks by one unit
+- obj 1 (black/blue rectangle) = INVENTORY (67%) - test: watch it after touching the modifier
+- obj 13, 14, 15, 16 (grey square) = GOAL (50%) - test: get the right thing into it and see if the level ends

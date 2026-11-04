@@ -10,7 +10,6 @@ always direct-labelled because they sit under 3:1 contrast on white.
 """
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib
@@ -20,7 +19,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
-from matplotlib.dates import DateFormatter, date2num  # noqa: E402
 from matplotlib.patches import FancyBboxPatch, Patch  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -60,7 +58,7 @@ plt.rcParams.update({
 
 def save(fig, name):
     (FIG / "png").mkdir(exist_ok=True)
-    fig.savefig(FIG / f"{name}.pdf")
+    fig.savefig(FIG / f"{name}.pdf", dpi=600)  # pictures inside a figure are resampled to this dpi
     fig.savefig(FIG / "png" / f"{name}.png", dpi=260)
     plt.close(fig)
 
@@ -89,17 +87,27 @@ def title(ax, text, sub=None):
 
 
 # ---- 1. leaderboard trajectory -----------------------------------------------------------------
+# The x axis is the sequence of interventions, not the calendar: each submission sits in the stage of the last
+# intervention it carried, and every stage gets the same width.
+STAGES = (("Prime Agent port", "2026-09-27"), ("SGLang +\nprefix cache", "2026-10-05"),
+          ("unified\nplay()", "2026-10-08"), ("deterministic\ndrainage", "2026-10-11"),
+          ("code graph +\nlevel memory", "2026-10-21"), ("perception\nengine", "2026-10-26"))
+
+
 def leaderboard():
-    rows = [r for r in DATA["submissions"] if r[0] >= "2026-09-27"]
+    rows = [r for r in DATA["submissions"] if r[0] >= STAGES[0][1]]
     failed = {"2026-10-15", "2026-10-16", "2026-10-22"}
-    D = lambda d: date2num(datetime.fromisoformat(d))
+    stage = [max(k for k, (_, d) in enumerate(STAGES) if r[0] >= d) for r in rows]
+    xs = []
+    for k in range(len(STAGES)):
+        n = stage.count(k)
+        xs += [k + (j + 1) / (n + 1) for j in range(n)]
     fig, ax = plt.subplots(figsize=(FULL, 3.0))
-    xs = [D(r[0]) for r in rows]
-    best, bx, by = 0.0, [], []
-    for x, r in zip(xs, rows):
+    best, by = 0.0, []
+    for r in rows:
         best = max(best, r[1])
-        bx.append(x)
         by.append(best)
+    bx, by = [0.0] + xs + [len(STAGES)], [0.0] + by + [by[-1]]
     ax.fill_between(bx, 0, by, step="post", color=OURS_TINT, zorder=1)
     ax.step(bx, by, where="post", color=OURS, lw=2.2, zorder=3, label="best score so far")
     for x, r in zip(xs, rows):
@@ -108,19 +116,22 @@ def leaderboard():
                    lw=1.3)
     ax.scatter([], [], s=34, color="white", edgecolor=MUTED, lw=1.3, label="regression or failed experiment")
     ax.axhline(1.21, color=BASE, lw=1.1, ls=(0, (5, 3)), zorder=2)
-    ax.text(D("2026-10-06"), 1.7, "Duck, first Milestone winner: 1.21", color=BASE, fontsize=8, va="bottom")
-    notes = ((D("2026-09-28"), 2.4, "Prime Agent port\n0.00 to 0.27", "left"),
-             (D("2026-10-05"), 6.6, "5.14  Flash-Next on SGLang,\nprefix-cache prompts", "left"),
-             (D("2026-10-10"), 9.2, "5.65, 6.06  one tool,\ndrain-only context", "left"),
-             (D("2026-10-20"), 12.2, "10.98  code graph,\nlevel memory", "right"),
-             (D("2026-10-26"), 17.6, "16.53", "center"))
-    for x, y, t, ha in notes:
-        ax.text(x, y, t, fontsize=8, color=INK, ha=ha, va="bottom", linespacing=1.25,
-                fontweight="bold" if t == "16.53" else "normal")
-    ax.xaxis.set_major_formatter(DateFormatter("%d %b"))
-    ax.set_xlim(xs[0] - 0.8, xs[-1] + 2.2)
+    ax.text(5.97, 1.55, "Duck, first Milestone\nwinner: 1.21", color=BASE, fontsize=8, va="bottom", ha="right")
+    prev = 0.0
+    for k in range(len(STAGES)):  # the stage's best score, and its gain over the stages before it
+        i = max((i for i, s in enumerate(stage) if s == k), key=lambda i: rows[i][1])
+        v, last = rows[i][1], k == len(STAGES) - 1
+        t = f"0.00 to {v:.2f}" if k == 0 else f"{v:.2f}\n(+{v - prev:.2f})"
+        ax.text(0.5 if k == 0 else xs[i], 1.75 if k == 0 else v + 0.55, t, fontsize=8, color=INK, ha="center", va="bottom", linespacing=1.2,
+                fontweight="bold" if last else "normal")
+        prev = max(prev, v)
+    for k in range(1, len(STAGES)):
+        ax.axvline(k, color=GRID, lw=0.8, zorder=0)
+    ax.set_xticks([k + 0.5 for k in range(len(STAGES))], [s for s, _ in STAGES])
+    ax.tick_params(axis="x", length=0, labelsize=8)
+    ax.set_xlim(0, len(STAGES))
     ax.set_ylim(0, 20)
-    ax.set_ylabel("Kaggle public score")
+    ax.set_ylabel("Official hidden-set score")
     ax.legend(loc="upper left", frameon=False, bbox_to_anchor=(0.0, 0.98))
     grid(ax)
     save(fig, "leaderboard")
@@ -304,7 +315,7 @@ def perception_panels():
               (axes[2], "(c) map: ls20", "keys, tiles, walls"),
               (axes[3], "(d) map: r11l", "clicks, objects")]
     for ax, img in zip(axes[1:], (P / "ls20" / "plain.png", P / "ls20" / "map.png", P / "r11l" / "map.png")):
-        ax.imshow(Image.open(img))
+        ax.imshow(Image.open(img), interpolation="nearest")
     for ax, t, s in panels:
         ax.set_xticks([])
         ax.set_yticks([])

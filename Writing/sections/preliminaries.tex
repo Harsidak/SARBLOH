@@ -30,7 +30,7 @@ Backbone & Qwen3.8-Flash-Next & Qwen 3.6 27B & Gemma-4-31B & Claude Opus 5 & Cla
 \rule{0pt}{2.4ex}Score & \textbf{\textcolor{indigo}{16.53}} & \textbf{1.21} & \textbf{0.87} & \textbf{95.5} & \textbf{36.1}$^{\dagger}$ & \textbf{100.0}$^{\dagger}$ & \textbf{99.99}$^{\dagger}$ & \textbf{$\approx$99.9}$^{\dagger}$ \\[2pt]
 \bottomrule
 \end{tabular}
-\caption{\textbf{ARC-AGI-3 systems across two distinct evaluation regimes.} The left group executes offline within the official Kaggle evaluation sandbox on a single GPU under strict hardware and nine-hour wall-clock limits without network access. The right group evaluates proprietary frontier models via unconstrained commercial APIs without standardized verification. $^{\dagger}$Self-reported by authors on public games without independent certification.}
+\caption{\textbf{ARC-AGI-3 systems across two distinct evaluation regimes.} The left group executes offline within the official Kaggle evaluation sandbox on a single GPU under strict hardware and nine-hour wall-clock limits without network access. The right group evaluates proprietary frontier models via unconstrained commercial APIs without standardized verification. The official hidden-set score (16.53) represents the cumulative competition metric ($E$, Equation~\eqref{eq:rhae}), which aggregates triangular level weights across multiple undisclosed games under the nine-hour ceiling, whereas Figure~\ref{fig:pergame} reports the unweighted per-game efficiency percentage ($S_l$, Equation~\eqref{eq:level_score}) on public environments. $^{\dagger}$Self-reported by authors on public games without independent certification.}
 \label{tab:field}
 \end{table*}
 

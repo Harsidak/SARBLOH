@@ -1,0 +1,4 @@
+  1 Y 1294px  r1-62 c0-31       #9afdbd 26c | has 3; adj 2
+  2 O 1299px  r1-62 c32-63      #36c871 24c | has 4; adj 1
+  3 S 5x5     r49-53 c19-23     #236f0c 4c | in 1
+  4 S 5x5     r49-53 c39-43     #236f0c 4c | in 2

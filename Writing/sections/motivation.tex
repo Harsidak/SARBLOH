@@ -4,7 +4,7 @@
 Before designing the agent architecture, we conducted controlled empirical ablations to isolate where autoregressive reasoning models expend their exploratory action allocations during interactive problem solving.
 
 \paragraph{Observation geometry dictates search complexity far more than reasoning depth.}
-We evaluated an identical frontier reasoning model (Gemini 3.1 Pro) on the opening level of the official environment \code{ls20}, holding the prompt template, temperature, and environment state transitions strictly invariant while altering only the input observation representation (Figure~\ref{fig:gemini}). 
+We evaluated an identical frontier reasoning model (Gemini 3.1 Pro via commercial API, greedy decoding at temperature $T=0$, evaluated in a single diagnostic trial $n=1$ on 12 October 2026) on the opening level of the official environment \code{ls20}, holding the prompt template and environment state transitions strictly invariant while altering only the input observation representation (Figure~\ref{fig:gemini}). While an exploratory single-trial diagnostic is inherently limited in statistical variance, its primary objective was not distribution estimation, but rather isolating the catastrophic representational failure mode that occurs before any downstream policy search begins. 
 When provided with the environment serialized as a raw $64{\times}64$ integer matrix, the model expended between 200 and 300 actions repeatedly colliding with invisible topological boundaries, exhausting the permissible budget without reaching the goal state. 
 Recovering reachability and spatial adjacency from 4,096 serialized integers imposes an associative retrieval burden that multi-head attention mechanisms execute unreliably \citep{rahmanzadehgervi2024blind}. 
 Supplying a rendered raster image of identical board state reduced the required exploration by an order of magnitude to 12--24 actions. 
@@ -15,7 +15,7 @@ Critically, over 90\% of the aggregate efficiency gain resulted from structuring
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/gemini_ladder.pdf}
-\caption{\textbf{Controlled ablation of input observation modalities.} Action expenditure required to resolve the opening level of \code{ls20} across four representation tiers using an identical frontier reasoning model. Serializing the environment as raw integer tokens causes budget exhaustion, whereas rendered visual rasters and programmatic geometric relations achieve super-human efficiency ($6$ actions versus human baseline $\approx$10).}
+\caption{\textbf{Controlled ablation of input observation modalities.} Action expenditure required to resolve the opening level of \code{ls20} across four representation tiers using an identical frontier reasoning model (Gemini 3.1 Pro, greedy decoding, single exploratory trial $n=1$ on 12 October 2026). Serializing the environment as raw integer tokens causes budget exhaustion, whereas rendered visual rasters and programmatic geometric relations achieve super-human efficiency ($6$ actions versus human baseline $\approx$10).}
 \label{fig:gemini}
 \end{figure}
 

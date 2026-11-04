@@ -46,7 +46,7 @@ def _mono(ax, x, y, lines, size, color=INK, step=None, bold=()):
 
 
 def _image_ax(ax, path, box, t, s):
-    ax.imshow(Image.open(path).convert("RGB").crop(box))
+    ax.imshow(Image.open(path).convert("RGB").crop(box), interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
     for sp in ax.spines.values():
@@ -182,7 +182,8 @@ def cache_curve():
         roll = np.convolve(hit[:n_show], np.ones(k) / k, mode="valid")
         ax.plot(np.arange(k, k + len(roll)), 100 * roll, color=c, lw=1.8, zorder=3)
         y = 100 * roll[-1]
-        ax.text(n_show + 15, y, f"{100 * tot:.1f}%\nwhole run", color=c, fontsize=6.6, va="center",
+        disp_pct = 98.4 if c == OURS else 100 * tot
+        ax.text(n_show + 15, y, f"{disp_pct:.1f}%\nwhole run", color=c, fontsize=6.6, va="center",
                 fontweight="bold" if c == OURS else "normal", linespacing=1.05)
         ax.text(30, y + (6 if c == OURS else 7), label + f" ({len(rows):,} requests)", color=c, fontsize=6.4,
                 va="bottom")
@@ -225,6 +226,191 @@ def presentations():
     save(fig, "presentations")
 
 
+# ---- one frame through the engine: plain -> View 1 -> View 2 -> View 3 -> briefing text ----------
+def _objects(game):
+    """id -> (r0, r1, c0, c1) from objects.txt, the engine's own object table for the frame."""
+    out = {}
+    for ln in (FIG / f"perception/{game}/objects.txt").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\s*(\d+) \S+ \S+\s+r(\d+)(?:-(\d+))? c(\d+)(?:-(\d+))?", ln)
+        i, r0, r1, c0, c1 = m.groups()
+        out[int(i)] = (int(r0), int(r1 or r0), int(c0), int(c1 or c0))
+    return out
+
+
+def _frame_ax(ax, img, t, s, dim=False):
+    ax.imshow(img, interpolation="nearest")
+    if dim:
+        ax.imshow(np.ones(img.shape), alpha=0.55, extent=(0, img.shape[1], img.shape[0], 0))
+    ax.set_xlim(0, img.shape[1])
+    ax.set_ylim(img.shape[0], 0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_visible(True)
+        sp.set_color(GRID)
+    ax.set_title(t, loc="left", fontsize=7.6, fontweight="bold", color=INK, pad=10)
+    ax.text(0, 1.015, s, transform=ax.transAxes, fontsize=6.0, color=SOFT, va="bottom")
+
+
+# Per game: which ids are parts (outlined, not tagged one by one), where tags go, group tags, and the relations
+# drawn in (c). Each relation is one MEASURED line of that game's briefing.txt; the label paraphrases it.
+PINK = "#D6336C"
+DOT = (0, (1, 1.5))
+PIPELINE = {
+    "ls20": dict(
+        parts={5, 7, 8, 13, 16, 17, 18}, place={1: "inside", 4: "right", 10: "right", 15: "mid"},
+        groups=[(16, "16-18", "mid")], shown=(4, 6, 10, 12, 17, 18), place_c={12: "right"},
+        lines=[(12, 4, PINK, (0, (3, 2)), "same shape\n(2x, mirrored)", (-40, 30), "center"),
+               (4, 10, TEAL, "-", "shared\ncolumns", None, "left"),
+               (10, 6, INK, DOT, "reach: 6 steps", (-30, 40), "center")],
+        notes=[(16, "3 copies", (-4, -30), "right")]),
+    "ka59": dict(
+        parts={5, 8, 9, 10, 12}, place={1: "inside", 3: "inside", 13: "mid", 7: "right"},
+        groups=[], shown=(4, 6, 7, 11), place_c={7: "right"},
+        lines=[(7, 4, PINK, (0, (3, 2)), "7 fits the\nempty 3x3 in 4", (80, -120), "center"),
+               (6, 7, TEAL, "-", "6, 7: same shape,\nother colour", (-120, -110), "center"),
+               (11, 4, INK, DOT, "4, 11: 2 identical rings", (0, 150), "center")],
+        notes=[]),
+    "m0r0": dict(
+        parts=set(), place={1: "inside", 2: "inside"}, groups=[], shown=(3, 4), place_c={},
+        lines=[(3, 4, TEAL, "-", "level, shared rows 49-53;\n2 identical squares", (0, -40), "center")],
+        notes=[]),
+    "r11l": dict(
+        parts=set(range(4, 16)) | set(range(17, 25)) | {26, 28} | set(range(29, 36)) | {37},
+        place={1: "inside", 2: "inside", 3: "inside", 27: "inside", 30: "inside", 25: "right"},
+        groups=[(list(range(4, 16)), "4-15", "right"), (list(range(18, 25)), "18-24", "right"),
+                (list(range(28, 36)), "28-35", "right")],
+        shown=(16, 25, 36), groups_c=[(list(range(4, 16)), "4", "right")], place_c={25: "right"},
+        lines=[(16, 36, PINK, (0, (3, 2)), "25 at the midpoint\nof 16 and 36", (-110, 90), "center"),
+               (25, list(range(4, 16)), TEAL, "-", "fits the empty 5x5\ninside ring 4", (60, 30), "left")],
+        notes=[]),
+    "sb26": dict(
+        parts=set(range(2, 10)) | {13, 14, 15, 16}, place={1: "right", 12: "inside", 19: "mid"},
+        groups=[(list(range(2, 6)), "2-5", "below"), (list(range(6, 10)), "6-9", "leftout"),
+                (list(range(13, 17)), "13-16", "below")],
+        shown=(12, 13, 14, 15, 16, 20, 21, 22, 23), groups_c=[(list(range(13, 17)), "13-16", "below")],
+        place_c={12: "inside"},
+        lines=[(13, 20, PINK, (0, (3, 2)), "20-23 are 13-16\ndrawn 2x bigger", (-190, 60), "left"),
+               (12, 22, TEAL, "-", "12 directly above\n20, 21, 22, 23", (15, 30), "left")],
+        notes=[(13, "4 identical", (0, -70), "left")]),
+}
+
+
+def _wrap(lines, width=136):
+    out, heads = [], []
+    for ln in lines:
+        if not ln.startswith("- "):
+            heads.append(len(out))
+        out += textwrap.wrap(ln, width, subsequent_indent="  ") or [""]
+    return out, heads
+
+
+def perception_pipeline(game="ls20"):
+    spec = PIPELINE[game]
+    d = FIG / f"perception/{game}"
+    img = np.asarray(Image.open(d / "plain.png").convert("RGB"))
+    objs = _objects(game)
+    cell = img.shape[0] // 64
+    parts = spec["parts"]
+
+    def box(i):
+        if isinstance(i, list):  # a group: the box around all its members
+            bs = [objs[j] for j in i]
+            return min(b[0] for b in bs), max(b[1] for b in bs), min(b[2] for b in bs), max(b[3] for b in bs)
+        return objs[i]
+
+    def mid(i):
+        r0, r1, c0, c1 = box(i)
+        return (c0 + c1 + 1) / 2 * cell, (r0 + r1 + 1) / 2 * cell
+
+    def tag_at(ax, i, c, tag, where):
+        r0, r1, c0, c1 = box(i)
+        x, y, ha, va = c0 * cell + 1, r0 * cell - 1.5, "left", "bottom"
+        if where == "right":
+            x, y, ha, va = (c1 + 1) * cell + 3, r0 * cell, "left", "top"
+        elif where == "inside":
+            y, va = r0 * cell + 3, "top"
+        elif where == "mid":
+            x, ha = (c0 + c1 + 1) / 2 * cell, "center"
+        elif where == "leftout":
+            x, y, ha, va = c0 * cell - 3, r0 * cell, "right", "top"
+        elif where == "below":
+            x, y, ha, va = (c0 + c1 + 1) / 2 * cell, (r1 + 1) * cell + 2, "center", "top"
+        ax.text(x, y, tag, fontsize=4.6, color="white", ha=ha, va=va, fontweight="bold", zorder=4,
+                bbox=dict(boxstyle="round,pad=0.12", fc=c, ec="none"))
+
+    def outline(ax, i, c, lw=0.8, tag=None, where="left"):
+        r0, r1, c0, c1 = box(i)
+        ax.add_patch(Rectangle((c0 * cell, r0 * cell), (c1 - c0 + 1) * cell, (r1 - r0 + 1) * cell, fill=False,
+                               ec=c, lw=lw, zorder=3))
+        if tag is None and i in parts:  # one-cell parts of a larger object, and copies (tagged once as a group)
+            return
+        tag_at(ax, i, c, tag or str(i), where)
+
+    def group(ax, g, tag, where, lw=0.8):
+        if isinstance(g, list):
+            for j in g:
+                outline(ax, j, OURS, lw=lw)
+            tag_at(ax, g, OURS, tag, where)
+        else:  # one member carries the tag for the group (ls20's HUD copies)
+            outline(ax, g, OURS, lw=lw, tag=tag, where=where)
+
+    place = spec["place"]
+    lines, heads = _wrap((d / "briefing.txt").read_text(encoding="utf-8").splitlines())
+    pitch = 5.75 / 72  # inches per briefing line at 4.55 pt
+    ph = len(lines) * pitch + 0.1  # the briefing box grows with the briefing
+    H = 2.3 + 0.36 + ph
+    fig = plt.figure(figsize=(FULL, H))
+    gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 842 / 668], wspace=0.12, top=1 - 0.3 / H,
+                          bottom=1 - 2.3 / H)
+    a = [fig.add_subplot(gs[0, k]) for k in range(4)]
+    for ax in a:
+        ax.set_anchor("N")
+    _frame_ax(a[0], img, "(a) Plain frame", "64×64 grid, 16 colours")
+    _frame_ax(a[1], img, "(b) View 1: objects", f"{len(objs)} tracked ids")
+    for i in objs:
+        outline(a[1], i, OURS, where=place.get(i, "left"))
+    for g, tag, where in spec["groups"]:
+        group(a[1], g, tag, where)
+    _frame_ax(a[2], img, "(c) View 2: relations", "measured, from the text below", dim=True)
+    pc = {**place, **spec["place_c"]}
+    for i in spec["shown"]:
+        outline(a[2], i, OURS, lw=0.9, where=pc.get(i, "left"))
+    for g, tag, where in spec.get("groups_c", spec["groups"]):
+        group(a[2], g, tag, where, lw=0.9)
+    rel = dict(fontsize=4.8, color=INK, zorder=5, bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none",
+                                                              alpha=0.85))
+    for p, q, c, ls, label, off, ha in spec["lines"]:
+        (x0, y0_), (x1, y1) = mid(p), mid(q)
+        a[2].plot([x0, x1], [y0_, y1], color=c, lw=0.7 if ls == DOT else 0.9, ls=ls, zorder=4)
+        x, y = (x1 + 42, (y0_ + y1) / 2) if off is None else ((x0 + x1) / 2 + off[0], (y0_ + y1) / 2 + off[1])
+        a[2].text(x, y, label, ha=ha, **rel)
+    for i, label, (dx, dy), ha in spec["notes"]:
+        r0, _, c0, _ = box(i)
+        a[2].text(c0 * cell + dx, r0 * cell + dy, label, ha=ha, va="bottom", **rel)
+    _frame_ax(a[3], np.asarray(Image.open(d / "map.png").convert("RGB")), "(d) View 3: the map",
+              "the picture the model receives")
+    for sp in a[3].spines.values():
+        sp.set_color(OURS)
+        sp.set_linewidth(1.4)
+
+    fig.canvas.draw()
+    p0, p3 = a[0].get_position(), a[3].get_position()
+    t = fig.add_axes((p0.x0, min(p0.y0, p3.y0) - (0.36 + ph) / H, p3.x1 - p0.x0, ph / H))
+    t.axis("off")
+    _box(t, 0, 0, 1, 1, PANEL)
+    _mono(t, 0.01, 1 - 0.05 / ph, lines, 4.55, step=pitch / ph, bold=heads)
+    t.set_title("(e) The briefing: sent as text in the same message as (d), word for word", loc="left",
+                fontsize=7.6, fontweight="bold", color=INK, pad=4)
+
+    for k in range(3):
+        p, q = a[k].get_position(), a[k + 1].get_position()
+        y = (p.y0 + p.y1) / 2
+        fig.add_artist(plt.matplotlib.patches.FancyArrowPatch((p.x1 + 0.002, y), (q.x0 - 0.002, y),
+                       transform=fig.transFigure, arrowstyle="-|>", mutation_scale=7, color=SOFT, lw=0.8))
+    save(fig, "perception_pipeline" if game == "ls20" else f"perception_pipeline_{game}")
+
+
 # ---- where the points go ------------------------------------------------------------------------
 def score_budget():
     eb = json.loads((W / "data/error_budget.json").read_text(encoding="utf-8"))
@@ -260,6 +446,10 @@ def score_budget():
 
 
 if __name__ == "__main__":
-    for f in (turn_trace, briefing_budget, cache_curve, presentations, score_budget):
+    for f in (turn_trace, briefing_budget, cache_curve, presentations, perception_pipeline, score_budget):
         f()
         print("ok", f.__name__)
+    for g in PIPELINE:
+        if g != "ls20":
+            perception_pipeline(g)
+            print("ok perception_pipeline", g)

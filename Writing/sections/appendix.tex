@@ -1,6 +1,4 @@
 \sloppy
-% Fill in the Kaggle submission ID once it is public (notebook: kaggle.com/code/banwait13/sarbloh-experimentation)
-\newcommand{\kagglesubmission}{\textcolor{ours}{\textbf{[Kaggle submission ID]}}}
 
 \section{Notation and Priority Scheduler}
 \label{app:notation}
@@ -99,7 +97,7 @@ $g_{\text{now}}$ is the level's weight in Equation~\eqref{eq:rhae}, discounted q
 \subsection{Hyperparameters}
 \label{app:config}
 
-Table~\ref{tab:hyperparams} lists the settings of the two full public-game runs of Appendix~\ref{app:telemetry}, read from the configuration each run saved with its results (\code{prime\_run/results.json}) and from its server log. The two runs differ only where a cell gives two values.
+Table~\ref{tab:hyperparams} lists the settings of the two full public-game runs of Appendix~\ref{app:telemetry}, read from the configuration file each run saved with its results and from its server log. The two runs differ only where a cell gives two values.
 
 \begin{table}[h]
 \centering
@@ -115,7 +113,7 @@ Action cap per game & 2,000 actions \\
 Actions per \code{play()} path & at most 100 \\
 Reply cap per request / requests per turn & 12k tokens / 12 \\
 Thinking without a move before the turn yields & 16,384 tokens \\
-Context drain trigger / target & 118k / 55k (23 Oct), 70k (27 Oct) \\
+Context drain trigger / target & 118k / 55k (Run A), 70k (Run B) \\
 Context window & 131,072 tokens \\
 Map scale & 10 pixels per grid cell \\
 Briefing lines / short-view text cap & 20 lines / 600 tokens \\
@@ -125,7 +123,7 @@ Serving & SGLang, W4A16 (AutoRound), FP8 KV cache \\
 Speculative decoding & EAGLE with a multi-token-prediction drafter, 3 steps, 4 draft tokens \\
 \bottomrule
 \end{tabular}
-\caption{Settings of the 23 and 27~October runs.}
+\caption{Settings of Run~A (briefing off) and Run~B (briefing on).}
 \label{tab:hyperparams}
 \end{table}
 
@@ -182,7 +180,7 @@ Figure~\ref{fig:labgallery} provides a visual comparison of each candidate prese
 \subsection{Full Structural Briefings}
 \label{app:briefings}
 
-The two boxes below give the briefing text the perception engine wrote, word for word, for the opening frames of \code{ls20} and \code{r11l} shown in Figure~\ref{fig:views}. The object ids are the same as those on the map and in the kernel's object table (\code{observe().objects}).
+The two boxes below give the briefing text the perception engine wrote, word for word, for the opening frames of \code{ls20} (Figure~\ref{fig:views}) and \code{r11l}. The object ids are the same as those on the map and in the kernel's object table (\code{observe().objects}).
 
 \begin{briefing}{\code{ls20}, opening frame (arrow keys, tile grid)}
 BRIEFING (arrow keys)
@@ -222,6 +220,39 @@ GUESSES (check with one action):
 - obj 25 (purple/magenta disc) = CARRIED THING (75%) - test: move one handle: it should slide to the new midpoint
 \end{briefing}
 
+\subsection{The Perception Pipeline on Four More Games}
+\label{app:pipelines}
+
+Figures~\ref{fig:pipe-ka59}--\ref{fig:pipe-sb26} repeat Figure~\ref{fig:views} for the opening frames of \code{ka59}, \code{m0r0}, \code{r11l} and \code{sb26}. They were made in the same way: \code{make\_perception\_figure.py} runs the agent's perception code on the first frame of each local game, and panels (b) and (c) are drawn from its object table and briefing. Each line in (c) stands for one MEASURED line of the briefing in (e). Where an object is made of one-cell parts (the dotted ring and the connecting lines in \code{r11l}) or repeats (the four grey squares in \code{sb26}), the parts are outlined and the group gets one tag. The four games test different parts of the engine. \code{ka59} has a tile grid, and two rings each enclose an empty $3{\times}3$ that fits a movable square. \code{m0r0} is sparse: four objects, two measured facts and no guesses, so the engine does not invent roles it has no evidence for. \code{r11l} is driven by clicks, and its disc sits at the midpoint of two connected handles. \code{sb26} is the densest: its briefing reaches the line limit, and the remaining eight facts are left to \code{observe().briefing} in the kernel, as the last MEASURED line says.
+
+\begin{figure*}[tp]
+\centering
+\includegraphics[width=\textwidth]{figures/perception_pipeline_ka59.pdf}
+\caption{The perception pipeline on the opening frame of \code{ka59} (arrow keys and clicks, $3{\times}3$ tile grid). (c)~Rings 4 and 11 are identical; ring 4 encloses an empty $3{\times}3$ that exactly fits square 7 (and square 6); squares 6 and 7 have the same shape in different colours. Panels as in Figure~\ref{fig:views}; the model receives (d) and (e).}
+\label{fig:pipe-ka59}
+\end{figure*}
+
+\begin{figure*}[tp]
+\centering
+\includegraphics[width=\textwidth]{figures/perception_pipeline_m0r0.pdf}
+\caption{The perception pipeline on the opening frame of \code{m0r0} (arrow keys and clicks). The engine finds four objects and measures two facts: squares 3 and 4 are identical and share rows 49--53. It makes no guesses. Panels as in Figure~\ref{fig:views}.}
+\label{fig:pipe-m0r0}
+\end{figure*}
+
+\begin{figure*}[tp]
+\centering
+\includegraphics[width=\textwidth]{figures/perception_pipeline_r11l.pdf}
+\caption{The perception pipeline on the opening frame of \code{r11l} (clicks, no tile grid). (b)~The dotted ring (4--15) and the two connecting lines (18--24, 28--35) are made of one-cell parts and are tagged once each. (c)~Disc 25 sits at the midpoint of handles 16 and 36, and fits the empty $5{\times}5$ inside ring 4. Panels as in Figure~\ref{fig:views}.}
+\label{fig:pipe-r11l}
+\end{figure*}
+
+\begin{figure*}[tp]
+\centering
+\includegraphics[width=\textwidth]{figures/perception_pipeline_sb26.pdf}
+\caption{The perception pipeline on the opening frame of \code{sb26} (clicks only). (c)~Squares 20--23 are the grey squares 13--16 drawn 2$\times$ bigger, and ring 12 sits directly above each of them. (e)~The briefing reaches its line limit; the last MEASURED line says eight more facts can be read from \code{observe().briefing}. Panels as in Figure~\ref{fig:views}.}
+\label{fig:pipe-sb26}
+\end{figure*}
+
 \section{Negative Results, Ablations, and Runtime Boundary Conditions}
 \label{app:negative_results}
 
@@ -251,7 +282,7 @@ Transmitting only differential coordinate changes between frames substantially r
 Providing separate tool interfaces for code execution and environment stepping caused models to fragment reasoning trajectories. The agent formulated world models in code, exited the REPL to dispatch individual actions, and re-entered code execution to reconstruct state variables, multiplying inference latency. Merging action commitment directly into the Python kernel via \code{await play()} was the single intervention responsible for advancing the hidden-set score from 5.14 to 5.65.
 
 \paragraph{Semantic history comment stubbing.}
-To conserve context window capacity, we tested replacing executed historical code cells with brief descriptive comments. Across two test runs on 16 and 25 October, reasoning backbones degenerated into copying comment strings rather than generating executable Python code (occurring in 97.7\% of turns and clearing 0 of 97 levels). Smaller open-weight models heavily imitate local context formatting; historical code must remain intact as functional syntax.
+To conserve context window capacity, we tested replacing executed historical code cells with brief descriptive comments. In the two test runs that had stubbing switched on, reasoning backbones degenerated into copying comment strings rather than generating executable Python code (occurring in 97.7\% of turns and clearing 0 of 97 levels). Smaller open-weight models heavily imitate local context formatting; historical code must remain intact as functional syntax.
 
 \paragraph{Autonomous subagent hierarchies.}
 Providing the model with programmatic subagent delegation primitives (following the Prime Agent specification) yielded zero productive invocations across all benchmark runs. Open-weight 6B-active models failed to effectively coordinate subordinate contexts, adding prompt complexity without empirical utility.
@@ -262,20 +293,20 @@ We fine-tuned Qwen3.8-Flash-Next on successful execution traces using low-rank a
 \subsection{Interactive Runtime Failure Modes}
 
 \paragraph{Degenerate holding loops at the action cap.}
-In the 23~October run, four games (\code{lf52}, \code{s5i5}, \code{vc33}, \code{re86}) stopped 2 to 15 actions short of their 2,000-action cap. The harness kept asking them to continue, and the model answered ``\code{Holding...}'' about 14,000 times, which used 1.24\,B of the run's 1.78\,B prompt tokens. The stalls began after these games had cleared every level they would clear, so they cost wall clock, not score. The harness has a per-game turn limit (400 by default), but both full runs set it to $10^6$, so no run reported here was protected by it; whether the limit removes the stall without costing levels is untested.
+In Run~A (briefing off), four games (\code{lf52}, \code{s5i5}, \code{vc33}, \code{re86}) stopped 2 to 15 actions short of their 2,000-action cap. The harness kept asking them to continue, and the model answered ``\code{Holding...}'' about 14,000 times, which used 1.24\,B of the run's 1.78\,B prompt tokens. The stalls began after these games had cleared every level they would clear, so they cost wall clock, not score. The harness has a per-game turn limit (400 by default), but both full runs set it to $10^6$, so no run reported here was protected by it; whether the limit removes the stall without costing levels is untested.
 
 \subsection{Runtime Telemetry and the Nearest Briefing Ablation}
 \label{app:telemetry}
 
 \paragraph{The run was decode-bound.}
-Table~\ref{tab:telemetry} gives the telemetry of the 23~October run (8.2\,h, 25 games, one RTX PRO 6000), from the run's speed report and server log. Because 98.4\% of the prompt tokens came from the prefix cache, prefill took 1.3\% of busy time and decoding 50.1\%. The server answered 21,224 model calls without a failure.
+Table~\ref{tab:telemetry} gives the telemetry of Run~A, briefing off (8.2\,h, 25 games, one RTX PRO 6000), from the run's speed report and server log. Because 98.4\% of the prompt tokens came from the prefix cache, prefill took 1.3\% of busy time and decoding 50.1\%. The server answered 21,224 model calls without a failure.
 
 \begin{table}[h]
 \centering
 \small
 \begin{tabular}{@{}L{0.66\columnwidth}r@{}}
 \toprule
-23 Oct run: 25 games, one GPU, 8.2\,h & Value \\
+Run A: 25 games, one GPU, 8.2\,h & Value \\
 \midrule
 Prompt tokens served from the prefix cache & \textbf{98.4\%} of 1.78\,B \\
 Decode speed per request & 76 tok/s \\
@@ -283,15 +314,15 @@ Busy time: decode / prefill & 50.1\% / 1.3\% \\
 Model calls / server failures & 21,224 / 0 \\
 \bottomrule
 \end{tabular}
-\caption{Systems telemetry of the 23~October run.}
+\caption{Systems telemetry of Run~A (briefing off).}
 \label{tab:telemetry}
 \end{table}
 
 \paragraph{The 143-level run sent no briefing.}
-The 23~October run fell inside the window in which the briefing and map were switched off: the model saw the plain $640{\times}640$ frame and the letter grid. Its numbers describe the action interface, the serving loop and the scheduler, not the perception engine.
+Run~A was made while the briefing and map were switched off: the model saw the plain $640{\times}640$ frame and the letter grid. Its numbers describe the action interface, the serving loop and the scheduler, not the perception engine.
 
 \paragraph{The closest briefing-on run cleared levels more slowly but more efficiently.}
-The run of 27~October had the briefing and map on, together with new guardrails and a stuck-level review, and ran for 5.4\,h (Table~\ref{tab:onoff}). It cleared fewer levels in the first two hours (51 against 74 at 1\,h) and drew level at about 4\,h, while its median action ratio on cleared levels fell from 0.77 to 0.68 and its mean public score rose from 59.4 to 63.5. The runs differ in more than the briefing and there is one run per arm, so we report this as consistent with fewer wasted actions once a level is understood, not as a measured effect of perception.
+Run~B had the briefing and map on, together with new guardrails and a stuck-level review, and ran for 5.4\,h (Table~\ref{tab:onoff}). It cleared fewer levels in the first two hours (51 against 74 at 1\,h) and drew level at about 4\,h, while its median action ratio on cleared levels fell from 0.77 to 0.68 and its mean public score rose from 59.4 to 63.5. The runs differ in more than the briefing and there is one run per arm, so we report this as consistent with fewer wasted actions once a level is understood, not as a measured effect of perception.
 
 \begin{table}[h]
 \centering
@@ -299,11 +330,12 @@ The run of 27~October had the briefing and map on, together with new guardrails 
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrr@{}}
 \toprule
-25 public games, one GPU & 23 Oct & 27 Oct \\
+25 public games, one GPU & Run A & Run B \\
+Logged (2026) & 23 Oct & 27 Oct \\
 \midrule
 \multicolumn{3}{@{}l}{\itshape\textcolor{muted}{Configuration}} \\
 Briefing and map & off & on \\
-Guardrails of 27 Oct, stuck review & -- & \checkmark \\
+Extra guardrails, stuck review & -- & \checkmark \\
 Context drain target & 55k & 70k \\
 Wall clock & 8.2\,h & 5.4\,h \\
 \multicolumn{3}{@{}l}{\itshape\textcolor{muted}{Outcome}} \\
@@ -324,17 +356,20 @@ Prompt tokens from cache & 98.4\% & 93.3\% \\
 \paragraph{Licence.}
 All code we wrote, the model-serving scripts, the evaluation harness and the experiment logs are public under the MIT-0 licence, a public-domain-equivalent licence as the competition rules require, at \url{https://github.com/Harsidak/SARBLOH}. Third-party components keep their own licences and are listed in the repository's \code{NOTICE} file.
 
-\paragraph{Kaggle submission.}
-The scored submission is Kaggle submission \kagglesubmission{}, made from the notebook \url{https://www.kaggle.com/code/banwait13/sarbloh-experimentation}.
+\paragraph{Kaggle notebook and submission.}
+The official scored benchmark evaluation was submitted directly from the public Kaggle competition notebook available at \url{https://www.kaggle.com/code/banwait13/sarbloh-experimentation}.
 
-\paragraph{Scripts.}
-The figures, and the numbers they plot, are produced by the scripts in \code{Writing/scripts/}:
+\paragraph{Run log.}
+The paper names its two full public runs by configuration. In the experiment log, Run~A (briefing off) is the run of 23~October 2026 and Run~B (briefing on) the run of 27~October 2026, as in Table~\ref{tab:onoff}.
+
+\paragraph{Scripts and evaluation reproduction.}
+The figures, and the numbers they plot, are produced by reproducible scripts in the released repository, under \href{https://github.com/Harsidak/SARBLOH/tree/main/Writing/scripts}{\code{Writing/scripts/}} (with input tables in \href{https://github.com/Harsidak/SARBLOH/tree/main/Writing/data}{\code{Writing/data/}}):
 \begin{itemize}
-    \item \code{collect\_data.py}: reads the Kaggle submission log, the per-game score tables and the perception lab rubrics into \code{Writing/data/}.
-    \item \code{extract\_curves.py}: extracts levels cleared over wall-clock time from the raw run logs.
-    \item \code{error\_budget.py}: splits the points lost in a run into levels never reached, levels attempted and action overhead, with the official scorer's weights.
-    \item \code{make\_perception\_figure.py}: runs the perception engine on real game frames and draws the objects, maps and briefings.
-    \item \code{make\_briefing\_budget.py}: writes the two \code{tr87} briefings of Figure~\ref{fig:budget} with the agent's own \code{Briefing} code.
-    \item \code{make\_method\_figures.py}: draws the Method and Results figures from run data, and writes Figure~\ref{fig:budget} as LaTeX.
-    \item \code{plot\_results.py}: draws the remaining figures as vector PDF and PNG.
+    \item \code{collect\_data.py}: parses submission logs, per-game score tables, and perception rubrics into \code{Writing/data/}.
+    \item \code{extract\_curves.py}: extracts levels cleared over wall-clock time from raw run logs.
+    \item \code{error\_budget.py}: splits points lost in a run into unreached levels, attempted levels, and action overhead under official RHAE weights.
+    \item \code{make\_perception\_figure.py}: runs the perception engine on real game frames to render objects, maps, and briefings.
+    \item \code{make\_briefing\_budget.py}: generates the two \code{tr87} briefings of Figure~\ref{fig:budget} using the agent's \code{Briefing} module.
+    \item \code{make\_method\_figures.py}: renders Method and Results figures from run telemetry.
+    \item \code{plot\_results.py}: renders benchmark curves and evaluation figures as vector PDF and PNG.
 \end{itemize}

@@ -1,0 +1,23 @@
+  1 B 88px    r0-7 c17-45       #aaa0f7 20c | has 2,3,4,5; adj 2,3,4,5
+  2 b 20px    r1-6 c18-23       #4022fd 8c | in 1; has 6; adj 1,6
+  3 N 20px    r1-6 c25-30       #4022fd 8c | in 1; has 7; adj 1,7
+  4 Y 20px    r1-6 c32-37       #4022fd 8c | in 1; has 8; adj 1,8
+  5 p 20px    r1-6 c39-44       #4022fd 8c | in 1; has 9; adj 1,9
+  6 B 4x4     r2-5 c19-22       #33d9ad 4c | in 2; adj 2
+  7 B 4x4     r2-5 c26-29       #33d9ad 4c | in 3; adj 3
+  8 B 4x4     r2-5 c33-36       #33d9ad 4c | in 4; adj 4
+  9 B 4x4     r2-5 c40-43       #33d9ad 4c | in 5; adj 5
+ 10 W 5px     r24-26 c17-19     #9e9b96 6c | adj 12
+ 11 W 5px     r24-26 c44-46     #c54346 6c | adj 12
+ 12 R 72px    r25-34 c18-45     #4709be 8c | has 13,14,15,16; adj 10,11,17,18
+ 13 g 2x2     r29-30 c22-23     #cb8bec 4c | in 12
+ 14 g 2x2     r29-30 c28-29     #cb8bec 4c | in 12
+ 15 g 2x2     r29-30 c34-35     #cb8bec 4c | in 12
+ 16 g 2x2     r29-30 c40-41     #cb8bec 4c | in 12
+ 17 W 5px     r33-35 c17-19     #e275e2 6c | adj 12
+ 18 W 5px     r33-35 c44-46     #9144bf 6c | adj 12
+ 19 g 1x64    r53-53 c0-63      #25451d 4c
+ 20 N 4x4     r57-60 c18-21     #33d9ad 4c
+ 21 p 4x4     r57-60 c26-29     #33d9ad 4c
+ 22 b 4x4     r57-60 c34-37     #33d9ad 4c
+ 23 Y 4x4     r57-60 c42-45     #33d9ad 4c

@@ -1,0 +1,13 @@
+  1 w 290px   r21-41 c9-26      #2ddce9 16c | has 6,11; adj 6,7,11
+  2 p 21x6    r21-41 c33-38     #2aec6c 4c | adj 3,8
+  3 w 290px   r21-41 c39-53     #47446e 8c | has 4; adj 2,4
+  4 c 16px    r26-30 c44-48     #a42c65 8c | in 3; has 5; adj 3,5
+  5 w 3x3     r27-29 c45-47     #879d12 4c | in 4; adj 4
+  6 N 8px     r30-32 c18-20     #4cddba 8c | in 1; has 9; adj 1,9
+  7 N 8px     r30-32 c27-29     #4cddba 8c | has 10; adj 1,8,10
+  8 w 3x3     r30-32 c30-32     #879d12 4c | adj 2,7
+  9 W 1x1     r31 c19           #33db0b 4c | in 6; adj 6
+ 10 B 1x1     r31 c28           #33db0b 4c | in 7; adj 7
+ 11 c 16px    r32-36 c11-15     #a42c65 8c | in 1; has 12; adj 1,12
+ 12 w 3x3     r33-35 c12-14     #879d12 4c | in 11; adj 11
+ 13 c 1x64    r63-63 c0-63      #25451d 4c hud

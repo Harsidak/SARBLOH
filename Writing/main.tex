@@ -81,6 +81,10 @@
 \SetKwProg{Fn}{function}{}{end}
 \SetAlFnt{\small}
 \SetAlCapFnt{\small}
+\DontPrintSemicolon
+\SetArgSty{textup}  % conditions in upright text, like the rest of each line
+\SetKwComment{StageComment}{}{}
+\newcommand{\Stage}[1]{\StageComment{\upshape\bfseries\textcolor{linkc}{#1}}}  % stage heading: a comment, so unnumbered
 
 \pdfinfo{
 /TemplateVersion (2027.2)
@@ -123,7 +127,8 @@
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/per_game.pdf}
-\caption{\textbf{Action efficiency across 25 public ARC-AGI-3 environments.} Comparative benchmark performance between \textsc{Sarbloh} (open-weight Qwen3.8-Flash-Next executed on a single Kaggle GPU) and five proprietary frontier API baselines, sorted by \textsc{Sarbloh} efficiency (\textsc{Sarbloh}---72.5\% peak / 59.4\% single pass). For \textsc{Sarbloh}, reported scores reflect peak performance across evaluation runs, as the strict nine-hour Kaggle wall-clock limit prevented solving all environments in a single pass and required re-evaluating individual games such as \code{bp35} in isolated sessions. \textsc{Sarbloh} leads frontier models on 21 of 25 environments, attaining 72.5\% peak efficiency compared to 54.8\% for the strongest frontier baseline (GPT-6.1 Sol).}
+\caption{\textbf{Action efficiency across 25 public ARC-AGI-3 environments.} 
+\textsc{Sarbloh} (open-weight \texttt{Qwen3.8-Flash-Next} on one GPU) leads five frontier API baselines on 21 of 25 games (72.5\% peak mean vs.\ 59.4\% single-pass mean; 100\% on 13 games). Because the strict 9-hour Kaggle ceiling precludes exhausting all 25 games in one pass, the curve reports the best score per game across runs, including isolated re-evaluations on complex environments (\texttt{bp35}).}
 \label{fig:pergame}
 \end{figure*}
 
